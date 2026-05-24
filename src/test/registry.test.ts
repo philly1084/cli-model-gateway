@@ -662,13 +662,17 @@ test("registry startup benchmarks record small and medium token timing snapshots
       "openai/gpt-oss-20b",
       "openai/gpt-oss-20b",
       "openai/gpt-oss-20b",
+      "openai/gpt-oss-20b",
     ]);
-    assert.deepEqual(requestedReasoningEfforts, [undefined, undefined, "low", "high"]);
+    assert.deepEqual(requestedReasoningEfforts, [undefined, undefined, "low", "high", undefined]);
     assert.equal(benchmark?.status, "succeeded");
     assert.equal(benchmark?.small?.measuredUsage?.completionTokens, 6);
     assert.equal(benchmark?.medium?.promptKind, "medium");
     assert.equal(benchmark?.reasoningLow?.reasoningEffort, "low");
     assert.equal(benchmark?.reasoningHigh?.reasoningEffort, "high");
+    assert.equal(benchmark?.toolUse?.promptKind, "tool_call");
+    assert.equal(benchmark?.toolUse?.toolCallCount, 0);
+    assert.equal(benchmark?.quality?.status, "skipped");
     assert.equal(typeof benchmark?.taskScores?.overall, "number");
     assert.ok((benchmark?.score ?? 0) > 0);
   } finally {
@@ -679,6 +683,196 @@ test("registry startup benchmarks record small and medium token timing snapshots
       process.env.TEST_REGISTRY_BENCHMARK_API_KEY = originalApiKey;
     }
   }
+});
+
+test("registry startup benchmarks use a stronger model to judge output quality", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REGISTRY_QUALITY_API_KEY;
+  const requestedProviderModels: string[] = [];
+  process.env.TEST_REGISTRY_QUALITY_API_KEY = "test-key";
+
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      model?: string;
+      metadata?: Record<string, unknown>;
+    };
+    requestedProviderModels.push(body.model ?? "");
+
+    if (body.model === "gpt-5.5-evaluator") {
+      return new Response(
+        JSON.stringify({
+          model: body.model,
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  overall: 88,
+                  tasks: {
+                    small: 100,
+                    medium: 84,
+                    reasoning_low: 86,
+                    reasoning_high: 87,
+                    tool_call: 72,
+                  },
+                  verdict: "Useful, concise, and mostly follows the tool instruction.",
+                }),
+              },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        model: body.model,
+        choices: [
+          {
+            message: {
+              content: "ok",
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: {
+          prompt_tokens: 4,
+          completion_tokens: 2,
+          total_tokens: 6,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const registry = await ProviderRegistry.create([
+      {
+        id: "openai-compatible",
+        type: "openai",
+        baseUrl: "https://api.example.test/v1",
+        apiKeyEnv: "TEST_REGISTRY_QUALITY_API_KEY",
+        models: [
+          {
+            id: "fast-agent",
+            providerModel: "fast-agent",
+          },
+          {
+            id: "gpt-5.5-evaluator",
+            providerModel: "gpt-5.5-evaluator",
+          },
+        ],
+      },
+    ]);
+
+    const benchmarks = await registry.runStartupBenchmarks({
+      timeoutMs: 1000,
+      maxModels: 1,
+      concurrency: 1,
+      evaluatorModelId: "gpt-5.5-evaluator",
+      qualityTimeoutMs: 1000,
+    });
+    const benchmark = benchmarks.find((item) => item.modelId === "fast-agent");
+
+    assert.deepEqual(requestedProviderModels, [
+      "fast-agent",
+      "fast-agent",
+      "fast-agent",
+      "fast-agent",
+      "fast-agent",
+      "gpt-5.5-evaluator",
+    ]);
+    assert.equal(benchmark?.quality?.status, "succeeded");
+    assert.equal(benchmark?.quality?.evaluatorModelId, "gpt-5.5-evaluator");
+    assert.equal(benchmark?.quality?.score, 88);
+    assert.equal(benchmark?.taskScores?.quality, 88);
+    assert.ok((benchmark?.score ?? 0) > 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REGISTRY_QUALITY_API_KEY;
+    } else {
+      process.env.TEST_REGISTRY_QUALITY_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("registry auto routing uses benchmark quality scores in candidate ranking", async () => {
+  const registry = await ProviderRegistry.create([
+    cliProvider("local-cli", [
+      {
+        id: "agent-a",
+        providerModel: "agent-a",
+      },
+      {
+        id: "agent-b",
+        providerModel: "agent-b",
+      },
+    ]),
+  ]);
+
+  registry.recordModelBenchmark({
+    modelId: "agent-a",
+    providerId: "local-cli",
+    providerModel: "agent-a",
+    status: "succeeded",
+    score: 4,
+    quality: {
+      status: "succeeded",
+      evaluatorModelId: "agent-b",
+      evaluatorProviderId: "local-cli",
+      evaluatorProviderModel: "agent-b",
+      score: 15,
+    },
+    taskScores: {
+      quick: 12,
+      medium: 12,
+      reasoningLow: 12,
+      quality: 15,
+      overall: 4,
+    },
+  });
+  registry.recordModelBenchmark({
+    modelId: "agent-b",
+    providerId: "local-cli",
+    providerModel: "agent-b",
+    status: "succeeded",
+    score: 20,
+    quality: {
+      status: "succeeded",
+      evaluatorModelId: "agent-a",
+      evaluatorProviderId: "local-cli",
+      evaluatorProviderModel: "agent-a",
+      score: 95,
+    },
+    taskScores: {
+      quick: 12,
+      medium: 12,
+      reasoningLow: 12,
+      quality: 95,
+      overall: 20,
+    },
+  });
+
+  const decision = registry.explainAutoRouting({
+    messages: [{ role: "user", content: "What is the API gateway status?" }],
+    tools: [],
+    requestKind: "chat_completions",
+  });
+
+  assert.equal(decision.selectedModelId, "agent-b");
+  assert.equal(decision.candidates[0]?.benchmarkQualityScore, 95);
 });
 
 test("registry auto routing prefers Groq DeepSeek Kimi lane for medium tasks", async () => {

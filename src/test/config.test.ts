@@ -110,6 +110,9 @@ test("loadAppConfig parses auto router benchmark settings", () => {
     process.env.AUTO_ROUTER_BENCHMARK_MAX_MODELS = "3";
     process.env.AUTO_ROUTER_BENCHMARK_CONCURRENCY = "2";
     process.env.AUTO_ROUTER_BENCHMARK_INTERVAL_MS = "3600000";
+    process.env.AUTO_ROUTER_BENCHMARK_EVALUATE_QUALITY = "false";
+    process.env.AUTO_ROUTER_BENCHMARK_EVALUATOR_MODEL = "gpt-5.5";
+    process.env.AUTO_ROUTER_BENCHMARK_QUALITY_TIMEOUT_MS = "7000";
 
     const config = loadAppConfig();
     assert.equal(config.autoRouterBenchmarkOnStart, false);
@@ -117,6 +120,9 @@ test("loadAppConfig parses auto router benchmark settings", () => {
     assert.equal(config.autoRouterBenchmarkMaxModels, 3);
     assert.equal(config.autoRouterBenchmarkConcurrency, 2);
     assert.equal(config.autoRouterBenchmarkIntervalMs, 3_600_000);
+    assert.equal(config.autoRouterBenchmarkEvaluateQuality, false);
+    assert.equal(config.autoRouterBenchmarkEvaluatorModel, "gpt-5.5");
+    assert.equal(config.autoRouterBenchmarkQualityTimeoutMs, 7000);
   } finally {
     restoreEnv(previous);
   }

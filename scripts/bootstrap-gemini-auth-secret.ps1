@@ -5,11 +5,21 @@ param(
   [string]$SecretName = "n8n-openai-cli-gateway-gemini-auth",
   [string]$PodName = "",
   [string]$SourceDir = "",
-  [string]$GeminiHome = "/var/lib/gateway-home/.gemini"
+  [string]$GeminiHome = "/var/lib/gateway-home/.gemini",
+  [switch]$Overwrite
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if (-not $Overwrite) {
+  kubectl get secret $SecretName -n $Namespace *> $null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "Secret $SecretName already exists in namespace $Namespace. Nothing changed."
+    Write-Host "Pass -Overwrite only when you intentionally want to refresh the stored Gemini auth Secret."
+    exit 0
+  }
+}
 
 $files = @(
   "oauth_creds.json",
@@ -66,12 +76,9 @@ try {
   foreach ($file in Get-ChildItem -LiteralPath $stageDir -File) {
     $secretArgs += "--from-file=$($file.Name)=$($file.FullName)"
   }
-  $secretArgs += @("--dry-run=client", "-o", "yaml")
+  & kubectl @secretArgs
 
-  $manifest = & kubectl @secretArgs
-  $manifest | & kubectl apply -f -
-
-  Write-Host "Updated secret $SecretName in namespace $Namespace."
+  Write-Host "Created secret $SecretName in namespace $Namespace."
   Write-Host "Restart the deployment to reseed an empty PVC:"
   Write-Host "kubectl rollout restart deployment/$DeploymentName -n $Namespace"
 }

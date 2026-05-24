@@ -12,8 +12,6 @@ spec:
       labels:
         app: n8n-openai-cli-gateway
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
       nodeSelector:
         kubernetes.io/arch: arm64
       securityContext:
@@ -118,6 +116,30 @@ spec:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: adminApiKey
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: groqApiKey
+                  optional: true
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: openrouterApiKey
+                  optional: true
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: deepseekApiKey
+                  optional: true
+            - name: MOONSHOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: moonshotApiKey
+                  optional: true
           volumeMounts:
             - name: providers-config
               mountPath: /app/config/providers.yaml

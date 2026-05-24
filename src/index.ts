@@ -74,6 +74,9 @@ async function main(): Promise<void> {
       autoRouterBenchmarkMaxModels: config.autoRouterBenchmarkMaxModels,
       autoRouterBenchmarkConcurrency: config.autoRouterBenchmarkConcurrency,
       autoRouterBenchmarkIntervalMs: config.autoRouterBenchmarkIntervalMs,
+      autoRouterBenchmarkEvaluateQuality: config.autoRouterBenchmarkEvaluateQuality,
+      autoRouterBenchmarkEvaluatorModel: config.autoRouterBenchmarkEvaluatorModel,
+      autoRouterBenchmarkQualityTimeoutMs: config.autoRouterBenchmarkQualityTimeoutMs,
     },
     "gateway listening",
   );
@@ -83,6 +86,9 @@ async function main(): Promise<void> {
       timeoutMs: config.autoRouterBenchmarkTimeoutMs,
       maxModels: config.autoRouterBenchmarkMaxModels,
       concurrency: config.autoRouterBenchmarkConcurrency,
+      evaluateQuality: config.autoRouterBenchmarkEvaluateQuality,
+      evaluatorModelId: config.autoRouterBenchmarkEvaluatorModel,
+      qualityTimeoutMs: config.autoRouterBenchmarkQualityTimeoutMs,
       logger: app.log,
     }).then((benchmarks) => {
       app.log.info(

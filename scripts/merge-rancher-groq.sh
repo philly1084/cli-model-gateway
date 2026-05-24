@@ -3,7 +3,7 @@ set -euo pipefail
 
 INPUT_PATH="kubernetes/rancher-install.yaml"
 OUTPUT_PATH="kubernetes/rancher-install-groq.yaml"
-GROQ_API_KEY="replace-with-groq-api-key"
+GROQ_API_KEY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -79,14 +79,11 @@ cat > "$TMP_FILE" <<'EOF'
 EOF
 
 awk \
-  -v groq_secret="  groqApiKey: \"$GROQ_API_KEY\"" \
   -v groq_provider_file="$TMP_FILE" \
   '
   BEGIN {
     provider_added = 0
     provider_exists = 0
-    secret_added = 0
-    secret_exists = 0
     env_added = 0
     env_exists = 0
     inside_providers = 0
@@ -100,9 +97,6 @@ awk \
     }
     if (line ~ /^[[:space:]]*- id:[[:space:]]*groq-api[[:space:]]*$/) {
       provider_exists = 1
-    }
-    if (line ~ /^[[:space:]]*groqApiKey:[[:space:]]*/) {
-      secret_exists = 1
     }
     if (line ~ /^[[:space:]]*- name:[[:space:]]*GROQ_API_KEY[[:space:]]*$/) {
       env_exists = 1
@@ -121,26 +115,18 @@ awk \
 
     print line
 
-    if (!secret_exists && !secret_added && line ~ /^  adminApiKey: /) {
-      print groq_secret
-      secret_added = 1
-    }
-
     if (saw_admin_env && !env_exists && !env_added && line ~ /^                  key: adminApiKey$/) {
       print "            - name: GROQ_API_KEY"
       print "              valueFrom:"
       print "                secretKeyRef:"
       print "                  name: n8n-openai-cli-gateway-secrets"
       print "                  key: groqApiKey"
+      print "                  optional: true"
       env_added = 1
       saw_admin_env = 0
     }
   }
   END {
-    if (!secret_exists && !secret_added) {
-      print "Failed to add groqApiKey secret entry." > "/dev/stderr"
-      exit 1
-    }
     if (!env_exists && !env_added) {
       print "Failed to add GROQ_API_KEY env entry." > "/dev/stderr"
       exit 1
@@ -153,3 +139,6 @@ awk \
   ' "$INPUT_PATH" > "$OUTPUT_PATH"
 
 echo "Wrote merged Groq Rancher manifest to $OUTPUT_PATH"
+if [[ -n "$GROQ_API_KEY" ]]; then
+  echo "Did not write the Groq API key into YAML. Add it safely with scripts/ensure-gateway-secrets.sh."
+fi

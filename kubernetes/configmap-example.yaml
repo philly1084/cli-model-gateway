@@ -1,3 +1,6 @@
+# This example intentionally does not include a Secret resource. Create the
+# n8n-openai-cli-gateway-secrets Secret separately with scripts/ensure-gateway-secrets.*
+# so applying Kubernetes manifests never overwrites existing cluster passwords.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,6 +14,8 @@ data:
         models:
           - id: gemini-3.1-pro-preview
             providerModel: gemini-3.1-pro-preview
+          - id: gemini-3.5-flash
+            providerModel: gemini-3.5-flash
           - id: gemini-3-flash-preview
             providerModel: gemini-3-flash-preview
           - id: gemini-2.5-pro
@@ -44,12 +49,3 @@ data:
                   && echo '{"ok":true,"source":"oauth_creds.json"}' \
                   || (echo '{"ok":false,"error":"missing ~/.gemini/oauth_creds.json"}' && exit 1)
             timeoutMs: 30000
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: n8n-openai-cli-gateway-secrets
-type: Opaque
-stringData:
-  n8nApiKey: replace-with-long-random-key
-  adminApiKey: replace-with-long-random-admin-key

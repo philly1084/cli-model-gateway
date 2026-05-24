@@ -5,43 +5,14 @@ metadata:
   labels:
     app.kubernetes.io/name: n8n-openai-cli-gateway
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: n8n-openai-cli-gateway-secrets
-  namespace: n8n-openai-gateway
-type: Opaque
-stringData:
-  n8nApiKey: "replace-with-long-random-n8n-key"
-  adminApiKey: "replace-with-long-random-admin-key"
-  groqApiKey: "replace-with-groq-api-key"
-  openrouterApiKey: "replace-with-openrouter-api-key"
-  deepseekApiKey: "replace-with-deepseek-api-key"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ghcr-secret
-  namespace: n8n-openai-gateway
-type: kubernetes.io/dockerconfigjson
-stringData:
-  .dockerconfigjson: |
-    {
-      "auths": {
-        "ghcr.io": {
-          "username": "replace-with-github-username",
-          "password": "replace-with-github-token-read-packages"
-        }
-      }
-    }
----
+# The n8n-openai-cli-gateway-secrets Secret is intentionally not defined here.
+# Create or fill missing keys with scripts/ensure-gateway-secrets.* so Rancher
+# imports never overwrite existing cluster passwords.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: n8n-openai-cli-gateway
   namespace: n8n-openai-gateway
-imagePullSecrets:
-  - name: ghcr-secret
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -58,37 +29,56 @@ data:
           - id: gemini-3.1-pro-preview
             providerModel: gemini-3.1-pro-preview
             fallbackModels:
+              - gemini-3.5-flash
               - gemini-3-flash-preview
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
+              - kimi-for-coding
+          - id: gemini-3.5-flash
+            providerModel: gemini-3.5-flash
+            fallbackModels:
+              - gemini-3.1-pro-preview
+              - gemini-3-flash-preview
+              - gpt-5.5
+              - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3-flash-preview
             providerModel: gemini-3-flash-preview
             fallbackModels:
+              - gemini-3.5-flash
               - gemini-3.1-pro-preview
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3.1-flash-lite
             providerModel: gemini-3.1-flash-lite
             fallbackModels:
+              - gemini-3.5-flash
               - gemini-3-flash-preview
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
           - id: gemini-2.5-pro
             providerModel: gemini-2.5-pro
             fallbackModels:
               - gemini-3.1-pro-preview
+              - gemini-3.5-flash
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
           - id: gemini-2.5-flash
             providerModel: gemini-2.5-flash
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
+              - gemini-3.5-flash
               - gemini-3-flash-preview
         responseCommand:
           executable: node
@@ -133,34 +123,76 @@ data:
             providerModel: gpt-5.5
             fallbackModels:
               - gpt-5.4
+              - gpt-5.4-mini
+              - kimi-k2.6
               - kimi-for-coding
+              - gemini-3.5-flash
               - gemini-3-flash-preview
+          - id: gpt-5.5-pro
+            providerModel: gpt-5.5-pro
+            fallbackModels:
+              - gpt-5.5
+              - gpt-5.4-pro
+              - kimi-k2.6
+              - gemini-3.1-pro-preview
           - id: gpt-5.4
             providerModel: gpt-5.4
             fallbackModels:
               - gpt-5.5
               - gpt-5.4-mini
+              - gpt-5.4-nano
+              - kimi-k2.6
               - kimi-for-coding
+              - gemini-3.5-flash
               - gemini-3-flash-preview
+          - id: gpt-5.4-pro
+            providerModel: gpt-5.4-pro
+            fallbackModels:
+              - gpt-5.5
+              - gpt-5.4
+              - kimi-k2.6
+              - gemini-3.1-pro-preview
           - id: gpt-5.4-mini
             providerModel: gpt-5.4-mini
             fallbackModels:
               - gpt-5.4
               - gpt-5.5
+              - gpt-5.4-nano
+              - kimi-k2.6
               - kimi-for-coding
+              - gemini-3.5-flash
               - gemini-3.1-pro-preview
+          - id: gpt-5.4-nano
+            providerModel: gpt-5.4-nano
+            fallbackModels:
+              - gpt-5.4-mini
+              - gpt-5.4
+              - gemini-3.1-flash-lite
+              - llama-3.1-8b-instant
           - id: gpt-5.3-instant
             providerModel: gpt-5.3-instant
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
+              - gemini-3.5-flash
               - gemini-3-flash-preview
+          - id: gpt-5.3-chat-latest
+            providerModel: gpt-5.3-chat-latest
+            fallbackModels:
+              - gpt-5.5
+              - gpt-5.4
+              - kimi-k2.6
+              - gemini-3.5-flash
           - id: gpt-4.1
             providerModel: gpt-4.1
             fallbackModels:
+              - gpt-5.3-chat-latest
               - gpt-5.3-instant
+              - kimi-k2.6
               - kimi-for-coding
+              - gemini-3.5-flash
               - gemini-3-flash-preview
         responseCommand:
           executable: node
@@ -192,6 +224,7 @@ data:
           - id: kimi-for-coding
             providerModel: kimi-for-coding
             fallbackModels:
+              - kimi-k2.6
               - gpt-5.5
               - gpt-5.4
         responseCommand:
@@ -227,6 +260,29 @@ data:
                 echo '{"ok":false,"error":"missing ~/.kimi/config.toml or ~/.kimi/config.json (run kimi then /login, or /setup on older releases)"}'
                 exit 1
             timeoutMs: 30000
+
+      - id: kimi-api
+        type: openai
+        description: Kimi API via Moonshot OpenAI-compatible endpoint
+        baseUrl: https://api.moonshot.ai/v1
+        apiKeyEnv: MOONSHOT_API_KEY
+        timeoutMs: 240000
+        models:
+          - id: kimi-k2.6
+            providerModel: kimi-k2.6
+            fallbackModels:
+              - kimi-k2.5
+              - gpt-5.5
+              - gpt-5.4
+              - gemini-3.5-flash
+              - deepseek-v4-flash
+          - id: kimi-k2.5
+            providerModel: kimi-k2.5
+            fallbackModels:
+              - kimi-k2.6
+              - gpt-5.4
+              - gemini-3.5-flash
+              - deepseek-v4-flash
 
       - id: ollama-gemma4-cpu
         type: cli
@@ -281,6 +337,7 @@ data:
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: groq/compound-mini
@@ -288,6 +345,7 @@ data:
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: openai/gpt-oss-120b
@@ -295,6 +353,7 @@ data:
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: openai/gpt-oss-20b
@@ -302,6 +361,7 @@ data:
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
               - llama-3.1-8b-instant
           - id: llama-3.3-70b-versatile
@@ -309,12 +369,14 @@ data:
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
           - id: llama-3.1-8b-instant
             providerModel: llama-3.1-8b-instant
             fallbackModels:
               - gpt-5.5
               - gpt-5.4
+              - kimi-k2.6
               - kimi-for-coding
           - id: meta-llama/llama-4-scout-17b-16e-instruct
             providerModel: meta-llama/llama-4-scout-17b-16e-instruct
@@ -335,6 +397,7 @@ data:
             fallbackModels:
               - openai/gpt-oss-20b
               - llama-3.1-8b-instant
+              - gemini-3.5-flash
               - gemini-3-flash-preview
 
       - id: deepseek-api
@@ -411,8 +474,6 @@ spec:
         app: ollama
     spec:
       serviceAccountName: n8n-openai-cli-gateway
-      imagePullSecrets:
-        - name: ghcr-secret
       terminationGracePeriodSeconds: 120
       containers:
         - name: ollama
@@ -659,16 +720,25 @@ spec:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: groqApiKey
+                  optional: true
             - name: OPENROUTER_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: openrouterApiKey
+                  optional: true
             - name: DEEPSEEK_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: deepseekApiKey
+                  optional: true
+            - name: MOONSHOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: moonshotApiKey
+                  optional: true
           volumeMounts:
             - name: providers-config
               mountPath: /app/config/providers.yaml

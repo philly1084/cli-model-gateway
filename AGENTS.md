@@ -103,6 +103,14 @@ npm start
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window (milliseconds) |
 | `MAX_REQUEST_BODY_SIZE` | `10485760` | Max request body size in bytes (10MB) |
 | `OPENAI_REASONING_EFFORT` | provider default | Default reasoning effort for chat/responses requests |
+| `AUTO_ROUTER_BENCHMARK_ON_START` | `true` | Run the bounded auto-router baseline shortly after startup |
+| `AUTO_ROUTER_BENCHMARK_TIMEOUT_MS` | `20000` | Per-probe timeout for auto-router benchmark calls |
+| `AUTO_ROUTER_BENCHMARK_MAX_MODELS` | `16` | Max configured models to probe per baseline; `0` means no limit |
+| `AUTO_ROUTER_BENCHMARK_CONCURRENCY` | `2` | Concurrent benchmark probes during a baseline |
+| `AUTO_ROUTER_BENCHMARK_INTERVAL_MS` | `28800000` | Scheduled baseline interval; default is every 8 hours |
+| `AUTO_ROUTER_BENCHMARK_EVALUATE_QUALITY` | `true` | Use a separate strong model to judge benchmark output quality when available |
+| `AUTO_ROUTER_BENCHMARK_EVALUATOR_MODEL` | auto-selected | Concrete model id to use as the quality judge |
+| `AUTO_ROUTER_BENCHMARK_QUALITY_TIMEOUT_MS` | `15000` | Per-candidate timeout for the quality judge call |
 
 ### Provider Configuration (providers.yaml)
 
@@ -266,10 +274,13 @@ This project does not include automated test suites. Testing is performed via:
 
 5. **Network Security**: The gateway does not implement TLS termination. Use an ingress controller or load balancer for HTTPS.
 
-6. **Secret Management**: 
+6. **Secret Management**:
    - Never commit `config/providers.yaml` with real credentials
    - Use Kubernetes Secrets for API keys
    - Use environment variables for sensitive configuration
+   - Do not put gateway API keys in deploy/import YAML. Use `scripts/ensure-gateway-secrets.sh` or `scripts/ensure-gateway-secrets.ps1`, which creates the Secret when missing and only patches absent keys.
+   - If a private image needs an image pull Secret, create and attach it separately; do not store registry tokens in the Rancher bundle.
+   - Never overwrite existing cluster Secret keys during deploy unless the user explicitly asks to rotate that key.
 
 ## Deployment
 
@@ -290,10 +301,10 @@ docker buildx build \
 ### Kubernetes Deployment
 
 1. Update image references in `kubernetes/deployment.yaml`
-2. Configure secrets in `kubernetes/configmap-example.yaml`
+2. Create or fill missing API keys with `scripts/ensure-gateway-secrets.sh` or `scripts/ensure-gateway-secrets.ps1`
 3. Customize `providers.yaml` in ConfigMap
 4. Remove or modify `nodeSelector` if not targeting arm64 nodes
-5. Apply manifests: `kubectl apply -f kubernetes/`
+5. Apply only the intended manifests; do not use deploy YAML to rotate passwords
 
 ### Fallback Chain Behavior
 

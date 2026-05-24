@@ -1,7 +1,7 @@
 param(
   [string]$InputPath = "kubernetes/rancher-install.yaml",
   [string]$OutputPath = "kubernetes/rancher-install-groq.yaml",
-  [string]$GroqApiKey = "replace-with-groq-api-key"
+  [string]$GroqApiKey = ""
 )
 
 Set-StrictMode -Version Latest
@@ -13,13 +13,13 @@ if (-not (Test-Path -LiteralPath $InputPath)) {
 
 $content = Get-Content -LiteralPath $InputPath -Raw
 
-$groqSecretLine = "  groqApiKey: `"$GroqApiKey`""
 $groqEnvBlock = @"
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: groqApiKey
+                  optional: true
 "@
 
 $groqProviderBlock = @"
@@ -65,15 +65,6 @@ $groqProviderBlock = @"
             providerModel: llama-3.1-8b-instant
 "@
 
-if ($content -notmatch '(?m)^\s*groqApiKey:\s*') {
-  $content = [regex]::Replace(
-    $content,
-    '(?m)^(\s*adminApiKey:\s*".*?"\s*$)',
-    "`$1`r`n$groqSecretLine",
-    1
-  )
-}
-
 if ($content -notmatch '(?m)^\s*- name:\s*GROQ_API_KEY\s*$') {
   $content = [regex]::Replace(
     $content,
@@ -92,9 +83,6 @@ if ($content -notmatch '(?m)^\s*- id:\s*groq-api\s*$') {
   )
 }
 
-if ($content -notmatch '(?m)^\s*groqApiKey:\s*') {
-  throw "Failed to add groqApiKey secret entry."
-}
 if ($content -notmatch '(?m)^\s*- name:\s*GROQ_API_KEY\s*$') {
   throw "Failed to add GROQ_API_KEY env entry."
 }
@@ -104,3 +92,6 @@ if ($content -notmatch '(?m)^\s*- id:\s*groq-api\s*$') {
 
 Set-Content -LiteralPath $OutputPath -Value $content -NoNewline
 Write-Host "Wrote merged Groq Rancher manifest to $OutputPath"
+if ($GroqApiKey) {
+  Write-Host "Did not write the Groq API key into YAML. Add it safely with scripts/ensure-gateway-secrets.ps1."
+}

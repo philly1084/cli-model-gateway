@@ -3,7 +3,8 @@ param(
   [string]$ConfigMapName = "n8n-openai-cli-gateway-config",
   [string]$DeploymentName = "n8n-openai-cli-gateway",
   [string]$SecretName = "n8n-openai-cli-gateway-groq",
-  [string]$GroqApiKey = ""
+  [string]$GroqApiKey = "",
+  [switch]$OverwriteSecret
 )
 
 Set-StrictMode -Version Latest
@@ -97,6 +98,8 @@ if ($providersYaml -match $groqBlockPattern) {
 }
 
 $tmpFile = [System.IO.Path]::GetTempFileName()
+$secretStageDir = Join-Path ([System.IO.Path]::GetTempPath()) ("groq-secret-" + [System.Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $secretStageDir | Out-Null
 try {
   Set-Content -LiteralPath $tmpFile -Value $updatedProvidersYaml -NoNewline
 
@@ -107,11 +110,32 @@ try {
     -o yaml | kubectl apply -f -
 
   if ($GroqApiKey) {
-    kubectl create secret generic $SecretName `
-      -n $Namespace `
-      --from-literal=GROQ_API_KEY=$GroqApiKey `
-      --dry-run=client `
-      -o yaml | kubectl apply -f -
+    kubectl get secret $SecretName -n $Namespace *> $null
+    $secretExists = $LASTEXITCODE -eq 0
+
+    if ($secretExists) {
+      $secretJson = kubectl get secret $SecretName -n $Namespace -o json
+      $secret = $secretJson | ConvertFrom-Json
+      $hasGroqKey = $false
+      if ($null -ne $secret.data) {
+        $hasGroqKey = $secret.data.PSObject.Properties.Name -contains "GROQ_API_KEY"
+      }
+
+      if ($hasGroqKey -and -not $OverwriteSecret) {
+        Write-Host "Keeping existing GROQ_API_KEY in secret/$SecretName."
+      } else {
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($GroqApiKey))
+        $patchFile = Join-Path $secretStageDir "groq-secret-patch.json"
+        @{ data = @{ GROQ_API_KEY = $encoded } } | ConvertTo-Json -Depth 4 -Compress | Set-Content -LiteralPath $patchFile -NoNewline
+        kubectl patch secret $SecretName -n $Namespace --type=merge --patch-file $patchFile
+      }
+    } else {
+      $groqKeyFile = Join-Path $secretStageDir "GROQ_API_KEY"
+      [System.IO.File]::WriteAllText($groqKeyFile, $GroqApiKey)
+      kubectl create secret generic $SecretName `
+        -n $Namespace `
+        --from-file=GROQ_API_KEY=$groqKeyFile
+    }
 
     kubectl set env deployment/$DeploymentName `
       -n $Namespace `
@@ -123,6 +147,7 @@ try {
   kubectl rollout status deployment/$DeploymentName -n $Namespace --timeout=180s
 } finally {
   Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $secretStageDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ""

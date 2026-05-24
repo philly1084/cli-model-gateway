@@ -234,14 +234,19 @@ export interface AppConfig {
   autoRouterBenchmarkMaxModels: number;
   autoRouterBenchmarkConcurrency: number;
   autoRouterBenchmarkIntervalMs: number;
+  autoRouterBenchmarkEvaluateQuality: boolean;
+  autoRouterBenchmarkEvaluatorModel?: string;
+  autoRouterBenchmarkQualityTimeoutMs: number;
 }
 
 export type AutoRouterBenchmarkPromptKind =
   | "small"
   | "medium"
   | "reasoning_low"
-  | "reasoning_high";
+  | "reasoning_high"
+  | "tool_call";
 export type AutoRouterBenchmarkStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
+export type AutoRouterQualityEvaluationStatus = "succeeded" | "failed" | "skipped";
 
 export interface AutoRouterBenchmarkMeasurement {
   promptKind: AutoRouterBenchmarkPromptKind;
@@ -252,8 +257,28 @@ export interface AutoRouterBenchmarkMeasurement {
   outputTokenEstimate: number;
   outputTokensPerSecond?: number;
   outputCharCount?: number;
+  toolCallCount?: number;
   expectedTextMatched?: boolean;
   measuredUsage?: ProviderTokenUsage;
+}
+
+export interface AutoRouterBenchmarkQualityTaskScores {
+  small?: number;
+  medium?: number;
+  reasoningLow?: number;
+  reasoningHigh?: number;
+  toolUse?: number;
+}
+
+export interface AutoRouterBenchmarkQualitySnapshot {
+  status: AutoRouterQualityEvaluationStatus;
+  evaluatorModelId?: string;
+  evaluatorProviderId?: string;
+  evaluatorProviderModel?: string;
+  score?: number;
+  taskScores?: AutoRouterBenchmarkQualityTaskScores;
+  verdict?: string;
+  error?: string;
 }
 
 export interface AutoRouterBenchmarkTaskScores {
@@ -261,6 +286,8 @@ export interface AutoRouterBenchmarkTaskScores {
   medium?: number;
   reasoningLow?: number;
   reasoningHigh?: number;
+  toolUse?: number;
+  quality?: number;
   overall: number;
 }
 
@@ -275,6 +302,8 @@ export interface AutoRouterBenchmarkSnapshot {
   medium?: AutoRouterBenchmarkMeasurement;
   reasoningLow?: AutoRouterBenchmarkMeasurement;
   reasoningHigh?: AutoRouterBenchmarkMeasurement;
+  toolUse?: AutoRouterBenchmarkMeasurement;
+  quality?: AutoRouterBenchmarkQualitySnapshot;
   taskScores?: AutoRouterBenchmarkTaskScores;
   error?: string;
 }
@@ -299,6 +328,7 @@ export interface AutoRouterCandidateSnapshot {
   score: number;
   benchmarkStatus?: AutoRouterBenchmarkStatus;
   benchmarkScore?: number;
+  benchmarkQualityScore?: number;
   benchmarkTaskScores?: AutoRouterBenchmarkTaskScores;
   healthState?:
     | "healthy"

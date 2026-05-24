@@ -152,12 +152,21 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (app, o
     const timeoutMs = readPositiveInteger(body.timeoutMs, 20_000);
     const maxModels = readNonNegativeInteger(body.maxModels, 16);
     const concurrency = readPositiveInteger(body.concurrency, 2);
+    const evaluateQuality = readBoolean(body.evaluateQuality, true);
+    const evaluatorModelId =
+      typeof body.evaluatorModelId === "string" && body.evaluatorModelId.trim()
+        ? body.evaluatorModelId.trim()
+        : undefined;
+    const qualityTimeoutMs = readPositiveInteger(body.qualityTimeoutMs, 15_000);
 
     try {
       const benchmarks = await options.registry.runStartupBenchmarks({
         timeoutMs,
         maxModels,
         concurrency,
+        evaluateQuality,
+        evaluatorModelId,
+        qualityTimeoutMs,
         logger: app.log,
       });
       return {
@@ -166,6 +175,9 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (app, o
           timeoutMs,
           maxModels,
           concurrency,
+          evaluateQuality,
+          evaluatorModelId,
+          qualityTimeoutMs,
         },
         summary: {
           succeeded: benchmarks.filter((item) => item.status === "succeeded").length,
@@ -598,4 +610,8 @@ function readPositiveInteger(value: unknown, fallback: number): number {
 
 function readNonNegativeInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }

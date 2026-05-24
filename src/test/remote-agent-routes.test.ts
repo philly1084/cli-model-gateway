@@ -221,6 +221,8 @@ function createRemoteAgentTestServer() {
     autoRouterBenchmarkMaxModels: 0,
     autoRouterBenchmarkConcurrency: 1,
     autoRouterBenchmarkIntervalMs: 0,
+    autoRouterBenchmarkEvaluateQuality: false,
+    autoRouterBenchmarkQualityTimeoutMs: 1000,
   };
 
   const remoteCliTargets: RemoteCliTargetConfig[] = [

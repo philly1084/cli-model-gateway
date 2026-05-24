@@ -854,6 +854,9 @@ test("admin auto-router baseline endpoint triggers bounded benchmark run", async
       timeoutMs: number;
       maxModels: number;
       concurrency: number;
+      evaluateQuality?: boolean;
+      evaluatorModelId?: string;
+      qualityTimeoutMs?: number;
     }
     | undefined;
   const server = createTestServer(
@@ -903,6 +906,9 @@ test("admin auto-router baseline endpoint triggers bounded benchmark run", async
       timeoutMs: 5000,
       maxModels: 2,
       concurrency: 1,
+      evaluateQuality: true,
+      evaluatorModelId: undefined,
+      qualityTimeoutMs: 15_000,
       logger: server.app.log,
     });
     const body = response.json() as { summary?: { succeeded?: number; total?: number } };
@@ -935,6 +941,9 @@ function createTestServer(
       timeoutMs: number;
       maxModels: number;
       concurrency: number;
+      evaluateQuality?: boolean;
+      evaluatorModelId?: string;
+      qualityTimeoutMs?: number;
       logger?: unknown;
     }) => Promise<unknown[]>;
   },
@@ -982,6 +991,8 @@ function createTestServer(
     autoRouterBenchmarkMaxModels: 0,
     autoRouterBenchmarkConcurrency: 1,
     autoRouterBenchmarkIntervalMs: 0,
+    autoRouterBenchmarkEvaluateQuality: false,
+    autoRouterBenchmarkQualityTimeoutMs: 1000,
   };
 
   return buildServer(config, registry);

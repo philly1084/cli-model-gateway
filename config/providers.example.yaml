@@ -21,26 +21,39 @@ providers:
       - id: gemini-3.1-pro-preview
         providerModel: gemini-3.1-pro-preview
         fallbackModels:
+          - gemini-3.5-flash
           - gemini-3-flash-preview
           - gpt-5.5
           - gpt-5.4
+      - id: gemini-3.5-flash
+        providerModel: gemini-3.5-flash
+        fallbackModels:
+          - gemini-3.1-pro-preview
+          - gemini-3-flash-preview
+          - gpt-5.5
+          - gpt-5.4
+          - kimi-k2.6
       - id: gemini-3-flash-preview
         providerModel: gemini-3-flash-preview
         fallbackModels:
+          - gemini-3.5-flash
           - gemini-3.1-pro-preview
           - gpt-5.5
           - gpt-5.4
       - id: gemini-3.1-flash-lite
         providerModel: gemini-3.1-flash-lite
         fallbackModels:
+          - gemini-3.5-flash
           - gemini-3-flash-preview
       - id: gemini-2.5-pro
         providerModel: gemini-2.5-pro
         fallbackModels:
           - gemini-3.1-pro-preview
+          - gemini-3.5-flash
       - id: gemini-2.5-flash
         providerModel: gemini-2.5-flash
         fallbackModels:
+          - gemini-3.5-flash
           - gemini-3-flash-preview
     responseCommand:
       executable: node
@@ -136,32 +149,76 @@ providers:
         fallbackModels:
           - gpt-5.5
           - gpt-5.4
+          - gemini-3.5-flash
           - gemini-3.1-pro-preview
       - id: gpt-5.5
         providerModel: gpt-5.5
         fallbackModels:
           - gpt-5.4
+          - gpt-5.4-mini
+          - kimi-k2.6
+          - gemini-3.5-flash
+          - gemini-3.1-pro-preview
+      - id: gpt-5.5-pro
+        providerModel: gpt-5.5-pro
+        fallbackModels:
+          - gpt-5.5
+          - gpt-5.4-pro
+          - kimi-k2.6
           - gemini-3.1-pro-preview
       - id: gpt-5.4
         providerModel: gpt-5.4
         fallbackModels:
           - gpt-5.5
+          - gpt-5.4-mini
+          - gpt-5.4-nano
+          - kimi-k2.6
+          - gemini-3.5-flash
+          - gemini-3.1-pro-preview
+      - id: gpt-5.4-pro
+        providerModel: gpt-5.4-pro
+        fallbackModels:
+          - gpt-5.5
+          - gpt-5.4
+          - kimi-k2.6
           - gemini-3.1-pro-preview
       - id: gpt-5.4-mini
         providerModel: gpt-5.4-mini
         fallbackModels:
           - gpt-5.4
           - gpt-5.5
+          - gpt-5.4-nano
+          - kimi-k2.6
+          - gemini-3.5-flash
           - gemini-3.1-pro-preview
+      - id: gpt-5.4-nano
+        providerModel: gpt-5.4-nano
+        fallbackModels:
+          - gpt-5.4-mini
+          - gpt-5.4
+          - gemini-3.1-flash-lite
+          - llama-3.1-8b-instant
       - id: gpt-5.3-instant
         providerModel: gpt-5.3-instant
         fallbackModels:
           - gpt-5.5
           - gpt-5.4
+          - kimi-k2.6
+          - gemini-3.5-flash
+      - id: gpt-5.3-chat-latest
+        providerModel: gpt-5.3-chat-latest
+        fallbackModels:
+          - gpt-5.5
+          - gpt-5.4
+          - kimi-k2.6
+          - gemini-3.5-flash
       - id: gpt-4.1
         providerModel: gpt-4.1
         fallbackModels:
+          - gpt-5.3-chat-latest
           - gpt-5.3-instant
+          - kimi-k2.6
+          - gemini-3.5-flash
     responseCommand:
       executable: node
       args:
@@ -333,7 +390,31 @@ providers:
         fallbackModels:
           - openai/gpt-oss-20b
           - llama-3.1-8b-instant
+          - gemini-3.5-flash
           - gemini-3-flash-preview
+
+  - id: kimi-api
+    type: openai
+    description: Kimi API via Moonshot OpenAI-compatible endpoint
+    baseUrl: https://api.moonshot.ai/v1
+    apiKeyEnv: MOONSHOT_API_KEY
+    timeoutMs: 240000
+    models:
+      - id: kimi-k2.6
+        providerModel: kimi-k2.6
+        fallbackModels:
+          - kimi-k2.5
+          - gpt-5.5
+          - gpt-5.4
+          - gemini-3.5-flash
+          - deepseek-v4-flash
+      - id: kimi-k2.5
+        providerModel: kimi-k2.5
+        fallbackModels:
+          - kimi-k2.6
+          - gpt-5.4
+          - gemini-3.5-flash
+          - deepseek-v4-flash
 
   - id: kimi-code-cli
     type: cli
@@ -342,6 +423,7 @@ providers:
       - id: kimi-for-coding
         providerModel: kimi-for-coding
         fallbackModels:
+          - kimi-k2.6
           - gpt-5.5
           - gpt-5.4
           - gemini-3.1-pro-preview
@@ -462,6 +544,8 @@ providers:
     models:
       - id: gemini-3-flash-preview
         providerModel: gemini-3-flash-preview
+      - id: gemini-3.5-flash
+        providerModel: gemini-3.5-flash
       - id: gemini-3.1-flash-lite
         providerModel: gemini-3.1-flash-lite
       - id: gemini-2.5-flash

@@ -1,12 +1,6 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: n8n-openai-cli-gateway-groq
-  namespace: n8n-openai-gateway
-type: Opaque
-stringData:
-  groqApiKey: "replace-with-your-groq-api-key"
----
+# This overlay intentionally does not define a Secret. Add groqApiKey to the
+# existing n8n-openai-cli-gateway-secrets Secret with scripts/ensure-gateway-secrets.*
+# so applying manifests never overwrites existing cluster passwords.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -106,8 +100,9 @@ spec:
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: n8n-openai-cli-gateway-groq
+                  name: n8n-openai-cli-gateway-secrets
                   key: groqApiKey
+                  optional: true
           volumeMounts:
             - name: groq-providers-config
               mountPath: /app/config/providers-groq.yaml

@@ -25,8 +25,6 @@ spec:
       labels:
         app: ollama
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
       terminationGracePeriodSeconds: 120
       containers:
         - name: ollama

@@ -6,6 +6,7 @@ CONFIGMAP_NAME="n8n-openai-cli-gateway-config"
 DEPLOYMENT_NAME="n8n-openai-cli-gateway"
 SECRET_NAME="n8n-openai-cli-gateway-groq"
 GROQ_API_KEY=""
+OVERWRITE_SECRET="false"
 
 usage() {
   cat <<'EOF'
@@ -16,9 +17,12 @@ What it does:
   1. Fetches the current providers.yaml from the gateway ConfigMap
   2. Appends the Groq provider block if it is not already present
   3. Applies the updated ConfigMap back to the cluster
-  4. Creates/updates a secret containing GROQ_API_KEY
+  4. Creates the Groq secret, or fills GROQ_API_KEY only if it is missing
   5. Injects GROQ_API_KEY into the gateway deployment
   6. Restarts the deployment and waits for rollout
+
+Existing secret values are preserved by default. Pass --overwrite-secret only
+when you intentionally want to rotate GROQ_API_KEY.
 EOF
 }
 
@@ -31,6 +35,10 @@ while [[ $# -gt 0 ]]; do
     --namespace)
       NAMESPACE="${2:-}"
       shift 2
+      ;;
+    --overwrite-secret)
+      OVERWRITE_SECRET="true"
+      shift
       ;;
     --help|-h)
       usage
@@ -150,12 +158,29 @@ kubectl create configmap "$CONFIGMAP_NAME" \
   --dry-run=client \
   -o yaml | kubectl apply -f -
 
-echo "Creating/updating Groq secret..."
-kubectl create secret generic "$SECRET_NAME" \
-  -n "$NAMESPACE" \
-  --from-literal=GROQ_API_KEY="$GROQ_API_KEY" \
-  --dry-run=client \
-  -o yaml | kubectl apply -f -
+echo "Ensuring Groq secret without overwriting existing values..."
+if kubectl get secret "$SECRET_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+  existing_key="$(
+    kubectl get secret "$SECRET_NAME" \
+      -n "$NAMESPACE" \
+      -o jsonpath='{.data.GROQ_API_KEY}' 2>/dev/null || true
+  )"
+
+  if [[ -n "$existing_key" && "$OVERWRITE_SECRET" != "true" ]]; then
+    echo "Keeping existing GROQ_API_KEY in secret/$SECRET_NAME."
+  else
+    groq_patch_file="$tmp_dir/groq-secret-patch.json"
+    groq_encoded="$(printf "%s" "$GROQ_API_KEY" | base64 | tr -d '\n')"
+    printf '{"data":{"GROQ_API_KEY":"%s"}}' "$groq_encoded" > "$groq_patch_file"
+    kubectl patch secret "$SECRET_NAME" -n "$NAMESPACE" --type=merge --patch-file "$groq_patch_file"
+  fi
+else
+  groq_key_file="$tmp_dir/GROQ_API_KEY"
+  printf "%s" "$GROQ_API_KEY" > "$groq_key_file"
+  kubectl create secret generic "$SECRET_NAME" \
+    -n "$NAMESPACE" \
+    --from-file=GROQ_API_KEY="$groq_key_file"
+fi
 
 echo "Injecting GROQ_API_KEY into deployment..."
 kubectl set env deployment/"$DEPLOYMENT_NAME" \

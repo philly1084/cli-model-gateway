@@ -67,9 +67,9 @@ Each provider defines:
 
 The gateway also supports `type: openai` providers for OpenAI-compatible remote APIs such as Groq and DeepSeek. Those providers can auto-discover models from `/models` at startup and register them automatically.
 
-The gateway also exposes a virtual `auto` model. It is not configured in `providers.yaml`; it appears automatically in `GET /v1/models` and picks a compatible configured model for each request. The router scores request kind, image generation, tool use, reasoning effort, prompt complexity, coding/build signals, configured capabilities, and recent model health. The response `model` field is the concrete model that actually handled the request when that is known.
+The gateway also exposes a virtual `auto` model. It is not configured in `providers.yaml`; it appears automatically in `GET /v1/models` and picks a compatible configured model for each request. The router scores request kind, image generation, tool use, reasoning effort, token-size estimate, prompt complexity, coding/build signals, configured capabilities, recent model health, and live benchmark quality. The response `model` field is the concrete model that actually handled the request when that is known.
 
-By default, the gateway starts a bounded auto-router capacity baseline in the background after boot and reruns it once a day. It sends quick, medium, low-reasoning, and high-reasoning probes to eligible configured models, records completion latency, time to first streamed token when available, rough or measured output token rate, provider usage counts, and per-task scores. The baseline is non-fatal; failed providers are marked in the snapshot and scored down for `auto`. Tune it with `AUTO_ROUTER_BENCHMARK_ON_START`, `AUTO_ROUTER_BENCHMARK_TIMEOUT_MS`, `AUTO_ROUTER_BENCHMARK_MAX_MODELS`, `AUTO_ROUTER_BENCHMARK_CONCURRENCY`, and `AUTO_ROUTER_BENCHMARK_INTERVAL_MS`. Inspect current signals with `GET /admin/stats/auto-router` or trigger a fresh run with `POST /admin/stats/auto-router/baseline`.
+By default, the gateway starts a bounded auto-router capacity baseline in the background after boot and reruns it every 8 hours. It sends quick, medium, low-reasoning, high-reasoning, and tool-call probes to eligible configured models, records completion latency, time to first streamed token when available, rough or measured output token rate, provider usage counts, tool-call behavior, and per-task scores. When a separate stronger configured model is available, the baseline also asks that model to judge benchmark output quality and folds the score into later `auto` choices. The baseline is non-fatal and de-duplicates concurrent runs; failed providers or failed quality checks are marked in the snapshot without blocking startup. Tune it with `AUTO_ROUTER_BENCHMARK_ON_START`, `AUTO_ROUTER_BENCHMARK_TIMEOUT_MS`, `AUTO_ROUTER_BENCHMARK_MAX_MODELS`, `AUTO_ROUTER_BENCHMARK_CONCURRENCY`, `AUTO_ROUTER_BENCHMARK_INTERVAL_MS`, `AUTO_ROUTER_BENCHMARK_EVALUATE_QUALITY`, `AUTO_ROUTER_BENCHMARK_EVALUATOR_MODEL`, and `AUTO_ROUTER_BENCHMARK_QUALITY_TIMEOUT_MS`. Inspect current signals with `GET /admin/stats/auto-router` or trigger a fresh run with `POST /admin/stats/auto-router/baseline`.
 
 Supported template variables in commands:
 
@@ -415,7 +415,7 @@ Run a fresh bounded auto-router baseline:
 curl -X POST http://localhost:8080/admin/stats/auto-router/baseline \
   -H "x-admin-key: replace-me-admin" \
   -H "Content-Type: application/json" \
-  -d '{"maxModels":8,"concurrency":2,"timeoutMs":20000}'
+  -d '{"maxModels":8,"concurrency":2,"timeoutMs":20000,"evaluateQuality":true}'
 ```
 
 Single model stats:
@@ -488,12 +488,21 @@ Environment variables for CLI:
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window (milliseconds) |
 | `MAX_REQUEST_BODY_SIZE` | `10485760` | Max request body size in bytes (10MB) |
 | `OPENAI_REASONING_EFFORT` | provider default | Default reasoning effort for chat/responses requests |
+| `AUTO_ROUTER_BENCHMARK_ON_START` | `true` | Run the bounded auto-router baseline shortly after startup |
+| `AUTO_ROUTER_BENCHMARK_TIMEOUT_MS` | `20000` | Per-probe timeout for auto-router benchmark calls |
+| `AUTO_ROUTER_BENCHMARK_MAX_MODELS` | `16` | Max configured models to probe per baseline; `0` means no limit |
+| `AUTO_ROUTER_BENCHMARK_CONCURRENCY` | `2` | Concurrent benchmark probes during a baseline |
+| `AUTO_ROUTER_BENCHMARK_INTERVAL_MS` | `28800000` | Scheduled baseline interval; default is every 8 hours |
+| `AUTO_ROUTER_BENCHMARK_EVALUATE_QUALITY` | `true` | Use a separate strong model to judge benchmark output quality when available |
+| `AUTO_ROUTER_BENCHMARK_EVALUATOR_MODEL` | auto-selected | Concrete model id to use as the quality judge |
+| `AUTO_ROUTER_BENCHMARK_QUALITY_TIMEOUT_MS` | `15000` | Per-candidate timeout for the quality judge call |
 | `CODEX_AGENT_ALLOWED_WORKSPACE_ROOTS` | `SYMPHONY_WORKSPACE_ROOTS`, `SYMPHONY_WORKSPACE_ROOT`, then `FRONTEND_ALLOWED_CWDS` | Comma-separated roots allowed for `/api/codex-agent/*` `workspacePath` values |
 | `REMOTE_CLI_TOOL_AUTH_SCOPES` | `frontend,admin` | Comma-separated auth scopes allowed to use `POST /mcp` remote CLI tools (`admin`, `frontend`, `n8n`) |
 | `OPENAI_API_KEY` | unset | API key for optional OpenAI `type: openai` providers |
 | `GROQ_API_KEY` | unset | API key for Groq `type: openai` providers |
+| `MOONSHOT_API_KEY` | unset | API key for Kimi/Moonshot `type: openai` providers |
 
-Kimi is configured through the local `kimi` CLI via an ACP bridge in the current examples. It does not use `KIMI_API_KEY`; authenticate once in the provider home by running `kimi` in a TTY and then `/login` (some older CLI builds still use `/setup`).
+Kimi is available through the Moonshot OpenAI-compatible API when `MOONSHOT_API_KEY` is set, and through the local `kimi` CLI via the `kimi-for-coding` ACP bridge. The CLI adapter does not use `KIMI_API_KEY`; authenticate once in the provider home by running `kimi` in a TTY and then `/login` (some older CLI builds still use `/setup`).
 
 ### Reasoning flags
 
@@ -804,6 +813,41 @@ Use:
 - `kubernetes/configmap-example.yaml`
 - `kubernetes/rancher-install.yaml` (single-file Rancher import)
 
+Password safety:
+
+- Deploy manifests intentionally do not define `n8n-openai-cli-gateway-secrets`.
+- Create the Secret before first deploy, or add missing provider keys later, with `scripts/ensure-gateway-secrets.sh` or `scripts/ensure-gateway-secrets.ps1`.
+- The helper never overwrites existing keys. It only creates the Secret when missing or patches absent keys.
+- Do not put real API keys back into Rancher/import YAML unless you are intentionally rotating them by hand.
+- If your GHCR image is private, create the image pull Secret separately and attach it outside the import YAML; do not store the registry token in this bundle.
+
+Linux/macOS:
+
+```bash
+chmod +x scripts/ensure-gateway-secrets.sh
+N8N_API_KEY="replace-with-long-random-n8n-key" \
+ADMIN_API_KEY="replace-with-long-random-admin-key" \
+./scripts/ensure-gateway-secrets.sh
+
+# Optional provider keys are added only when absent.
+GROQ_API_KEY="replace-with-groq-api-key" ./scripts/ensure-gateway-secrets.sh
+MOONSHOT_API_KEY="replace-with-moonshot-api-key" ./scripts/ensure-gateway-secrets.sh
+```
+
+Windows PowerShell:
+
+```powershell
+$env:N8N_API_KEY = "replace-with-long-random-n8n-key"
+$env:ADMIN_API_KEY = "replace-with-long-random-admin-key"
+.\scripts\ensure-gateway-secrets.ps1
+
+# Optional provider keys are added only when absent.
+$env:GROQ_API_KEY = "replace-with-groq-api-key"
+.\scripts\ensure-gateway-secrets.ps1
+$env:MOONSHOT_API_KEY = "replace-with-moonshot-api-key"
+.\scripts\ensure-gateway-secrets.ps1
+```
+
 Important for OAuth/token persistence:
 
 - `HOME` is mounted to PVC: `/var/lib/gateway-home`
@@ -819,14 +863,14 @@ will seed `/var/lib/gateway-home/.gemini/` from that Secret on startup. Existing
 
 This is the repeatable way to bring Gemini auth forward to a fresh cluster or a fresh PVC.
 
-Create or refresh the Secret from a running gateway pod:
+Create the Secret from a running gateway pod if it does not already exist:
 
 ```bash
 chmod +x scripts/bootstrap-gemini-auth-secret.sh
 ./scripts/bootstrap-gemini-auth-secret.sh
 ```
 
-Create or refresh the Secret from a local Gemini CLI directory:
+Create the Secret from a local Gemini CLI directory if it does not already exist:
 
 ```bash
 ./scripts/bootstrap-gemini-auth-secret.sh --source-dir "$HOME/.gemini"
@@ -839,7 +883,9 @@ Windows PowerShell:
 .\scripts\bootstrap-gemini-auth-secret.ps1 -SourceDir "$HOME\.gemini"
 ```
 
-After updating the Secret, restart the deployment if you want a fresh PVC to be seeded on next start:
+To intentionally refresh stored Gemini auth, pass `--overwrite` for Bash or `-Overwrite` for PowerShell.
+
+After creating or intentionally refreshing the Secret, restart the deployment if you want a fresh PVC to be seeded on next start:
 
 ```bash
 kubectl rollout restart deployment/n8n-openai-cli-gateway -n n8n-openai-gateway
@@ -927,10 +973,11 @@ Use `kubernetes/rancher-install.yaml` as a single import in Rancher:
 2. Paste `kubernetes/rancher-install.yaml`.
 3. Change:
    - `ghcr.io/your-org/n8n-openai-cli-gateway:latest`
-   - secret values `n8nApiKey` and `adminApiKey`
    - ingress host `gateway.example.com`
    - `providers.yaml` contents for your real CLI commands/models
 4. Deploy.
+
+Before first deploy, create `n8n-openai-cli-gateway-secrets` through the Rancher Secrets UI or the `ensure-gateway-secrets` helper above. Existing clusters should keep the existing Secret; the Rancher import YAML does not overwrite it.
 
 Optional for Gemini CLI:
 
@@ -970,9 +1017,10 @@ powershell -ExecutionPolicy Bypass -File scripts/merge-rancher-groq.ps1 `
 
 That writes `kubernetes/rancher-install-groq.yaml` with:
 
-- `groqApiKey` added to the gateway secret
 - `GROQ_API_KEY` added to the gateway deployment
 - a Groq provider block added to the embedded `providers.yaml`
+
+The Groq API key is not written into the YAML. Add it safely with `scripts/ensure-gateway-secrets.sh --groq-api-key ...` or `scripts/ensure-gateway-secrets.ps1 -GroqApiKey ...`; existing `groqApiKey` values are kept.
 
 The generated Groq models match the current Groq docs production/system IDs:
 

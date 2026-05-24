@@ -308,8 +308,19 @@ export function loadAppConfig(): AppConfig {
   );
   const autoRouterBenchmarkIntervalMs = parseIntegerEnv(
     "AUTO_ROUTER_BENCHMARK_INTERVAL_MS",
-    86_400_000,
+    28_800_000,
     0,
+  );
+  const autoRouterBenchmarkEvaluateQuality = parseBooleanEnv(
+    "AUTO_ROUTER_BENCHMARK_EVALUATE_QUALITY",
+    true,
+  );
+  const autoRouterBenchmarkEvaluatorModel =
+    process.env.AUTO_ROUTER_BENCHMARK_EVALUATOR_MODEL?.trim() || undefined;
+  const autoRouterBenchmarkQualityTimeoutMs = parseIntegerEnv(
+    "AUTO_ROUTER_BENCHMARK_QUALITY_TIMEOUT_MS",
+    15_000,
+    1_000,
   );
 
   return {
@@ -335,6 +346,9 @@ export function loadAppConfig(): AppConfig {
     autoRouterBenchmarkMaxModels,
     autoRouterBenchmarkConcurrency,
     autoRouterBenchmarkIntervalMs,
+    autoRouterBenchmarkEvaluateQuality,
+    autoRouterBenchmarkEvaluatorModel,
+    autoRouterBenchmarkQualityTimeoutMs,
   };
 }
 

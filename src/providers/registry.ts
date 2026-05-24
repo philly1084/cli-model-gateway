@@ -1,14 +1,18 @@
 import type {
   AutoRouterBenchmarkMeasurement,
   AutoRouterBenchmarkPromptKind,
+  AutoRouterBenchmarkQualitySnapshot,
   AutoRouterBenchmarkSnapshot,
+  AutoRouterBenchmarkTaskScores,
   AutoRouterDecisionSnapshot,
   AutoRouterPromptProfile,
   ModelCapability,
   ProviderConfig,
   ProviderResult,
   ProviderStreamEvent,
+  ProviderToolCall,
   ReasoningEffort,
+  UnifiedToolDefinition,
   UnifiedRequest,
 } from "../types";
 import type {
@@ -43,6 +47,26 @@ const BENCHMARK_REASONING_HIGH_PROMPTS = [
   "A provider is fast on short prompts but slow on synthesis, while another has slower first token time but better sustained token rate and fewer failures. Explain which should handle a long coding review and why.",
   "A gateway must route between cheap, fast, and deep-reasoning models. Design a three-rule policy for simple, medium, and high-risk requests. Keep it concise.",
 ];
+const BENCHMARK_TOOL_PROMPT =
+  "Call the lookup_gateway_metric tool with metric set to latency_ms. Do not answer in plain text.";
+const BENCHMARK_TOOL_DEFINITION: UnifiedToolDefinition = {
+  type: "function",
+  function: {
+    name: "lookup_gateway_metric",
+    description: "Looks up one gateway benchmark metric by name.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        metric: {
+          type: "string",
+          enum: ["latency_ms"],
+        },
+      },
+      required: ["metric"],
+    },
+  },
+};
 
 interface ModelBinding {
   modelId: string;
@@ -66,11 +90,42 @@ interface AutoRankedCandidate {
   benchmark?: AutoRouterBenchmarkSnapshot;
 }
 
+interface BenchmarkRunOptions {
+  timeoutMs: number;
+  maxModels: number;
+  concurrency: number;
+  evaluateQuality: boolean;
+  evaluatorModelId?: string;
+  qualityTimeoutMs: number;
+  logger?: RegistryLogger;
+}
+
+interface BenchmarkProbeResult {
+  measurement: AutoRouterBenchmarkMeasurement;
+  outputText: string;
+  toolCalls: ProviderToolCall[];
+}
+
+interface BenchmarkProbeSet {
+  small: BenchmarkProbeResult;
+  medium: BenchmarkProbeResult;
+  reasoningLow?: BenchmarkProbeResult;
+  reasoningHigh?: BenchmarkProbeResult;
+  toolUse?: BenchmarkProbeResult;
+}
+
+interface ParsedQualityEvaluation {
+  score: number;
+  taskScores?: NonNullable<AutoRouterBenchmarkQualitySnapshot["taskScores"]>;
+  verdict?: string;
+}
+
 export class ProviderRegistry {
   private readonly providers = new Map<string, Provider>();
   private readonly models = new Map<string, ModelBinding>();
   private readonly modelStats = new ModelStatsTracker();
   private readonly modelBenchmarks = new Map<string, AutoRouterBenchmarkSnapshot>();
+  private activeBenchmarkRun?: Promise<AutoRouterBenchmarkSnapshot[]>;
 
   private constructor() {}
 
@@ -234,6 +289,7 @@ export class ProviderRegistry {
         score: roundNumber(candidate.score, 2),
         benchmarkStatus: candidate.benchmark?.status,
         benchmarkScore: candidate.benchmark?.score,
+        benchmarkQualityScore: candidate.benchmark?.quality?.score,
         benchmarkTaskScores: candidate.benchmark?.taskScores,
         healthState: candidate.stats?.suggestedState,
       })),
@@ -244,8 +300,39 @@ export class ProviderRegistry {
     timeoutMs: number;
     maxModels: number;
     concurrency: number;
+    evaluateQuality?: boolean;
+    evaluatorModelId?: string;
+    qualityTimeoutMs?: number;
     logger?: RegistryLogger;
   }): Promise<AutoRouterBenchmarkSnapshot[]> {
+    if (this.activeBenchmarkRun) {
+      options.logger?.info(
+        {},
+        "Auto router benchmark already running; joining existing run.",
+      );
+      return this.activeBenchmarkRun;
+    }
+
+    const normalizedOptions: BenchmarkRunOptions = {
+      timeoutMs: options.timeoutMs,
+      maxModels: options.maxModels,
+      concurrency: options.concurrency,
+      evaluateQuality: options.evaluateQuality ?? true,
+      evaluatorModelId: options.evaluatorModelId,
+      qualityTimeoutMs: Math.max(
+        1_000,
+        Math.min(options.qualityTimeoutMs ?? options.timeoutMs, options.timeoutMs),
+      ),
+      logger: options.logger,
+    };
+
+    this.activeBenchmarkRun = this.runBenchmarkBatch(normalizedOptions).finally(() => {
+      this.activeBenchmarkRun = undefined;
+    });
+    return this.activeBenchmarkRun;
+  }
+
+  private async runBenchmarkBatch(options: BenchmarkRunOptions): Promise<AutoRouterBenchmarkSnapshot[]> {
     const candidates = this.selectBenchmarkCandidates(options.maxModels);
     if (candidates.length === 0) {
       return this.getAutoRouterBenchmarks();
@@ -262,7 +349,7 @@ export class ProviderRegistry {
         if (!binding) {
           continue;
         }
-        await this.runBenchmarkForBinding(binding, options.timeoutMs, options.logger);
+        await this.runBenchmarkForBinding(binding, options);
       }
     };
 
@@ -321,8 +408,7 @@ export class ProviderRegistry {
 
   private async runBenchmarkForBinding(
     binding: ModelBinding,
-    timeoutMs: number,
-    logger?: RegistryLogger,
+    options: BenchmarkRunOptions,
   ): Promise<void> {
     const running = {
       ...benchmarkBaseSnapshot(binding),
@@ -333,15 +419,25 @@ export class ProviderRegistry {
     this.modelBenchmarks.set(binding.modelId, running);
 
     try {
-      const small = await this.runBenchmarkPrompt(binding, "small", BENCHMARK_SMALL_PROMPT, timeoutMs);
-      const medium = await this.runBenchmarkPrompt(binding, "medium", BENCHMARK_MEDIUM_PROMPT, timeoutMs);
+      const small = await this.runBenchmarkPrompt(
+        binding,
+        "small",
+        BENCHMARK_SMALL_PROMPT,
+        options.timeoutMs,
+      );
+      const medium = await this.runBenchmarkPrompt(
+        binding,
+        "medium",
+        BENCHMARK_MEDIUM_PROMPT,
+        options.timeoutMs,
+      );
       const supportsReasoning = bindingSupportsCapability(binding, "reasoning");
       const reasoningLow = supportsReasoning
         ? await this.runBenchmarkPrompt(
           binding,
           "reasoning_low",
           selectBenchmarkPrompt(binding.modelId, "reasoning_low", BENCHMARK_REASONING_LOW_PROMPTS),
-          timeoutMs,
+          options.timeoutMs,
           "low",
         )
         : undefined;
@@ -350,37 +446,63 @@ export class ProviderRegistry {
           binding,
           "reasoning_high",
           selectBenchmarkPrompt(binding.modelId, "reasoning_high", BENCHMARK_REASONING_HIGH_PROMPTS),
-          timeoutMs,
+          options.timeoutMs,
           "high",
         )
         : undefined;
-      const taskScores = buildBenchmarkTaskScores({
+      const toolUse = bindingSupportsCapability(binding, "tools")
+        ? await this.runBenchmarkPrompt(
+          binding,
+          "tool_call",
+          BENCHMARK_TOOL_PROMPT,
+          options.timeoutMs,
+          undefined,
+          [BENCHMARK_TOOL_DEFINITION],
+        )
+        : undefined;
+      const probeSet: BenchmarkProbeSet = {
         small,
         medium,
         reasoningLow,
         reasoningHigh,
+        toolUse,
+      };
+      const quality = options.evaluateQuality
+        ? await this.evaluateBenchmarkQuality(binding, probeSet, options)
+        : undefined;
+      const taskScores = buildBenchmarkTaskScores({
+        small: small.measurement,
+        medium: medium.measurement,
+        reasoningLow: reasoningLow?.measurement,
+        reasoningHigh: reasoningHigh?.measurement,
+        toolUse: toolUse?.measurement,
+        quality,
       });
       const snapshot: AutoRouterBenchmarkSnapshot = {
         ...benchmarkBaseSnapshot(binding),
         status: "succeeded",
         updatedAt: new Date().toISOString(),
-        small,
-        medium,
-        reasoningLow,
-        reasoningHigh,
+        small: small.measurement,
+        medium: medium.measurement,
+        reasoningLow: reasoningLow?.measurement,
+        reasoningHigh: reasoningHigh?.measurement,
+        toolUse: toolUse?.measurement,
+        quality,
         taskScores,
         score: taskScores.overall,
       };
       this.modelBenchmarks.set(binding.modelId, snapshot);
-      logger?.info(
+      options.logger?.info(
         {
           modelId: binding.modelId,
           providerId: binding.provider.id,
           score: snapshot.score,
-          small,
-          medium,
-          reasoningLow,
-          reasoningHigh,
+          small: snapshot.small,
+          medium: snapshot.medium,
+          reasoningLow: snapshot.reasoningLow,
+          reasoningHigh: snapshot.reasoningHigh,
+          toolUse: snapshot.toolUse,
+          quality: snapshot.quality,
         },
         "Auto router startup benchmark completed.",
       );
@@ -393,7 +515,7 @@ export class ProviderRegistry {
         error: error instanceof Error ? error.message : String(error),
       };
       this.modelBenchmarks.set(binding.modelId, snapshot);
-      logger?.warn(
+      options.logger?.warn(
         {
           modelId: binding.modelId,
           providerId: binding.provider.id,
@@ -410,7 +532,8 @@ export class ProviderRegistry {
     prompt: string,
     timeoutMs: number,
     reasoningEffort?: ReasoningEffort,
-  ): Promise<AutoRouterBenchmarkMeasurement> {
+    tools: UnifiedToolDefinition[] = [],
+  ): Promise<BenchmarkProbeResult> {
     if (binding.provider.runStream && binding.provider.supportsStreaming?.()) {
       try {
         return await this.runStreamingBenchmarkPrompt(
@@ -419,6 +542,7 @@ export class ProviderRegistry {
           prompt,
           timeoutMs,
           reasoningEffort,
+          tools,
         );
       } catch {
         // Fall back to a non-stream probe; some providers advertise sessions but
@@ -428,7 +552,7 @@ export class ProviderRegistry {
 
     const startedAt = Date.now();
     const result = await binding.provider.run(
-      buildBenchmarkRequest(binding, prompt, promptKind, timeoutMs, false, reasoningEffort),
+      buildBenchmarkRequest(binding, prompt, promptKind, timeoutMs, false, reasoningEffort, tools),
     );
     const durationMs = Date.now() - startedAt;
     const outputTokenEstimate =
@@ -438,16 +562,21 @@ export class ProviderRegistry {
     const outputText = result.outputText.trim();
 
     return {
-      promptKind,
-      reasoningEffort,
-      streamed: false,
-      durationMs,
-      timeToFirstTokenMs: durationMs,
-      outputTokenEstimate,
-      outputTokensPerSecond: tokensPerSecond(outputTokenEstimate, durationMs),
-      outputCharCount: outputText.length,
-      expectedTextMatched: promptKind === "small" ? /^ok\.?$/i.test(outputText) : undefined,
-      measuredUsage: result.usage,
+      measurement: {
+        promptKind,
+        reasoningEffort,
+        streamed: false,
+        durationMs,
+        timeToFirstTokenMs: durationMs,
+        outputTokenEstimate,
+        outputTokensPerSecond: tokensPerSecond(outputTokenEstimate, durationMs),
+        outputCharCount: outputText.length,
+        toolCallCount: result.toolCalls.length,
+        expectedTextMatched: promptKind === "small" ? /^ok\.?$/i.test(outputText) : undefined,
+        measuredUsage: result.usage,
+      },
+      outputText,
+      toolCalls: result.toolCalls,
     };
   }
 
@@ -457,7 +586,8 @@ export class ProviderRegistry {
     prompt: string,
     timeoutMs: number,
     reasoningEffort: ReasoningEffort | undefined,
-  ): Promise<AutoRouterBenchmarkMeasurement> {
+    tools: UnifiedToolDefinition[],
+  ): Promise<BenchmarkProbeResult> {
     if (!binding.provider.runStream) {
       throw new Error(`Model ${binding.modelId} does not expose streaming.`);
     }
@@ -466,15 +596,20 @@ export class ProviderRegistry {
     let firstTokenMs: number | undefined;
     let outputText = "";
     let measuredUsage: ProviderResult["usage"];
+    const toolCalls: ProviderToolCall[] = [];
 
     for await (const event of binding.provider.runStream(
-      buildBenchmarkRequest(binding, prompt, promptKind, timeoutMs, true, reasoningEffort),
+      buildBenchmarkRequest(binding, prompt, promptKind, timeoutMs, true, reasoningEffort, tools),
     )) {
       if (event.type === "output_text_delta" || event.type === "reasoning_delta") {
         if (firstTokenMs === undefined) {
           firstTokenMs = Date.now() - startedAt;
         }
         outputText += event.delta;
+        continue;
+      }
+      if (event.type === "tool_call") {
+        toolCalls.push(event.toolCall);
         continue;
       }
       if (event.type === "done") {
@@ -492,17 +627,98 @@ export class ProviderRegistry {
       estimateTokensFromText(outputText);
 
     return {
-      promptKind,
-      reasoningEffort,
-      streamed: true,
-      durationMs,
-      timeToFirstTokenMs: firstTokenMs ?? durationMs,
-      outputTokenEstimate,
-      outputTokensPerSecond: tokensPerSecond(outputTokenEstimate, durationMs),
-      outputCharCount: outputText.trim().length,
-      expectedTextMatched: promptKind === "small" ? /^ok\.?$/i.test(outputText.trim()) : undefined,
-      measuredUsage,
+      measurement: {
+        promptKind,
+        reasoningEffort,
+        streamed: true,
+        durationMs,
+        timeToFirstTokenMs: firstTokenMs ?? durationMs,
+        outputTokenEstimate,
+        outputTokensPerSecond: tokensPerSecond(outputTokenEstimate, durationMs),
+        outputCharCount: outputText.trim().length,
+        toolCallCount: toolCalls.length,
+        expectedTextMatched: promptKind === "small" ? /^ok\.?$/i.test(outputText.trim()) : undefined,
+        measuredUsage,
+      },
+      outputText: outputText.trim(),
+      toolCalls,
     };
+  }
+
+  private async evaluateBenchmarkQuality(
+    testedBinding: ModelBinding,
+    probes: BenchmarkProbeSet,
+    options: BenchmarkRunOptions,
+  ): Promise<AutoRouterBenchmarkQualitySnapshot> {
+    const evaluator = this.selectQualityEvaluatorBinding(
+      options.evaluatorModelId,
+      testedBinding.modelId,
+    );
+    if (!evaluator.binding) {
+      return {
+        status: "skipped",
+        error: evaluator.error ?? "No separate quality evaluator model is configured.",
+      };
+    }
+
+    try {
+      const result = await evaluator.binding.provider.run(
+        buildQualityEvaluationRequest(
+          evaluator.binding,
+          testedBinding,
+          probes,
+          options.qualityTimeoutMs,
+        ),
+      );
+      const parsed = parseQualityEvaluation(result.outputText);
+      return {
+        status: "succeeded",
+        evaluatorModelId: evaluator.binding.modelId,
+        evaluatorProviderId: evaluator.binding.provider.id,
+        evaluatorProviderModel: evaluator.binding.providerModel,
+        score: parsed.score,
+        taskScores: parsed.taskScores,
+        verdict: parsed.verdict,
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        evaluatorModelId: evaluator.binding.modelId,
+        evaluatorProviderId: evaluator.binding.provider.id,
+        evaluatorProviderModel: evaluator.binding.providerModel,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private selectQualityEvaluatorBinding(
+    preferredModelId: string | undefined,
+    testedModelId: string,
+  ): { binding?: ModelBinding; error?: string } {
+    if (preferredModelId) {
+      const preferred = this.models.get(preferredModelId);
+      if (!preferred) {
+        return { error: `Quality evaluator model is not configured: ${preferredModelId}` };
+      }
+      if (preferred.modelId === testedModelId) {
+        return { error: `Quality evaluator model ${preferredModelId} is the model under test.` };
+      }
+      if (!bindingCanEvaluateQuality(preferred)) {
+        return { error: `Quality evaluator model ${preferredModelId} is not chat-capable.` };
+      }
+      return { binding: preferred };
+    }
+
+    const eligible = [...this.models.values()]
+      .filter((binding) => binding.modelId !== testedModelId && bindingCanEvaluateQuality(binding))
+      .map((binding, index) => ({
+        binding,
+        index,
+        score: scoreQualityEvaluatorCandidate(binding),
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    return { binding: eligible[0]?.binding };
   }
 
   async runModel(
@@ -708,7 +924,7 @@ export class ProviderRegistry {
       const benchmark = this.modelBenchmarks.get(binding.modelId);
       let score = 100 - index * 0.01;
       score += scoreModelHealth(stats);
-      score += scoreModelBenchmark(benchmark, profile.complexity, profile.wantsStrongReasoning);
+      score += scoreModelBenchmark(benchmark, profile);
       score += scoreModelName(binding, {
         complexity: profile.complexity,
         codingSignal: profile.codingSignal,
@@ -799,19 +1015,21 @@ function buildBenchmarkRequest(
   timeoutMs: number,
   stream: boolean,
   reasoningEffort: ReasoningEffort | undefined,
+  tools: UnifiedToolDefinition[] = [],
 ): UnifiedRequest {
   const maxTokens =
     promptKind === "small" ? 8 :
       promptKind === "medium" ? 220 :
         promptKind === "reasoning_low" ? 180 :
-          260;
+          promptKind === "tool_call" ? 120 :
+            260;
 
   return {
     requestId: `bench_${binding.modelId}_${promptKind}_${Date.now()}`,
     model: binding.modelId,
     providerModel: binding.providerModel,
     messages: [{ role: "user", content: prompt }],
-    tools: [],
+    tools,
     stream,
     requestKind: "chat_completions",
     reasoningEffort,
@@ -824,6 +1042,186 @@ function buildBenchmarkRequest(
       gateway_benchmark_timeout_ms: timeoutMs,
     },
   };
+}
+
+function buildQualityEvaluationRequest(
+  evaluator: ModelBinding,
+  tested: ModelBinding,
+  probes: BenchmarkProbeSet,
+  timeoutMs: number,
+): UnifiedRequest {
+  return {
+    requestId: `bench_quality_${tested.modelId}_${Date.now()}`,
+    model: evaluator.modelId,
+    providerModel: evaluator.providerModel,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You grade short benchmark outputs for an OpenAI-compatible gateway router.",
+          "Return only JSON with this shape:",
+          "{\"overall\":0-100,\"tasks\":{\"small\":0-100,\"medium\":0-100,\"reasoning_low\":0-100,\"reasoning_high\":0-100,\"tool_call\":0-100},\"verdict\":\"short reason\"}.",
+          "Score instruction following, correctness, usefulness, and concision. Penalize empty output, ignored tool requests, and rambling.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: buildQualityEvaluationPrompt(tested, probes),
+      },
+    ],
+    tools: [],
+    stream: false,
+    requestKind: "chat_completions",
+    reasoningEffort: bindingSupportsCapability(evaluator, "reasoning") ? "high" : undefined,
+    metadata: {
+      max_tokens: 360,
+      temperature: 0,
+      gateway_benchmark: true,
+      gateway_benchmark_quality_evaluator: true,
+      gateway_benchmark_timeout_ms: timeoutMs,
+    },
+  };
+}
+
+function buildQualityEvaluationPrompt(
+  tested: ModelBinding,
+  probes: BenchmarkProbeSet,
+): string {
+  const entries = [
+    formatQualityProbe("small", BENCHMARK_SMALL_PROMPT, probes.small, "Expected exact text: ok."),
+    formatQualityProbe("medium", BENCHMARK_MEDIUM_PROMPT, probes.medium),
+    probes.reasoningLow
+      ? formatQualityProbe("reasoning_low", "Low-reasoning routing tradeoff prompt.", probes.reasoningLow)
+      : undefined,
+    probes.reasoningHigh
+      ? formatQualityProbe("reasoning_high", "High-reasoning routing policy prompt.", probes.reasoningHigh)
+      : undefined,
+    probes.toolUse
+      ? formatQualityProbe(
+        "tool_call",
+        BENCHMARK_TOOL_PROMPT,
+        probes.toolUse,
+        "Expected a function/tool call named lookup_gateway_metric with metric latency_ms.",
+      )
+      : undefined,
+  ].filter((entry): entry is string => Boolean(entry));
+
+  return [
+    `Model under test: ${tested.modelId} (${tested.providerModel}) via ${tested.provider.id}.`,
+    "Grade each available task independently, then provide the overall quality score.",
+    ...entries,
+  ].join("\n\n");
+}
+
+function formatQualityProbe(
+  label: string,
+  prompt: string,
+  probe: BenchmarkProbeResult,
+  expectation?: string,
+): string {
+  const toolCalls = probe.toolCalls.map((toolCall) => ({
+    name: toolCall.name,
+    arguments: safeJsonPreview(toolCall.arguments, 240),
+  }));
+  return [
+    `Task: ${label}`,
+    `Prompt: ${truncateText(prompt, 700)}`,
+    expectation ? `Expectation: ${expectation}` : undefined,
+    `Output: ${truncateText(probe.outputText || "(empty)", 1200)}`,
+    `Tool calls: ${JSON.stringify(toolCalls)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+function parseQualityEvaluation(outputText: string): ParsedQualityEvaluation {
+  const record = parseJsonObjectFromText(outputText);
+  const tasksRecord = asRecord(record.tasks ?? record.taskScores ?? record.task_scores);
+  const taskScores = tasksRecord
+    ? {
+      small: readQualityScore(tasksRecord.small),
+      medium: readQualityScore(tasksRecord.medium),
+      reasoningLow: readQualityScore(tasksRecord.reasoning_low ?? tasksRecord.reasoningLow),
+      reasoningHigh: readQualityScore(tasksRecord.reasoning_high ?? tasksRecord.reasoningHigh),
+      toolUse: readQualityScore(tasksRecord.tool_call ?? tasksRecord.toolUse),
+    }
+    : undefined;
+
+  const explicitScore = readQualityScore(record.overall ?? record.score ?? record.quality);
+  const taskScoreValues = taskScores
+    ? Object.values(taskScores).filter((value): value is number => typeof value === "number")
+    : [];
+  const score = explicitScore ?? averageNumbers(taskScoreValues);
+  if (score === undefined) {
+    throw new Error("Quality evaluator did not return a numeric score.");
+  }
+
+  const verdict =
+    typeof record.verdict === "string"
+      ? truncateText(record.verdict.replace(/\s+/g, " ").trim(), 240)
+      : undefined;
+
+  return {
+    score,
+    taskScores,
+    verdict,
+  };
+}
+
+function parseJsonObjectFromText(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  const candidates = [trimmed];
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  throw new Error(`Quality evaluator returned non-JSON output: ${truncateText(trimmed, 160)}`);
+}
+
+function readQualityScore(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return roundNumber(Math.max(0, Math.min(100, value)), 2);
+}
+
+function averageNumbers(values: number[]): number | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+  return roundNumber(values.reduce((sum, value) => sum + value, 0) / values.length, 2);
+}
+
+function safeJsonPreview(value: unknown, maxLength: number): string {
+  try {
+    return truncateText(
+      typeof value === "string" ? value : JSON.stringify(value),
+      maxLength,
+    );
+  } catch {
+    return truncateText(String(value), maxLength);
+  }
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function benchmarkBaseSnapshot(binding: ModelBinding): Omit<AutoRouterBenchmarkSnapshot, "status" | "score"> {
@@ -846,13 +1244,9 @@ function buildBenchmarkTaskScores(input: {
   medium: AutoRouterBenchmarkMeasurement;
   reasoningLow?: AutoRouterBenchmarkMeasurement;
   reasoningHigh?: AutoRouterBenchmarkMeasurement;
-}): {
-  quick: number;
-  medium: number;
-  reasoningLow?: number;
-  reasoningHigh?: number;
-  overall: number;
-} {
+  toolUse?: AutoRouterBenchmarkMeasurement;
+  quality?: AutoRouterBenchmarkQualitySnapshot;
+}): AutoRouterBenchmarkTaskScores {
   const quick = scoreBenchmarkMeasurement(input.small, 0.9);
   const medium = scoreBenchmarkMeasurement(input.medium, 1);
   const reasoningLow = input.reasoningLow
@@ -861,18 +1255,31 @@ function buildBenchmarkTaskScores(input: {
   const reasoningHigh = input.reasoningHigh
     ? scoreBenchmarkMeasurement(input.reasoningHigh, 1.1)
     : undefined;
-  const scores = [quick, medium, reasoningLow, reasoningHigh].filter(
+  const toolUse = input.toolUse
+    ? scoreBenchmarkMeasurement(input.toolUse, 0.95)
+    : undefined;
+  const scores = [quick, medium, reasoningLow, reasoningHigh, toolUse].filter(
     (value): value is number => typeof value === "number",
   );
-  const overall = scores.length > 0
+  const performanceOverall = scores.length > 0
     ? scores.reduce((sum, value) => sum + value, 0) / scores.length
     : 0;
+  const qualityScore = input.quality?.status === "succeeded"
+    ? input.quality.score
+    : undefined;
+  const qualityRouterScore =
+    typeof qualityScore === "number" ? qualityScoreToRouterScore(qualityScore) : undefined;
+  const overall = qualityRouterScore === undefined
+    ? performanceOverall
+    : performanceOverall * 0.7 + qualityRouterScore * 0.3;
 
   return {
     quick: roundNumber(quick, 2),
     medium: roundNumber(medium, 2),
     reasoningLow: reasoningLow === undefined ? undefined : roundNumber(reasoningLow, 2),
     reasoningHigh: reasoningHigh === undefined ? undefined : roundNumber(reasoningHigh, 2),
+    toolUse: toolUse === undefined ? undefined : roundNumber(toolUse, 2),
+    quality: qualityScore,
     overall: roundNumber(overall, 2),
   };
 }
@@ -922,11 +1329,19 @@ function scoreBenchmarkMeasurement(
     score -= 6;
   }
 
-  if ((measurement.outputCharCount ?? 0) === 0) {
+  if (measurement.promptKind === "tool_call") {
+    score += (measurement.toolCallCount ?? 0) > 0 ? 18 : -16;
+  }
+
+  if ((measurement.outputCharCount ?? 0) === 0 && (measurement.toolCallCount ?? 0) === 0) {
     score -= 12;
   }
 
   return score * weight;
+}
+
+function qualityScoreToRouterScore(score: number): number {
+  return ((Math.max(0, Math.min(100, score)) - 50) / 50) * 34;
 }
 
 function selectBenchmarkPrompt(
@@ -967,6 +1382,31 @@ function benchmarkCandidatePriority(binding: ModelBinding): number {
   return score;
 }
 
+function bindingCanEvaluateQuality(binding: ModelBinding): boolean {
+  if (bindingSupportsImageGeneration(binding) && binding.capabilities.length === 1) {
+    return false;
+  }
+  return bindingSupportsCapability(binding, "chat") || bindingSupportsCapability(binding, "responses");
+}
+
+function scoreQualityEvaluatorCandidate(binding: ModelBinding): number {
+  const name = modelSearchText(binding);
+  let score = benchmarkCandidatePriority(binding);
+  if (bindingSupportsCapability(binding, "reasoning")) {
+    score += 30;
+  }
+  if (/gpt-5\.5|gpt-5\.4|opus|sonnet|gemini.*pro|deepseek.*(r1|reason|v4-pro)|reasoner|120b|k2|pro-preview|pro\b/.test(name)) {
+    score += 55;
+  }
+  if (/mini|flash|lite|instant|haiku|8b|20b|free|compound-mini/.test(name)) {
+    score -= 20;
+  }
+  if (/image|whisper|speech|tts|embedding/.test(name)) {
+    score -= 120;
+  }
+  return score;
+}
+
 function roundNumber(value: number, fractionDigits: number): number {
   const factor = 10 ** fractionDigits;
   return Math.round(value * factor) / factor;
@@ -981,6 +1421,12 @@ function bindingSupportsCapability(
   capability: ModelCapability,
 ): boolean {
   return binding.capabilities.includes(capability);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function normalizeModelCapabilities(
@@ -1179,6 +1625,11 @@ function buildAutoRouterPromptProfile(
   } else {
     signals.push("simple");
   }
+  if (tokenEstimate <= 300) {
+    signals.push("small-token-budget");
+  } else if (tokenEstimate >= 1_500) {
+    signals.push("larger-token-budget");
+  }
   if (codingSignal) {
     signals.push("coding");
   }
@@ -1264,8 +1715,7 @@ function scoreModelHealth(stats: ModelStatsModelSnapshot | undefined): number {
 
 function scoreModelBenchmark(
   benchmark: AutoRouterBenchmarkSnapshot | undefined,
-  complexity: number,
-  wantsStrongReasoning = false,
+  profile: AutoRouterPromptProfile,
 ): number {
   if (!benchmark) {
     return 0;
@@ -1280,7 +1730,11 @@ function scoreModelBenchmark(
     return -4;
   }
 
-  const mediumWeight = complexity >= 1 && complexity <= 2 ? 1.2 : 0.8;
+  const wantsStrongReasoning = profile.wantsStrongReasoning;
+  const tokenEstimate = profile.tokenEstimate;
+  const isShortPrompt = profile.complexity === 0 && tokenEstimate <= 300;
+  const isLargePrompt = profile.complexity >= 2 || tokenEstimate >= 1_500;
+  const mediumWeight = profile.complexity >= 1 && profile.complexity <= 2 ? 1.2 : 0.8;
   const smallScore = benchmark.taskScores?.quick ?? (
     benchmark.small ? scoreBenchmarkMeasurement(benchmark.small, 0.25) : 0
   );
@@ -1294,12 +1748,33 @@ function scoreModelBenchmark(
     : benchmark.taskScores?.reasoningLow ?? (
       benchmark.reasoningLow ? scoreBenchmarkMeasurement(benchmark.reasoningLow, 0.8) : 0
     );
-  const score =
-    complexity === 0 && !wantsStrongReasoning
+  const toolUseScore = benchmark.taskScores?.toolUse ?? (
+    benchmark.toolUse ? scoreBenchmarkMeasurement(benchmark.toolUse, 0.95) : undefined
+  );
+  let score =
+    isShortPrompt && !wantsStrongReasoning
       ? smallScore * 0.6 + mediumScore * 0.25 + reasoningScore * 0.15
       : wantsStrongReasoning
         ? mediumScore * 0.35 + reasoningScore * 0.65
-        : smallScore * 0.2 + mediumScore * 0.55 + reasoningScore * 0.25;
+        : isLargePrompt
+          ? smallScore * 0.1 + mediumScore * 0.45 + reasoningScore * 0.45
+          : smallScore * 0.2 + mediumScore * 0.55 + reasoningScore * 0.25;
+
+  if (profile.hasTools && typeof toolUseScore === "number") {
+    score = score * 0.72 + toolUseScore * 0.28;
+  }
+
+  if (benchmark.quality?.status === "succeeded" && typeof benchmark.quality.score === "number") {
+    const qualityScore = qualityScoreToRouterScore(benchmark.quality.score);
+    const qualityWeight =
+      profile.hasTools ? 0.3 :
+        wantsStrongReasoning ? 0.45 :
+          isLargePrompt ? 0.35 :
+            profile.complexity >= 1 ? 0.25 :
+              0.12;
+    score = score * (1 - qualityWeight) + qualityScore * qualityWeight;
+  }
+
   return Math.max(-35, Math.min(42, score));
 }
 

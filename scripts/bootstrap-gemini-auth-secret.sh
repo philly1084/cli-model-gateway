@@ -8,6 +8,7 @@ SECRET_NAME="n8n-openai-cli-gateway-gemini-auth"
 SOURCE_DIR=""
 POD_NAME=""
 GEMINI_HOME="/var/lib/gateway-home/.gemini"
+OVERWRITE_SECRET="false"
 FILES=(
   oauth_creds.json
   google_accounts.json
@@ -31,6 +32,7 @@ Options:
   --pod NAME              Read Gemini auth directly from this pod instead of auto-discovery
   --source-dir PATH       Read Gemini auth from a local directory instead of Kubernetes
   --gemini-home PATH      Remote Gemini auth directory. Default: /var/lib/gateway-home/.gemini
+  --overwrite             Replace the Secret if it already exists
   --help                  Show this help
 
 Examples:
@@ -69,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       GEMINI_HOME="${2:-}"
       shift 2
       ;;
+    --overwrite)
+      OVERWRITE_SECRET="true"
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -80,6 +86,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$OVERWRITE_SECRET" != "true" ]] && kubectl get secret "$SECRET_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+  echo "Secret $SECRET_NAME already exists in namespace $NAMESPACE. Nothing changed."
+  echo "Pass --overwrite only when you intentionally want to refresh the stored Gemini auth Secret."
+  exit 0
+fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -147,10 +159,8 @@ done
 
 kubectl create secret generic "$SECRET_NAME" \
   -n "$NAMESPACE" \
-  "${secret_args[@]}" \
-  --dry-run=client \
-  -o yaml | kubectl apply -f -
+  "${secret_args[@]}"
 
-echo "Updated secret $SECRET_NAME in namespace $NAMESPACE."
+echo "Created secret $SECRET_NAME in namespace $NAMESPACE."
 echo "Restart the deployment to reseed an empty PVC:"
 echo "kubectl rollout restart deployment/$DEPLOYMENT_NAME -n $NAMESPACE"
