@@ -463,7 +463,20 @@ function classifyFailure(error: unknown): {
     return { kind: "invalid_model", message };
   }
 
-  if (includesAny(normalized, ["fallback model not found", "duplicate model id", "does not expose model"])) {
+  if (
+    includesAny(normalized, [
+      "fallback model not found",
+      "duplicate model id",
+      "does not expose model",
+      "api_key is not set",
+      "api key is not set",
+      "_api_key is not set",
+      "api key env",
+      "missing api key",
+      "missing provider api key",
+      "environment variable",
+    ])
+  ) {
     return { kind: "config", message };
   }
 
@@ -564,6 +577,7 @@ function computeCooldown(
     quota_exhausted: 3600,
     timeout: 30,
     auth: 600,
+    config: 3600,
   };
 
   const base = baseCooldownSecondsByKind[kind] || 0;
@@ -609,6 +623,10 @@ function determineSuggestedState(
       return "auth_blocked";
     }
     return "cooldown";
+  }
+
+  if (stat.consecutiveFailures >= 3 && failureRate >= 0.75) {
+    return "degraded";
   }
 
   if (attempts >= 6 && failureRate >= 0.5) {

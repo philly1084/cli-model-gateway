@@ -119,11 +119,15 @@ export class OpenAiCompatibleProvider implements Provider {
     };
 
     const metadata = request.metadata;
-    copyNumberMetadata(body, metadata, "temperature");
-    copyNumberMetadata(body, metadata, "top_p");
-    copyNumberMetadata(body, metadata, "presence_penalty");
-    copyNumberMetadata(body, metadata, "frequency_penalty");
-    copyIntegerMetadata(body, metadata, "max_tokens");
+    if (isKimiK2ProviderModel(this.config.baseUrl, providerModel)) {
+      copyKimiK2Metadata(body, metadata);
+    } else {
+      copyNumberMetadata(body, metadata, "temperature");
+      copyNumberMetadata(body, metadata, "top_p");
+      copyNumberMetadata(body, metadata, "presence_penalty");
+      copyNumberMetadata(body, metadata, "frequency_penalty");
+      copyIntegerMetadata(body, metadata, "max_tokens");
+    }
     copyStringMetadata(body, metadata, "user");
     copyProviderReasoningMetadata(body, metadata, this.config.baseUrl, providerModel);
 
@@ -147,8 +151,13 @@ export class OpenAiCompatibleProvider implements Provider {
     const toolChoice = metadata && "tool_choice" in metadata ? metadata.tool_choice : undefined;
     if (request.tools.length > 0 && !suppressGroqLocalToolCalling) {
       body.tools = request.tools;
-      if (toolChoice !== undefined) {
-        body.tool_choice = toolChoice;
+      const providerToolChoice = normalizeToolChoiceForProvider(
+        toolChoice,
+        this.config.baseUrl,
+        providerModel,
+      );
+      if (providerToolChoice !== undefined) {
+        body.tool_choice = providerToolChoice;
       }
     }
 
@@ -541,6 +550,18 @@ function isDeepSeekBaseUrl(baseUrl: string): boolean {
   return /api\.deepseek\.com/i.test(baseUrl);
 }
 
+function isKimiBaseUrl(baseUrl: string): boolean {
+  return /(?:api\.)?(?:moonshot|kimi)\.(?:ai|cn|com)/i.test(baseUrl);
+}
+
+function isKimiK2Model(providerModel: string): boolean {
+  return /^kimi-k2(?:[.-]|$)/i.test(providerModel.trim());
+}
+
+function isKimiK2ProviderModel(baseUrl: string, providerModel: string): boolean {
+  return isKimiBaseUrl(baseUrl) && isKimiK2Model(providerModel);
+}
+
 function normalizeApiToolCalls(raw: unknown): ProviderToolCall[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -854,6 +875,88 @@ function copyIntegerMetadata(
   }
 }
 
+function copyKimiK2Metadata(
+  target: Record<string, unknown>,
+  metadata: UnifiedRequest["metadata"],
+): void {
+  const maxCompletionTokens = readMetadataValue(metadata, "max_completion_tokens");
+  if (typeof maxCompletionTokens === "number" && Number.isInteger(maxCompletionTokens)) {
+    target.max_completion_tokens = maxCompletionTokens;
+  } else {
+    copyIntegerMetadata(target, metadata, "max_tokens");
+  }
+
+  const thinking = normalizeKimiThinkingMetadata(
+    firstDefined(
+      readMetadataValue(metadata, "thinking"),
+      readMetadataValue(metadata, "kimi_thinking"),
+      readMetadataValue(metadata, "moonshot_thinking"),
+    ),
+  );
+  if (thinking) {
+    target.thinking = thinking;
+  }
+}
+
+function normalizeKimiThinkingMetadata(value: unknown): { type: "enabled" | "disabled" } | undefined {
+  if (typeof value === "boolean") {
+    return { type: value ? "enabled" : "disabled" };
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "enabled" || normalized === "disabled") {
+      return { type: normalized };
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const type = (value as Record<string, unknown>).type;
+  if (typeof type !== "string") {
+    return undefined;
+  }
+
+  const normalized = type.trim().toLowerCase();
+  if (normalized === "enabled" || normalized === "disabled") {
+    return { type: normalized };
+  }
+
+  return undefined;
+}
+
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined);
+}
+
+function normalizeToolChoiceForProvider(
+  toolChoice: unknown,
+  baseUrl: string,
+  providerModel: string,
+): unknown {
+  if (toolChoice === undefined) {
+    return undefined;
+  }
+
+  if (!isKimiK2ProviderModel(baseUrl, providerModel)) {
+    return toolChoice;
+  }
+
+  if (typeof toolChoice === "string") {
+    const normalized = toolChoice.trim().toLowerCase();
+    if (normalized === "auto" || normalized === "none") {
+      return normalized;
+    }
+  }
+
+  // Kimi K2 thinking mode rejects forced tool choices; preserve tool use by
+  // letting the provider choose rather than failing the whole request.
+  return "auto";
+}
+
 function copyStringMetadata(
   target: Record<string, unknown>,
   metadata: UnifiedRequest["metadata"],
@@ -882,7 +985,7 @@ function copyProviderReasoningMetadata(
   baseUrl: string,
   providerModel: string,
 ): void {
-  if (isDeepSeekBaseUrl(baseUrl)) {
+  if (isDeepSeekBaseUrl(baseUrl) || isKimiK2ProviderModel(baseUrl, providerModel)) {
     return;
   }
 

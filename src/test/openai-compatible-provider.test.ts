@@ -11,6 +11,14 @@ type CapturedRequestBody = {
   model?: string;
   messages?: Array<Record<string, unknown>>;
   tools?: unknown[];
+  tool_choice?: unknown;
+  temperature?: number;
+  top_p?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  thinking?: Record<string, unknown>;
   reasoning_effort?: string;
   reasoning_format?: string;
   include_reasoning?: boolean;
@@ -305,6 +313,106 @@ test("OpenAiCompatibleProvider forwards Groq local tool calls for chat models", 
     assert.equal(capturedBody.tools?.length, 1);
     assert.equal(result.finishReason, "tool_calls");
     assert.equal(result.reasoningText, "Chose the status lookup tool.");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider normalizes Kimi K2 request knobs", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: "ok",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "kimi-api",
+      type: "openai",
+      baseUrl: "https://api.moonshot.ai/v1",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "kimi-k2.6",
+          providerModel: "kimi-k2.6",
+        },
+      ],
+      discovery: {
+        enabled: false,
+      },
+    });
+
+    await provider.run({
+      requestId: "req_kimi_1",
+      model: "kimi-k2.6",
+      providerModel: "kimi-k2.6",
+      messages: [
+        {
+          role: "user",
+          content: "Use the tool if needed.",
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "check_status",
+          },
+        },
+      ],
+      metadata: {
+        temperature: 0.2,
+        top_p: 0.5,
+        presence_penalty: 0.5,
+        frequency_penalty: 0.5,
+        max_completion_tokens: 512,
+        include_reasoning: true,
+        reasoning_format: "raw",
+        thinking: { type: "disabled" },
+        tool_choice: {
+          type: "function",
+          function: { name: "check_status" },
+        },
+      },
+    });
+
+    assert.equal(capturedBody.model, "kimi-k2.6");
+    assert.equal(capturedBody.temperature, undefined);
+    assert.equal(capturedBody.top_p, undefined);
+    assert.equal(capturedBody.presence_penalty, undefined);
+    assert.equal(capturedBody.frequency_penalty, undefined);
+    assert.equal(capturedBody.max_completion_tokens, 512);
+    assert.equal(capturedBody.max_tokens, undefined);
+    assert.equal(capturedBody.include_reasoning, undefined);
+    assert.equal(capturedBody.reasoning_format, undefined);
+    assert.deepEqual(capturedBody.thinking, { type: "disabled" });
+    assert.equal(capturedBody.tool_choice, "auto");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {
