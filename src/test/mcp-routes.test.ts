@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
 import { mcpRoutes } from "../routes/mcp";
-import { RemoteCliToolManager } from "../jobs/remote-cli-tool-manager";
+import { buildRemoteOpenCodeLaunch, RemoteCliToolManager } from "../jobs/remote-cli-tool-manager";
 import type { RemoteCliToolAuthScope, RemoteCliTargetConfig } from "../types";
 
 const TARGET: RemoteCliTargetConfig = {
@@ -138,6 +138,28 @@ test("mcp remote_code_run returns structured job output", async () => {
   } finally {
     await app.close();
   }
+});
+
+test("remote_code_run forwards adminMode as Codex sandbox selection for codex targets", () => {
+  const targets = new Map<string, RemoteCliTargetConfig>([
+    ["prod", {
+      ...TARGET,
+      opencodeExecutable: "/usr/local/bin/codex-remote-run",
+    }],
+  ]);
+
+  const adminLaunch = buildRemoteOpenCodeLaunch({
+    targetId: "prod",
+    task: "deploy and verify live",
+    adminMode: true,
+  }, targets);
+  assert.match(adminLaunch.remoteCommand, /--sandbox danger-full-access/);
+
+  const normalLaunch = buildRemoteOpenCodeLaunch({
+    targetId: "prod",
+    task: "inspect source only",
+  }, targets);
+  assert.match(normalLaunch.remoteCommand, /--sandbox workspace-write/);
 });
 
 function createMcpTestApp(

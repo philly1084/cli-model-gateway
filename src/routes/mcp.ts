@@ -26,6 +26,7 @@ const runArgsSchema = z.object({
   task: z.string().min(1),
   model: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
+  adminMode: z.boolean().optional(),
   waitMs: z.number().int().min(0).max(30_000).optional(),
 }).passthrough();
 
@@ -181,6 +182,10 @@ function buildToolsList(targets: RemoteCliTargetConfig[]): Array<Record<string, 
           sessionId: {
             type: "string",
             description: "Optional OpenCode session id to continue.",
+          },
+          adminMode: {
+            type: "boolean",
+            description: "Use the configured admin-capable remote Codex lane for scoped live deploy and verification work.",
           },
           waitMs: {
             type: "integer",

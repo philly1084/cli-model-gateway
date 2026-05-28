@@ -17,6 +17,7 @@ export interface RemoteCliRunInput {
   task: string;
   model?: string;
   sessionId?: string;
+  adminMode?: boolean;
   waitMs?: number;
 }
 
@@ -264,12 +265,16 @@ export function buildRemoteOpenCodeLaunch(
 
   const cwd = resolveRemoteCwd(input.cwd ?? target.defaultCwd, target);
   const destination = target.user ? `${target.user}@${target.host}` : target.host;
+  const remoteExecutable = target.opencodeExecutable ?? DEFAULT_OPENCODE_EXECUTABLE;
   const remoteArgs = [
-    shellEscape(target.opencodeExecutable ?? DEFAULT_OPENCODE_EXECUTABLE),
+    shellEscape(remoteExecutable),
     "run",
     "--format",
     "json",
   ];
+  if (supportsSandboxMode(remoteExecutable)) {
+    remoteArgs.push("--sandbox", input.adminMode ? "danger-full-access" : "workspace-write");
+  }
   if (input.model?.trim()) {
     remoteArgs.push("--model", shellEscape(input.model.trim()));
   } else if (target.defaultModel?.trim()) {
@@ -294,6 +299,11 @@ export function buildRemoteOpenCodeLaunch(
     target,
     remoteCommand,
   };
+}
+
+function supportsSandboxMode(executable: string): boolean {
+  return /(?:^|[/\\])(?:codex|codex-remote-run)(?:$|[.\s_-])/i.test(executable)
+    || /\bcodex\b/i.test(executable);
 }
 
 function resolveRemoteCwd(requestedCwd: string | undefined, target: RemoteCliTargetConfig): string {
