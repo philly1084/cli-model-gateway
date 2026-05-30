@@ -119,16 +119,14 @@ test("OpenAiCompatibleProvider forwards remote session metadata and approval fla
   }
 });
 
-test("OpenAiCompatibleProvider forwards DeepSeek reasoner tool turns without remote metadata", async () => {
+test("OpenAiCompatibleProvider rejects DeepSeek thinking tool turns without reasoning_content round-trip", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REMOTE_API_KEY;
-  let capturedUrl = "";
-  let capturedBody: CapturedRequestBody = {};
+  let providerCalled = false;
 
   process.env.TEST_REMOTE_API_KEY = "test-key";
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    capturedUrl = String(input);
-    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+  globalThis.fetch = (async () => {
+    providerCalled = true;
     return new Response(
       JSON.stringify({
         choices: [
@@ -173,45 +171,34 @@ test("OpenAiCompatibleProvider forwards DeepSeek reasoner tool turns without rem
       ],
     });
 
-    const result = await provider.run({
-      requestId: "req_2",
-      model: "deepseek-reasoner",
-      providerModel: "deepseek-reasoner",
-      messages: [
-        {
-          role: "user",
-          content: "Use the tool if needed.",
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "check_status",
+    await assert.rejects(
+      provider.run({
+        requestId: "req_2",
+        model: "deepseek-reasoner",
+        providerModel: "deepseek-reasoner",
+        messages: [
+          {
+            role: "user",
+            content: "Use the tool if needed.",
           },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "check_status",
+            },
+          },
+        ],
+        metadata: {
+          session_id: "session-123",
+          reasoning_format: "parsed",
+          include_reasoning: true,
         },
-      ],
-      metadata: {
-        session_id: "session-123",
-        reasoning_format: "parsed",
-        include_reasoning: true,
-      },
-    });
-
-    assert.match(capturedUrl, /https:\/\/api\.deepseek\.com\/chat\/completions$/);
-    assert.equal(capturedBody.model, "deepseek-reasoner");
-    assert.equal(capturedBody.session_id, undefined);
-    assert.equal(capturedBody.metadata, undefined);
-    assert.equal(capturedBody.reasoning_format, undefined);
-    assert.equal(capturedBody.include_reasoning, undefined);
-    assert.equal(capturedBody.tools?.length, 1);
-    assert.deepStrictEqual(result.toolCalls, [
-      {
-        id: "call_status",
-        name: "check_status",
-        arguments: "{\"service\":\"api\"}",
-      },
-    ]);
+      }),
+      /requires reasoning_content round-tripping/i,
+    );
+    assert.equal(providerCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {

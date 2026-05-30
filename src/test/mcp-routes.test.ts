@@ -98,10 +98,12 @@ test("mcp remote_code_run rejects raw command fields before spawning ssh", async
 });
 
 test("mcp remote_code_run returns structured job output", async () => {
-    const app = createMcpTestApp(new Set(["frontend", "admin", "n8n"]), () => {
+  const app = createMcpTestApp(new Set(["frontend", "admin", "n8n"]), () => {
     const child = createFakeChild();
     setTimeout(() => {
-      (child.stdout as PassThrough).write('{"sessionId":"sess_456","summary":"done"}\n');
+      (child.stdout as PassThrough).write(
+        '{"sessionId":"sess_456","summary":"done","text":"WHAT_CHANGED=done\\nVERIFY_COMMANDS=remote smoke\\nVERIFY_RESULTS=passed\\nPUBLIC_URL=https://example.com\\nBLOCKER=none"}\n',
+      );
       child.emit("close", 0);
     }, 5);
     return child;
@@ -129,12 +131,18 @@ test("mcp remote_code_run returns structured job output", async () => {
           status: string;
           sessionId?: string;
           summary?: string;
+          proof?: {
+            complete: boolean;
+            markers: Record<string, string[]>;
+          };
         };
       };
     };
     assert.equal(body.result.structuredContent.status, "completed");
     assert.equal(body.result.structuredContent.sessionId, "sess_456");
     assert.equal(body.result.structuredContent.summary, "done");
+    assert.equal(body.result.structuredContent.proof?.complete, true);
+    assert.equal(body.result.structuredContent.proof?.markers.PUBLIC_URL?.[0], "https://example.com");
   } finally {
     await app.close();
   }

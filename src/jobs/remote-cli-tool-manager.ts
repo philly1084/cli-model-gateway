@@ -33,7 +33,15 @@ export interface RemoteCliJob {
   stderr: string;
   sessionId?: string;
   summary?: string;
+  proof?: RemoteCliProof;
   durationMs?: number;
+}
+
+export interface RemoteCliProof {
+  complete: boolean;
+  missing: string[];
+  markers: Record<string, string[]>;
+  finalText?: string;
 }
 
 interface RemoteCliJobInternal extends RemoteCliJob {
@@ -245,6 +253,7 @@ export class RemoteCliToolManager {
       stderr: job.stderr,
       sessionId: job.sessionId,
       summary: job.summary,
+      proof: job.proof,
       durationMs: job.durationMs,
     };
   }
@@ -283,7 +292,7 @@ export function buildRemoteOpenCodeLaunch(
   if (input.sessionId?.trim()) {
     remoteArgs.push("--session", shellEscape(input.sessionId.trim()));
   }
-  remoteArgs.push(shellEscape(input.task));
+  remoteArgs.push(shellEscape(withRemoteProofInstructions(input.task)));
 
   const remoteCommand = `cd ${shellEscape(cwd)} && ${remoteArgs.join(" ")}`;
   const args = ["-o", "BatchMode=yes"];
@@ -393,31 +402,43 @@ function finalizeOutput(job: RemoteCliJobInternal, startedAt: number): void {
   const parsed = parseOpenCodeOutput(job.stdout);
   job.sessionId = job.sessionId ?? parsed.sessionId;
   job.summary = parsed.summary;
+  job.proof = parsed.proof;
 }
 
-function parseOpenCodeOutput(stdout: string): { sessionId?: string; summary?: string } {
+function parseOpenCodeOutput(stdout: string): { sessionId?: string; summary?: string; proof: RemoteCliProof } {
   let sessionId: string | undefined;
   let summary: string | undefined;
+  const textFragments: string[] = [];
 
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || !trimmed.startsWith("{")) {
+      if (trimmed) {
+        textFragments.push(trimmed);
+      }
       continue;
     }
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
       sessionId = sessionId ?? firstString(parsed.sessionId, parsed.session_id, parsed.sessionID);
       summary = firstString(parsed.summary, parsed.output, parsed.text, parsed.message) ?? summary;
+      collectTextFragments(parsed, textFragments);
       const nested = typeof parsed.session === "object" && parsed.session !== null
         ? parsed.session as Record<string, unknown>
         : undefined;
       sessionId = sessionId ?? firstString(nested?.id, nested?.sessionId, nested?.session_id);
     } catch {
+      textFragments.push(trimmed);
       continue;
     }
   }
 
-  return { sessionId, summary };
+  const proof = parseRemoteProof(textFragments.join("\n"));
+  if (!summary && proof.markers.WHAT_CHANGED?.[0]) {
+    summary = proof.markers.WHAT_CHANGED[0];
+  }
+
+  return { sessionId, summary, proof };
 }
 
 function firstString(...values: unknown[]): string | undefined {
@@ -427,4 +448,101 @@ function firstString(...values: unknown[]): string | undefined {
     }
   }
   return undefined;
+}
+
+function withRemoteProofInstructions(task: string): string {
+  return [
+    task,
+    "",
+    "Remote CLI completion contract:",
+    "Finish by printing these marker lines exactly once the work is done:",
+    "WHAT_CHANGED=<short summary of source/config/deploy changes>",
+    "VERIFY_COMMANDS=<commands or checks run, or not_available>",
+    "VERIFY_RESULTS=<pass/fail/blocked result for those checks>",
+    "PUBLIC_URL=<https URL or not_available>",
+    "BLOCKER=<none or exact blocker>",
+    "Also include continuity markers when known: REMOTE_CLI_SESSION_ID=<session id>, WORKSPACE=<path>, GIT_COMMIT=<sha>, DEPLOYMENT=<namespace/name>, PUBLIC_HOST=<host>, UI_CHECK_REPORT=<path>, UI_SCREENSHOTS=<paths>.",
+  ].join("\n");
+}
+
+const REQUIRED_PROOF_MARKERS = [
+  "WHAT_CHANGED",
+  "VERIFY_COMMANDS",
+  "VERIFY_RESULTS",
+  "PUBLIC_URL",
+  "BLOCKER",
+] as const;
+
+function parseRemoteProof(text: string): RemoteCliProof {
+  const markers: Record<string, string[]> = {};
+  for (const marker of [
+    ...REQUIRED_PROOF_MARKERS,
+    "REMOTE_AGENT_RESULT",
+    "REMOTE_CLI_SESSION_ID",
+    "WORKSPACE",
+    "GIT_REPO",
+    "GIT_BRANCH",
+    "GIT_BASE_COMMIT",
+    "GIT_COMMIT",
+    "CHANGED_FILES",
+    "DEPLOYMENT",
+    "PUBLIC_HOST",
+    "UI_CHECK_REPORT",
+    "UI_SCREENSHOTS",
+  ]) {
+    const values = readMarkerValues(text, marker);
+    if (values.length > 0) {
+      markers[marker] = values;
+    }
+  }
+
+  const missing = REQUIRED_PROOF_MARKERS.filter((marker) => !markers[marker]?.length);
+  return {
+    complete: missing.length === 0,
+    missing,
+    markers,
+    finalText: lastNonEmptyText(text),
+  };
+}
+
+function readMarkerValues(text: string, marker: string): string[] {
+  const values: string[] = [];
+  const pattern = new RegExp(`^${marker}=([^\\r\\n]*)`, "gm");
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    const value = match[1]?.trim();
+    if (value && !isPlaceholderMarkerValue(value)) {
+      values.push(value);
+    }
+  }
+  return values;
+}
+
+function isPlaceholderMarkerValue(value: string): boolean {
+  return value.startsWith("<") && value.endsWith(">");
+}
+
+function lastNonEmptyText(text: string): string | undefined {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.at(-1);
+}
+
+function collectTextFragments(value: unknown, output: string[]): void {
+  if (typeof value === "string") {
+    if (value.trim()) {
+      output.push(value);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectTextFragments(item, output);
+    }
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const nested of Object.values(value)) {
+      collectTextFragments(nested, output);
+    }
+  }
 }

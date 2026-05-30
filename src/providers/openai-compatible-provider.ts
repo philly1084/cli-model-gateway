@@ -110,6 +110,11 @@ export class OpenAiCompatibleProvider implements Provider {
         `Model ${providerModel} does not reliably support gateway-managed tool calling. Retry with a fallback model.`,
       );
     }
+    if (shouldRejectDeepSeekThinkingToolTurn(this.config.baseUrl, providerModel, request)) {
+      throw new Error(
+        `Model ${providerModel} requires reasoning_content round-tripping for thinking-mode tool calls. Retry with a fallback model.`,
+      );
+    }
     const body: Record<string, unknown> = {
       model: providerModel,
       messages: buildApiMessages(request.messages, {
@@ -548,6 +553,22 @@ function isGroqBaseUrl(baseUrl: string): boolean {
 
 function isDeepSeekBaseUrl(baseUrl: string): boolean {
   return /api\.deepseek\.com/i.test(baseUrl);
+}
+
+function isDeepSeekThinkingModel(providerModel: string): boolean {
+  return /^deepseek-(?:reasoner|r\d|v\d)/i.test(providerModel.trim());
+}
+
+function shouldRejectDeepSeekThinkingToolTurn(
+  baseUrl: string,
+  providerModel: string,
+  request: UnifiedRequest,
+): boolean {
+  return (
+    request.tools.length > 0 &&
+    isDeepSeekBaseUrl(baseUrl) &&
+    isDeepSeekThinkingModel(providerModel)
+  );
 }
 
 function isKimiBaseUrl(baseUrl: string): boolean {

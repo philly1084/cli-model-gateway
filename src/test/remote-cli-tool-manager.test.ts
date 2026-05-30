@@ -38,7 +38,8 @@ test("buildRemoteOpenCodeLaunch quotes dynamic values and pins ssh target", () =
   assert.match(launch.remoteCommand, /^cd '\/srv\/apps\/my app' && '\/usr\/local\/bin\/opencode' run --format json/);
   assert.match(launch.remoteCommand, /--model 'anthropic\/claude sonnet'/);
   assert.match(launch.remoteCommand, /--session 'sess'"'"'1'/);
-  assert.match(launch.remoteCommand, /'fix bug'"'"'; touch \/tmp\/pwned #'/);
+  assert.match(launch.remoteCommand, /'fix bug'"'"'; touch \/tmp\/pwned #/);
+  assert.match(launch.remoteCommand, /WHAT_CHANGED=<short summary/);
 });
 
 test("buildRemoteOpenCodeLaunch rejects cwd outside allowed remote roots", () => {
@@ -64,7 +65,9 @@ test("RemoteCliToolManager captures fake ssh output and extracts session metadat
       calls.push({ command, args });
       const child = createFakeChild();
       setTimeout(() => {
-        (child.stdout as PassThrough).write('{"sessionId":"sess_123","summary":"patched tests"}\n');
+        (child.stdout as PassThrough).write(
+          '{"sessionId":"sess_123","summary":"patched tests","type":"item.completed","item":{"type":"agent_message","text":"WHAT_CHANGED=patched tests\\nVERIFY_COMMANDS=npm test\\nVERIFY_RESULTS=passed\\nPUBLIC_URL=not_available\\nBLOCKER=none\\nREMOTE_CLI_SESSION_ID=sess_123"}}\n',
+        );
         child.emit("close", 0);
       }, 5);
       return child;
@@ -81,8 +84,13 @@ test("RemoteCliToolManager captures fake ssh output and extracts session metadat
   assert.equal(result.status, "completed");
   assert.equal(result.sessionId, "sess_123");
   assert.equal(result.summary, "patched tests");
+  assert.equal(result.proof?.complete, true);
+  assert.equal(result.proof?.markers.WHAT_CHANGED?.[0], "patched tests");
+  assert.equal(result.proof?.markers.VERIFY_COMMANDS?.[0], "npm test");
+  assert.equal(result.proof?.markers.BLOCKER?.[0], "none");
   assert.equal(calls[0]?.command, "fake-ssh");
   assert.match(calls[0]?.args.at(-1) ?? "", /opencode' run --format json/);
+  assert.match(calls[0]?.args.at(-1) ?? "", /WHAT_CHANGED=<short summary/);
 
   await manager.close();
 });

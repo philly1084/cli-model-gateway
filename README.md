@@ -266,6 +266,8 @@ Available MCP tools:
 
 `remote_code_run` starts `ssh <target> "cd <cwd> && opencode run --format json ... <task>"`. The gateway validates `cwd` against `allowedCwds`, quotes dynamic values, and rejects raw `command`, `args`, `executable`, or `shell` fields.
 
+The gateway appends a small completion contract to remote tasks so coding agents finish with source, verification, public URL, and blocker markers. When those markers appear in raw stdout or JSONL agent output, `remote_code_run`/`remote_code_status` include a structured `proof` object with `complete`, `missing`, and parsed `markers` fields.
+
 ## 4c) Remote agent sessions
 
 Use `/admin/remote-agent-tasks` when the frontend should choose a local CLI provider session, such as Codex, Gemini, or Kimi, and give it controlled instructions for a configured remote target. This path runs the selected provider CLI on the gateway and sends it a bootstrap prompt with SSH target details, allowed remote roots, and progress marker instructions.

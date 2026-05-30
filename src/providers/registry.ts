@@ -8,6 +8,7 @@ import type {
   AutoRouterPromptProfile,
   ModelCapability,
   ProviderConfig,
+  ProviderModelConfig,
   ProviderResult,
   ProviderStreamEvent,
   ProviderToolCall,
@@ -154,7 +155,7 @@ export class ProviderRegistry {
           provider,
           description: model.description,
           fallbackModelIds: model.fallbackModels || [],
-          capabilities: normalizeModelCapabilities(model.capabilities),
+          capabilities: normalizeModelCapabilitiesForBinding(provider, model),
         });
         registry.modelStats.registerModel({
           modelId: model.id,
@@ -785,6 +786,9 @@ export class ProviderRegistry {
             `Model ${binding.modelId} does not support ${requiredCapability} requests.`,
           );
         }
+        if (request.tools.length > 0 && !bindingSupportsCapability(binding, "tools")) {
+          throw new Error(`Model ${binding.modelId} does not support tools requests.`);
+        }
 
         const rawResult = await binding.provider.run({
           ...request,
@@ -877,12 +881,15 @@ export class ProviderRegistry {
     }
 
     const requiredCapability = requiredCapabilityForRequest(request);
-    if (!requiredCapability) {
-      return true;
+    const binding = this.models.get(modelId);
+    if (!binding) {
+      return false;
+    }
+    if (request.tools.length > 0 && !bindingSupportsCapability(binding, "tools")) {
+      return false;
     }
 
-    const binding = this.models.get(modelId);
-    return Boolean(binding && bindingSupportsCapability(binding, requiredCapability));
+    return !requiredCapability || bindingSupportsCapability(binding, requiredCapability);
   }
 
   private selectAutoModel(
@@ -1437,6 +1444,26 @@ function normalizeModelCapabilities(
   }
 
   return ["chat", "responses", "tools", "reasoning", "structured_outputs"];
+}
+
+function normalizeModelCapabilitiesForBinding(
+  provider: Provider,
+  model: ProviderModelConfig,
+): ModelCapability[] {
+  const capabilities = normalizeModelCapabilities(model.capabilities);
+  if (!isDeepSeekThinkingBinding(provider, model.providerModel || model.id)) {
+    return capabilities;
+  }
+
+  return capabilities.filter((capability) => capability !== "tools");
+}
+
+function isDeepSeekThinkingBinding(provider: Provider, providerModel: string): boolean {
+  if (provider.config.type !== "openai" || !/api\.deepseek\.com/i.test(provider.config.baseUrl)) {
+    return false;
+  }
+
+  return /^deepseek-(?:reasoner|r\d|v\d)/i.test(providerModel.trim());
 }
 
 function requiredCapabilityForRequest(
