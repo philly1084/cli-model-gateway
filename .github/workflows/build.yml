@@ -10,6 +10,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  IMAGE_ALIAS: philly1084/cli-model-gateway
   EXTRA_NPM_GLOBAL_PACKAGES: "@google/gemini-cli @openai/codex opencode-ai"
 
 jobs:
@@ -38,7 +39,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ALIAS }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
