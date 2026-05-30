@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { RemoteCliToolAuthScope, RemoteCliTargetConfig } from "../types";
 import { RemoteCliToolManager } from "../jobs/remote-cli-tool-manager";
 
+const MCP_SSE_HEARTBEAT_MS = 15000;
+
 interface McpRoutesOptions {
   manager: RemoteCliToolManager;
   adminApiKey: string;
@@ -61,6 +63,28 @@ export const mcpRoutes: FastifyPluginAsync<McpRoutesOptions> = async (app, optio
       return reply.status(202).send();
     }
     return response;
+  });
+
+  app.get("/mcp", async (_request, reply) => {
+    reply.hijack();
+    const raw = reply.raw;
+    raw.statusCode = 200;
+    raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    raw.setHeader("Cache-Control", "no-cache, no-transform");
+    raw.setHeader("Connection", "keep-alive");
+    raw.setHeader("X-Accel-Buffering", "no");
+    raw.write(": stream-open\n\n");
+
+    const heartbeat = setInterval(() => {
+      raw.write(": keepalive\n\n");
+    }, MCP_SSE_HEARTBEAT_MS);
+    heartbeat.unref();
+
+    raw.on("close", () => {
+      clearInterval(heartbeat);
+    });
+
+    return reply;
   });
 };
 

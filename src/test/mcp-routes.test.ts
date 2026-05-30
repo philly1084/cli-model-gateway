@@ -4,6 +4,7 @@ import Fastify from "fastify";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
+import type { AddressInfo } from "node:net";
 import { mcpRoutes } from "../routes/mcp";
 import { buildRemoteOpenCodeLaunch, RemoteCliToolManager } from "../jobs/remote-cli-tool-manager";
 import type { RemoteCliToolAuthScope, RemoteCliTargetConfig } from "../types";
@@ -62,6 +63,34 @@ test("mcp tools/list permits n8n only when configured", async () => {
     assert.equal(response.statusCode, 200);
     const body = response.json() as { result: { tools: Array<{ name: string }> } };
     assert.equal(body.result.tools.some((tool) => tool.name === "remote_code_run"), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test("mcp GET opens an SSE stream for Streamable HTTP clients", async () => {
+  const app = createMcpTestApp(new Set(["frontend", "admin"]));
+
+  try {
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/mcp`, {
+      headers: {
+        accept: "text/event-stream",
+        authorization: "Bearer frontend-key",
+      },
+    });
+    const reader = response.body?.getReader();
+    assert.ok(reader);
+    try {
+      const chunk = await reader.read();
+      const text = new TextDecoder().decode(chunk.value);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
+      assert.match(text, /stream-open/);
+    } finally {
+      await reader.cancel();
+    }
   } finally {
     await app.close();
   }
