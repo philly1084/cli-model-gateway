@@ -71,6 +71,19 @@ The gateway also exposes a virtual `auto` model. It is not configured in `provid
 
 By default, the gateway starts a bounded auto-router capacity baseline in the background after boot and reruns it every 8 hours. It sends quick, medium, low-reasoning, high-reasoning, and tool-call probes to eligible configured models, records completion latency, time to first streamed token when available, rough or measured output token rate, provider usage counts, tool-call behavior, and per-task scores. When a separate stronger configured model is available, the baseline also asks that model to judge benchmark output quality and folds the score into later `auto` choices. The baseline is non-fatal and de-duplicates concurrent runs; failed providers or failed quality checks are marked in the snapshot without blocking startup. Tune it with `AUTO_ROUTER_BENCHMARK_ON_START`, `AUTO_ROUTER_BENCHMARK_TIMEOUT_MS`, `AUTO_ROUTER_BENCHMARK_MAX_MODELS`, `AUTO_ROUTER_BENCHMARK_CONCURRENCY`, `AUTO_ROUTER_BENCHMARK_INTERVAL_MS`, `AUTO_ROUTER_BENCHMARK_EVALUATE_QUALITY`, `AUTO_ROUTER_BENCHMARK_EVALUATOR_MODEL`, and `AUTO_ROUTER_BENCHMARK_QUALITY_TIMEOUT_MS`. Inspect current signals with `GET /admin/stats/auto-router` or trigger a fresh run with `POST /admin/stats/auto-router/baseline`.
 
+### Remote execution contract
+
+Trusted clients can call the Streamable HTTP MCP endpoint `/mcp` with `remote_code_run`, `remote_code_status`, and `remote_code_cancel`. `remote_code_run` accepts only high-level task fields: `targetId`, optional `cwd`, `task`, optional `model`, optional `sessionId`, optional `adminMode`, and optional `waitMs`. Raw shell fields such as `command`, `args`, `executable`, and `shell` are rejected so the gateway remains the single source of truth for the remote execution shape.
+
+`remote_code_run` and `remote_code_status` return both MCP text content and `structuredContent`. Consumers should prefer these structured fields:
+
+- `completionStatus`: `running`, `complete`, `blocked`, `failed`, `cancelled`, `timed_out`, or `unknown`.
+- `finalOutput`: normalized completion marker lines for handoff and continuity.
+- `whatChanged`, `verifyCommands`, `verifyResults`, `publicUrl`, and `blocker`.
+- Git and deployment continuity fields when available: `gitRepo`, `gitBranch`, `gitBaseCommit`, `gitCommit`, `changedFiles`, `deployment`, `publicHost`, `uiCheckReport`, and `uiScreenshots`.
+
+The remote agent is still asked to print marker lines, but downstream chat clients should not scrape raw stdout when `structuredContent` is available.
+
 Supported template variables in commands:
 
 - `{{model}}` requested model id from API

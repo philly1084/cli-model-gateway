@@ -158,8 +158,11 @@ test("mcp remote_code_run returns structured job output", async () => {
       result: {
         structuredContent: {
           status: string;
+          completionStatus?: string;
           sessionId?: string;
           summary?: string;
+          finalOutput?: string;
+          verifyResults?: string[];
           proof?: {
             complete: boolean;
             markers: Record<string, string[]>;
@@ -168,8 +171,11 @@ test("mcp remote_code_run returns structured job output", async () => {
       };
     };
     assert.equal(body.result.structuredContent.status, "completed");
+    assert.equal(body.result.structuredContent.completionStatus, "complete");
     assert.equal(body.result.structuredContent.sessionId, "sess_456");
     assert.equal(body.result.structuredContent.summary, "done");
+    assert.match(body.result.structuredContent.finalOutput ?? "", /VERIFY_RESULTS=passed/);
+    assert.deepEqual(body.result.structuredContent.verifyResults, ["passed"]);
     assert.equal(body.result.structuredContent.proof?.complete, true);
     assert.equal(body.result.structuredContent.proof?.markers.PUBLIC_URL?.[0], "https://example.com");
   } finally {

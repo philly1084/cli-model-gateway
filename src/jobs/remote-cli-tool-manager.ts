@@ -34,6 +34,22 @@ export interface RemoteCliJob {
   sessionId?: string;
   summary?: string;
   proof?: RemoteCliProof;
+  finalOutput?: string;
+  completionStatus: RemoteCliCompletionStatus;
+  whatChanged?: string;
+  verifyCommands: string[];
+  verifyResults: string[];
+  publicUrl?: string;
+  blocker?: string;
+  gitRepo?: string;
+  gitBranch?: string;
+  gitBaseCommit?: string;
+  gitCommit?: string;
+  changedFiles: string[];
+  deployment?: string;
+  publicHost?: string;
+  uiCheckReport?: string;
+  uiScreenshots: string[];
   durationMs?: number;
 }
 
@@ -43,6 +59,15 @@ export interface RemoteCliProof {
   markers: Record<string, string[]>;
   finalText?: string;
 }
+
+export type RemoteCliCompletionStatus =
+  | "running"
+  | "complete"
+  | "blocked"
+  | "failed"
+  | "cancelled"
+  | "timed_out"
+  | "unknown";
 
 interface RemoteCliJobInternal extends RemoteCliJob {
   child?: ChildProcessWithoutNullStreams;
@@ -113,6 +138,7 @@ export class RemoteCliToolManager {
     const job = this.requireJob(jobId);
     if (job.status === "running") {
       job.status = "cancelled";
+      job.completionStatus = "cancelled";
       job.finishedAt = new Date().toISOString();
       job.durationMs = Date.now() - new Date(job.startedAt).getTime();
       if (job.timeout) {
@@ -127,6 +153,7 @@ export class RemoteCliToolManager {
     for (const job of this.jobs.values()) {
       if (job.status === "running") {
         job.status = "cancelled";
+        job.completionStatus = "cancelled";
         job.child?.kill("SIGTERM");
       }
       if (job.timeout) {
@@ -148,6 +175,11 @@ export class RemoteCliToolManager {
       startedAt: now,
       stdout: "",
       stderr: "",
+      completionStatus: "running",
+      verifyCommands: [],
+      verifyResults: [],
+      changedFiles: [],
+      uiScreenshots: [],
       maxOutputBytes: launch.target.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
       stdoutTruncated: false,
       stderrTruncated: false,
@@ -183,6 +215,7 @@ export class RemoteCliToolManager {
       }
       finished = true;
       job.status = "timed_out";
+      job.completionStatus = "timed_out";
       job.finishedAt = new Date().toISOString();
       job.durationMs = Date.now() - startedAt;
       child.kill("SIGTERM");
@@ -254,6 +287,22 @@ export class RemoteCliToolManager {
       sessionId: job.sessionId,
       summary: job.summary,
       proof: job.proof,
+      finalOutput: job.finalOutput,
+      completionStatus: job.completionStatus,
+      whatChanged: job.whatChanged,
+      verifyCommands: [...job.verifyCommands],
+      verifyResults: [...job.verifyResults],
+      publicUrl: job.publicUrl,
+      blocker: job.blocker,
+      gitRepo: job.gitRepo,
+      gitBranch: job.gitBranch,
+      gitBaseCommit: job.gitBaseCommit,
+      gitCommit: job.gitCommit,
+      changedFiles: [...job.changedFiles],
+      deployment: job.deployment,
+      publicHost: job.publicHost,
+      uiCheckReport: job.uiCheckReport,
+      uiScreenshots: [...job.uiScreenshots],
       durationMs: job.durationMs,
     };
   }
@@ -403,6 +452,7 @@ function finalizeOutput(job: RemoteCliJobInternal, startedAt: number): void {
   job.sessionId = job.sessionId ?? parsed.sessionId;
   job.summary = parsed.summary;
   job.proof = parsed.proof;
+  applyProofContract(job, parsed.proof);
 }
 
 function parseOpenCodeOutput(stdout: string): { sessionId?: string; summary?: string; proof: RemoteCliProof } {
@@ -503,6 +553,87 @@ function parseRemoteProof(text: string): RemoteCliProof {
     markers,
     finalText: lastNonEmptyText(text),
   };
+}
+
+function applyProofContract(job: RemoteCliJobInternal, proof: RemoteCliProof): void {
+  const marker = (name: string) => proof.markers[name]?.[0]?.trim() ?? "";
+  const markerList = (name: string) => proof.markers[name]?.map((value) => value.trim()).filter(Boolean) ?? [];
+
+  job.finalOutput = buildProofOutput(proof) || proof.finalText;
+  job.whatChanged = marker("WHAT_CHANGED") || undefined;
+  job.verifyCommands = markerList("VERIFY_COMMANDS");
+  job.verifyResults = markerList("VERIFY_RESULTS");
+  job.publicUrl = normalizeOptionalMarker(marker("PUBLIC_URL")) || undefined;
+  job.blocker = normalizeOptionalMarker(marker("BLOCKER")) || undefined;
+  job.gitRepo = normalizeOptionalMarker(marker("GIT_REPO")) || undefined;
+  job.gitBranch = normalizeOptionalMarker(marker("GIT_BRANCH")) || undefined;
+  job.gitBaseCommit = normalizeOptionalMarker(marker("GIT_BASE_COMMIT")) || undefined;
+  job.gitCommit = marker("GIT_COMMIT") || undefined;
+  job.changedFiles = markerList("CHANGED_FILES")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  job.deployment = normalizeOptionalMarker(marker("DEPLOYMENT")) || undefined;
+  job.publicHost = normalizeOptionalMarker(marker("PUBLIC_HOST")) || undefined;
+  job.uiCheckReport = normalizeOptionalMarker(marker("UI_CHECK_REPORT")) || undefined;
+  job.uiScreenshots = markerList("UI_SCREENSHOTS")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (job.status === "cancelled") {
+    job.completionStatus = "cancelled";
+    return;
+  }
+  if (job.status === "timed_out") {
+    job.completionStatus = "timed_out";
+    return;
+  }
+  if (job.status === "failed") {
+    job.completionStatus = job.blocker ? "blocked" : "failed";
+    return;
+  }
+  if (job.blocker) {
+    job.completionStatus = "blocked";
+    return;
+  }
+  if (proof.complete) {
+    job.completionStatus = "complete";
+    return;
+  }
+  job.completionStatus = job.status === "running" ? "running" : "unknown";
+}
+
+function normalizeOptionalMarker(value: string): string {
+  const normalized = value.trim();
+  if (!normalized || /^(?:none|n\/a|na|not[_\s-]?available|not[_\s-]?applicable|unknown)$/i.test(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+function buildProofOutput(proof: RemoteCliProof): string {
+  const lines: string[] = [];
+  for (const marker of [
+    "REMOTE_AGENT_RESULT",
+    "REMOTE_CLI_SESSION_ID",
+    "WORKSPACE",
+    "GIT_REPO",
+    "GIT_BRANCH",
+    "GIT_BASE_COMMIT",
+    "GIT_COMMIT",
+    "CHANGED_FILES",
+    "DEPLOYMENT",
+    "PUBLIC_HOST",
+    "UI_CHECK_REPORT",
+    "UI_SCREENSHOTS",
+    ...REQUIRED_PROOF_MARKERS,
+  ]) {
+    for (const value of proof.markers[marker] ?? []) {
+      lines.push(`${marker}=${value}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 function readMarkerValues(text: string, marker: string): string[] {

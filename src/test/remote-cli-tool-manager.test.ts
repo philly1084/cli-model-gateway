@@ -85,12 +85,47 @@ test("RemoteCliToolManager captures fake ssh output and extracts session metadat
   assert.equal(result.sessionId, "sess_123");
   assert.equal(result.summary, "patched tests");
   assert.equal(result.proof?.complete, true);
+  assert.equal(result.completionStatus, "complete");
+  assert.match(result.finalOutput ?? "", /WHAT_CHANGED=patched tests/);
+  assert.deepEqual(result.verifyCommands, ["npm test"]);
+  assert.deepEqual(result.verifyResults, ["passed"]);
   assert.equal(result.proof?.markers.WHAT_CHANGED?.[0], "patched tests");
   assert.equal(result.proof?.markers.VERIFY_COMMANDS?.[0], "npm test");
   assert.equal(result.proof?.markers.BLOCKER?.[0], "none");
   assert.equal(calls[0]?.command, "fake-ssh");
   assert.match(calls[0]?.args.at(-1) ?? "", /opencode' run --format json/);
   assert.match(calls[0]?.args.at(-1) ?? "", /WHAT_CHANGED=<short summary/);
+
+  await manager.close();
+});
+
+test("RemoteCliToolManager promotes blocker markers into contract status", async () => {
+  const manager = new RemoteCliToolManager([TARGET], {
+    sshExecutable: "fake-ssh",
+    spawnFn() {
+      const child = createFakeChild();
+      setTimeout(() => {
+        (child.stdout as PassThrough).write(
+          '{"text":"WHAT_CHANGED=none\\nVERIFY_COMMANDS=git status\\nVERIFY_RESULTS=blocked\\nPUBLIC_URL=not_available\\nBLOCKER=missing deploy key"}\n',
+        );
+        child.emit("close", 1);
+      }, 5);
+      return child;
+    },
+  });
+
+  const result = await manager.run({
+    targetId: "prod",
+    cwd: "/srv/apps/repo",
+    task: "deploy",
+    waitMs: 500,
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.completionStatus, "blocked");
+  assert.equal(result.blocker, "missing deploy key");
+  assert.equal(result.publicUrl, undefined);
+  assert.match(result.finalOutput ?? "", /BLOCKER=missing deploy key/);
 
   await manager.close();
 });
