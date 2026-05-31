@@ -410,28 +410,42 @@ function normalizeWaitMs(value: number | undefined): number {
 }
 
 function appendOutput(job: RemoteCliJobInternal, stream: "stdout" | "stderr", chunk: string): void {
-  if (stream === "stdout") {
-    if (job.stdout.length + chunk.length <= job.maxOutputBytes) {
-      job.stdout += chunk;
-      return;
-    }
-    if (!job.stdoutTruncated) {
-      const remaining = Math.max(0, job.maxOutputBytes - job.stdout.length);
-      job.stdout += `${chunk.slice(0, remaining)}\n[...stdout truncated]\n`;
-      job.stdoutTruncated = true;
+  const current = stream === "stdout" ? job.stdout : job.stderr;
+  const next = withoutOutputTruncationMarkers(current) + chunk;
+  if (next.length <= job.maxOutputBytes) {
+    if (stream === "stdout") {
+      job.stdout = next;
+    } else {
+      job.stderr = next;
     }
     return;
   }
 
-  if (job.stderr.length + chunk.length <= job.maxOutputBytes) {
-    job.stderr += chunk;
+  const truncated = truncateOutputWithTail(next, job.maxOutputBytes, stream);
+  if (stream === "stdout") {
+    job.stdout = truncated;
+    job.stdoutTruncated = true;
     return;
   }
-  if (!job.stderrTruncated) {
-    const remaining = Math.max(0, job.maxOutputBytes - job.stderr.length);
-    job.stderr += `${chunk.slice(0, remaining)}\n[...stderr truncated]\n`;
-    job.stderrTruncated = true;
+
+  job.stderr = truncated;
+  job.stderrTruncated = true;
+}
+
+function withoutOutputTruncationMarkers(value: string): string {
+  return value.replace(/\n\[\.\.\.(?:stdout|stderr) truncated(?:; preserving latest output)?\]\n/g, "");
+}
+
+function truncateOutputWithTail(value: string, maxOutputBytes: number, stream: "stdout" | "stderr"): string {
+  const marker = `\n[...${stream} truncated; preserving latest output]\n`;
+  if (maxOutputBytes <= marker.length) {
+    return marker.slice(0, Math.max(0, maxOutputBytes));
   }
+
+  const payloadBudget = maxOutputBytes - marker.length;
+  const headBudget = Math.min(8192, Math.floor(payloadBudget * 0.2));
+  const tailBudget = Math.max(0, payloadBudget - headBudget);
+  return `${value.slice(0, headBudget)}${marker}${value.slice(-tailBudget)}`;
 }
 
 function clearJobTimers(job: RemoteCliJobInternal): void {
@@ -484,6 +498,7 @@ function parseOpenCodeOutput(stdout: string): { sessionId?: string; summary?: st
   }
 
   const proof = parseRemoteProof(textFragments.join("\n"));
+  sessionId = sessionId ?? normalizeOptionalMarker(proof.markers.REMOTE_CLI_SESSION_ID?.[0] ?? "");
   if (!summary && proof.markers.WHAT_CHANGED?.[0]) {
     summary = proof.markers.WHAT_CHANGED[0];
   }

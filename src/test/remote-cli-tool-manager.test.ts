@@ -130,6 +130,44 @@ test("RemoteCliToolManager promotes blocker markers into contract status", async
   await manager.close();
 });
 
+test("RemoteCliToolManager preserves tail proof markers after stdout truncation", async () => {
+  const manager = new RemoteCliToolManager([{ ...TARGET, maxOutputBytes: 420 }], {
+    sshExecutable: "fake-ssh",
+    spawnFn() {
+      const child = createFakeChild();
+      setTimeout(() => {
+        (child.stdout as PassThrough).write([
+          "noisy remote inspection\n".repeat(60),
+          "REMOTE_CLI_SESSION_ID=sess_tail\n",
+          "WHAT_CHANGED=kept final proof markers\n",
+          "VERIFY_COMMANDS=npm test\n",
+          "VERIFY_RESULTS=passed\n",
+          "PUBLIC_URL=not_available\n",
+          "BLOCKER=none\n",
+        ].join(""));
+        child.emit("close", 0);
+      }, 5);
+      return child;
+    },
+  });
+
+  const result = await manager.run({
+    targetId: "prod",
+    cwd: "/srv/apps/repo",
+    task: "finish noisy remote task",
+    waitMs: 500,
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.completionStatus, "complete");
+  assert.equal(result.sessionId, "sess_tail");
+  assert.match(result.stdout, /\[\.\.\.stdout truncated; preserving latest output\]/);
+  assert.match(result.finalOutput ?? "", /WHAT_CHANGED=kept final proof markers/);
+  assert.deepEqual(result.verifyResults, ["passed"]);
+
+  await manager.close();
+});
+
 function createFakeChild(): ChildProcessWithoutNullStreams {
   const child = new EventEmitter() as ChildProcessWithoutNullStreams;
   child.stdin = new PassThrough() as ChildProcessWithoutNullStreams["stdin"];
