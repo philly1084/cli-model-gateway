@@ -209,6 +209,81 @@ test("OpenAiCompatibleProvider rejects DeepSeek thinking tool turns without reas
   }
 });
 
+test("OpenAiCompatibleProvider maps DeepSeek reasoning effort to thinking config", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  const capturedBodies: CapturedRequestBody[] = [];
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBodies.push(JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody);
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: { content: "ok" },
+          finish_reason: "stop",
+        },
+      ],
+      model: "deepseek-v4-pro",
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "deepseek-api",
+      type: "openai",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "deepseek-v4-pro",
+          providerModel: "deepseek-v4-pro",
+        },
+      ],
+    });
+
+    await provider.run({
+      requestId: "req_deepseek_high",
+      model: "deepseek-v4-pro",
+      providerModel: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "Think carefully." }],
+      tools: [],
+      reasoningEffort: "xhigh",
+      metadata: {
+        temperature: 0.2,
+        top_p: 0.9,
+        presence_penalty: 1,
+        frequency_penalty: 1,
+        max_tokens: 128,
+      },
+    });
+
+    await provider.run({
+      requestId: "req_deepseek_disabled",
+      model: "deepseek-v4-pro",
+      providerModel: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "Answer briefly." }],
+      tools: [],
+      reasoningEffort: "minimal",
+    });
+
+    assert.deepEqual(capturedBodies[0]?.thinking, { type: "enabled", reasoning_effort: "max" });
+    assert.equal(capturedBodies[0]?.temperature, 0.2);
+    assert.equal(capturedBodies[0]?.top_p, 0.9);
+    assert.equal(capturedBodies[0]?.presence_penalty, undefined);
+    assert.equal(capturedBodies[0]?.frequency_penalty, undefined);
+    assert.equal(capturedBodies[0]?.max_tokens, 128);
+    assert.deepEqual(capturedBodies[1]?.thinking, { type: "disabled" });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
 test("OpenAiCompatibleProvider forwards Groq local tool calls for chat models", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REMOTE_API_KEY;

@@ -124,17 +124,27 @@ export class OpenAiCompatibleProvider implements Provider {
     };
 
     const metadata = request.metadata;
+    const isDeepSeekProvider = isDeepSeekBaseUrl(this.config.baseUrl);
     if (isKimiK2ProviderModel(this.config.baseUrl, providerModel)) {
       copyKimiK2Metadata(body, metadata);
     } else {
       copyNumberMetadata(body, metadata, "temperature");
       copyNumberMetadata(body, metadata, "top_p");
-      copyNumberMetadata(body, metadata, "presence_penalty");
-      copyNumberMetadata(body, metadata, "frequency_penalty");
+      if (!isDeepSeekProvider) {
+        copyNumberMetadata(body, metadata, "presence_penalty");
+        copyNumberMetadata(body, metadata, "frequency_penalty");
+      }
       copyIntegerMetadata(body, metadata, "max_tokens");
     }
     copyStringMetadata(body, metadata, "user");
     copyProviderReasoningMetadata(body, metadata, this.config.baseUrl, providerModel);
+    copyDeepSeekThinkingMetadata(
+      body,
+      metadata,
+      request.reasoningEffort,
+      this.config.baseUrl,
+      providerModel,
+    );
 
     if (shouldForwardRemoteMetadata(this.config.baseUrl)) {
       copyStringMetadataKeys(body, metadata, REMOTE_STRING_METADATA_KEYS);
@@ -567,8 +577,23 @@ function shouldRejectDeepSeekThinkingToolTurn(
   return (
     request.tools.length > 0 &&
     isDeepSeekBaseUrl(baseUrl) &&
-    isDeepSeekThinkingModel(providerModel)
+    isDeepSeekThinkingModel(providerModel) &&
+    !isDeepSeekThinkingDisabled(request)
   );
+}
+
+function isDeepSeekThinkingDisabled(request: UnifiedRequest): boolean {
+  const explicitThinking = normalizeDeepSeekThinkingMetadata(
+    firstDefined(
+      readMetadataValue(request.metadata, "thinking"),
+      readMetadataValue(request.metadata, "deepseek_thinking"),
+    ),
+  );
+  if (explicitThinking) {
+    return explicitThinking.type === "disabled";
+  }
+
+  return request.reasoningEffort === "none" || request.reasoningEffort === "minimal";
 }
 
 function isKimiBaseUrl(baseUrl: string): boolean {
@@ -944,6 +969,96 @@ function normalizeKimiThinkingMetadata(value: unknown): { type: "enabled" | "dis
   const normalized = type.trim().toLowerCase();
   if (normalized === "enabled" || normalized === "disabled") {
     return { type: normalized };
+  }
+
+  return undefined;
+}
+
+type DeepSeekThinkingConfig = {
+  type: "enabled" | "disabled";
+  reasoning_effort?: "high" | "max";
+};
+
+function copyDeepSeekThinkingMetadata(
+  target: Record<string, unknown>,
+  metadata: UnifiedRequest["metadata"],
+  reasoningEffort: UnifiedRequest["reasoningEffort"],
+  baseUrl: string,
+  providerModel: string,
+): void {
+  if (!isDeepSeekBaseUrl(baseUrl) || !isDeepSeekThinkingModel(providerModel)) {
+    return;
+  }
+
+  const explicitThinking = normalizeDeepSeekThinkingMetadata(
+    firstDefined(
+      readMetadataValue(metadata, "thinking"),
+      readMetadataValue(metadata, "deepseek_thinking"),
+    ),
+  );
+  if (explicitThinking) {
+    target.thinking = explicitThinking;
+    return;
+  }
+
+  const normalizedEffort = normalizeDeepSeekReasoningEffort(reasoningEffort);
+  if (!normalizedEffort) {
+    return;
+  }
+
+  target.thinking = normalizedEffort === "disabled"
+    ? { type: "disabled" }
+    : { type: "enabled", reasoning_effort: normalizedEffort };
+}
+
+function normalizeDeepSeekThinkingMetadata(value: unknown): DeepSeekThinkingConfig | undefined {
+  if (typeof value === "boolean") {
+    return { type: value ? "enabled" : "disabled" };
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "enabled" || normalized === "disabled") {
+      return { type: normalized };
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const typeRaw = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+  if (typeRaw !== "enabled" && typeRaw !== "disabled") {
+    return undefined;
+  }
+
+  const out: DeepSeekThinkingConfig = { type: typeRaw };
+  const reasoningEffort = normalizeDeepSeekReasoningEffort(record.reasoning_effort);
+  if (out.type === "enabled" && reasoningEffort && reasoningEffort !== "disabled") {
+    out.reasoning_effort = reasoningEffort;
+  }
+
+  return out;
+}
+
+function normalizeDeepSeekReasoningEffort(
+  value: unknown,
+): "disabled" | "high" | "max" | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "none" || normalized === "minimal") {
+    return "disabled";
+  }
+  if (normalized === "low" || normalized === "medium" || normalized === "high") {
+    return "high";
+  }
+  if (normalized === "xhigh" || normalized === "max") {
+    return "max";
   }
 
   return undefined;

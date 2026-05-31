@@ -266,7 +266,7 @@ remoteCliTargets:
     allowedCwds:
       - /srv/apps
     defaultCwd: /srv/apps/my-app
-    defaultModel: openai/gpt-5.4
+    defaultModel: codex-latest
     opencodeExecutable: opencode
     timeoutMs: 1800000
 ```
@@ -725,6 +725,9 @@ The gateway also accepts `responses` follow-up tool input entries of `type: "fun
 - Kimi runs through `dist/scripts/kimi-acp-bridge.js`, which starts `kimi acp` over stdio and converts ACP output to the gateway JSON contract.
 - Groq and DeepSeek should use `type: openai` providers instead of shell/curl CLI wrappers. The shared provider forwards normal OpenAI chat messages and tools directly to `/chat/completions`.
 - Groq compound models are treated as hosted-tool systems; when n8n sends gateway-managed tools, the registry should route to a fallback model.
+- DeepSeek compatibility aliases stay exposed for older clients, but they map to current v4 provider models: `deepseek-chat` and `deepseek-coder` use `deepseek-v4-flash`, while `deepseek-reasoner` uses `deepseek-v4-pro`.
+- DeepSeek `reasoning_effort` is translated to the provider `thinking` object: `none`/`minimal` disables thinking, `low`/`medium`/`high` uses `high`, and `xhigh` uses `max`.
+- The checked-in provider catalogs are expected to have globally unique model IDs and fallback targets that resolve to configured models; use provider-prefixed aliases when two providers expose the same upstream model.
 
 ### Image generation provider output
 

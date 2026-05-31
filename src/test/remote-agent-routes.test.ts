@@ -48,20 +48,7 @@ test("remote agent task starts a provider session and emits reasoning context", 
     assert.equal(body.task.reasoning.data.targetId, "k3s-prod");
     assert.equal(body.task.reasoning.data.cwd, "/srv/apps/music-board");
 
-    await sleep(100);
-
-    const transcriptResponse = await server.app.inject({
-      method: "GET",
-      url: `/admin/remote-agent-tasks/${body.task.id}/transcript`,
-      headers: {
-        authorization: "Bearer frontend-key",
-      },
-    });
-
-    assert.equal(transcriptResponse.statusCode, 200);
-    const transcriptBody = transcriptResponse.json() as {
-      data: Array<{ type: string; summary?: string; data?: string }>;
-    };
+    const transcriptBody = await waitForTaskTranscriptOutput(server, body.task.id, /REMOTE_AGENT_PROGRESS/);
     assert.equal(transcriptBody.data.some((event) => event.type === "reasoning"), true);
     const outputText = transcriptBody.data
       .filter((event) => event.type === "output")
@@ -242,4 +229,38 @@ function createRemoteAgentTestServer() {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTaskTranscriptOutput(
+  server: ReturnType<typeof createRemoteAgentTestServer>,
+  taskId: string,
+  expected: RegExp,
+): Promise<{ data: Array<{ type: string; summary?: string; data?: string }> }> {
+  const deadline = Date.now() + 1000;
+  let latest: { data: Array<{ type: string; summary?: string; data?: string }> } | undefined;
+
+  while (Date.now() < deadline) {
+    const transcriptResponse = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${taskId}/transcript`,
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+    });
+
+    assert.equal(transcriptResponse.statusCode, 200);
+    latest = transcriptResponse.json() as {
+      data: Array<{ type: string; summary?: string; data?: string }>;
+    };
+    const outputText = latest.data
+      .filter((event) => event.type === "output")
+      .map((event) => event.data ?? "")
+      .join("");
+    if (expected.test(outputText)) {
+      return latest;
+    }
+    await sleep(25);
+  }
+
+  assert.fail(`Timed out waiting for transcript output matching ${expected}. Transcript: ${JSON.stringify(latest)}`);
 }

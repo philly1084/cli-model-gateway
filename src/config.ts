@@ -109,6 +109,83 @@ const providersFileSchema = z.object({
       }),
     )
     .default([]),
+}).superRefine((providersFile, ctx) => {
+  const providerIds = new Map<string, number>();
+  const modelIds = new Map<string, { providerIndex: number; modelIndex: number }>();
+
+  providersFile.providers.forEach((provider, providerIndex) => {
+    const existingProviderIndex = providerIds.get(provider.id);
+    if (existingProviderIndex !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate provider id: ${provider.id}`,
+        path: ["providers", providerIndex, "id"],
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate provider id: ${provider.id}`,
+        path: ["providers", existingProviderIndex, "id"],
+      });
+    } else {
+      providerIds.set(provider.id, providerIndex);
+    }
+
+    provider.models.forEach((model, modelIndex) => {
+      const existingModel = modelIds.get(model.id);
+      if (existingModel) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate model id: ${model.id}`,
+          path: ["providers", providerIndex, "models", modelIndex, "id"],
+        });
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate model id: ${model.id}`,
+          path: ["providers", existingModel.providerIndex, "models", existingModel.modelIndex, "id"],
+        });
+      } else {
+        modelIds.set(model.id, { providerIndex, modelIndex });
+      }
+    });
+  });
+
+  providersFile.providers.forEach((provider, providerIndex) => {
+    provider.models.forEach((model, modelIndex) => {
+      const seenFallbacks = new Set<string>();
+      model.fallbackModels?.forEach((fallbackModelId, fallbackIndex) => {
+        const fallbackPath = [
+          "providers",
+          providerIndex,
+          "models",
+          modelIndex,
+          "fallbackModels",
+          fallbackIndex,
+        ];
+        if (fallbackModelId === model.id) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Model ${model.id} cannot list itself as a fallback.`,
+            path: fallbackPath,
+          });
+        }
+        if (seenFallbacks.has(fallbackModelId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Duplicate fallback model id: ${fallbackModelId}`,
+            path: fallbackPath,
+          });
+        }
+        seenFallbacks.add(fallbackModelId);
+        if (!modelIds.has(fallbackModelId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Fallback model is not configured: ${fallbackModelId}`,
+            path: fallbackPath,
+          });
+        }
+      });
+    });
+  });
 });
 
 const reasoningEffortSchema = z.enum(REASONING_EFFORT_VALUES);

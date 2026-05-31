@@ -9,7 +9,7 @@
 #     allowedCwds:
 #       - /srv/apps
 #     defaultCwd: /srv/apps/my-app
-#     defaultModel: openai/gpt-5.4
+#     defaultModel: codex-latest
 #     opencodeExecutable: opencode
 #     timeoutMs: 1800000
 
@@ -478,8 +478,8 @@ providers:
     timeoutMs: 120000
     models:
       - id: deepseek-chat
-        providerModel: deepseek-chat
-        description: Backward-compatible DeepSeek non-thinking alias; use deepseek-v4-flash for new traffic
+        providerModel: deepseek-v4-flash
+        description: Backward-compatible DeepSeek non-thinking alias mapped to deepseek-v4-flash
         fallbackModels:
           - deepseek-v4-flash
           - deepseek-v4-pro
@@ -492,14 +492,14 @@ providers:
         fallbackModels:
           - deepseek-v4-flash
       - id: deepseek-coder
-        providerModel: deepseek-chat
-        description: Backward-compatible DeepSeek coding alias mapped to deepseek-chat; use deepseek-v4-flash for new traffic
+        providerModel: deepseek-v4-flash
+        description: Backward-compatible DeepSeek coding alias mapped to deepseek-v4-flash
         fallbackModels:
           - deepseek-v4-flash
           - deepseek-v4-pro
       - id: deepseek-reasoner
-        providerModel: deepseek-reasoner
-        description: Backward-compatible DeepSeek thinking alias; use deepseek-v4-pro for new traffic
+        providerModel: deepseek-v4-pro
+        description: Backward-compatible DeepSeek thinking alias mapped to deepseek-v4-pro
         fallbackModels:
           - deepseek-v4-pro
           - deepseek-v4-flash
@@ -542,15 +542,15 @@ providers:
     type: cli
     description: Gemini Flash via Google AI Studio (generous free tier)
     models:
-      - id: gemini-3-flash-preview
+      - id: google-ai-studio/gemini-3-flash-preview
         providerModel: gemini-3-flash-preview
-      - id: gemini-3.5-flash
+      - id: google-ai-studio/gemini-3.5-flash
         providerModel: gemini-3.5-flash
-      - id: gemini-3.1-flash-lite
+      - id: google-ai-studio/gemini-3.1-flash-lite
         providerModel: gemini-3.1-flash-lite
-      - id: gemini-2.5-flash
+      - id: google-ai-studio/gemini-2.5-flash
         providerModel: gemini-2.5-flash
-      - id: gemini-2.5-flash-lite
+      - id: google-ai-studio/gemini-2.5-flash-lite
         providerModel: gemini-2.5-flash-lite
     responseCommand:
       executable: curl
@@ -565,7 +565,7 @@ providers:
         - |
           {
             "contents": [{"parts":[{"text":"{{prompt}}"}]}],
-            "generationConfig": {"temperature":0.7,"maxOutputTokens":2048}
+            "generationConfig": {"maxOutputTokens":2048}
           }
       input: prompt_stdin
       output: text_contract_final_line

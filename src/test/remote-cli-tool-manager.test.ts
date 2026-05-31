@@ -15,7 +15,7 @@ const TARGET: RemoteCliTargetConfig = {
   user: "deploy",
   port: 2222,
   allowedCwds: ["/srv/apps"],
-  defaultModel: "openai/gpt-5.4",
+  defaultModel: "codex-latest",
   opencodeExecutable: "/usr/local/bin/opencode",
   timeoutMs: 10_000,
 };

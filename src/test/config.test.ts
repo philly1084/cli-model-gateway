@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadAppConfig, loadProvidersFile } from "../config";
@@ -26,7 +26,7 @@ remoteCliTargets:
     allowedCwds:
       - /srv/apps
     defaultCwd: /srv/apps/repo
-    defaultModel: openai/gpt-5.4
+    defaultModel: codex-latest
     timeoutMs: 600000
 `);
 
@@ -56,6 +56,51 @@ remoteCliTargets:
 `);
 
   assert.throws(() => loadProvidersFile(providersPath), /remoteCliTargets/);
+});
+
+test("loadProvidersFile rejects duplicate model ids and missing fallback targets", () => {
+  const providersPath = writeTempProvidersFile(`
+providers:
+  - id: demo-a
+    type: cli
+    models:
+      - id: shared-model
+        fallbackModels:
+          - missing-model
+    responseCommand:
+      executable: node
+      args: []
+      input: request_json_stdin
+      output: json_contract
+      timeoutMs: 1000
+  - id: demo-b
+    type: cli
+    models:
+      - id: shared-model
+    responseCommand:
+      executable: node
+      args: []
+      input: request_json_stdin
+      output: json_contract
+      timeoutMs: 1000
+`);
+
+  assert.throws(
+    () => loadProvidersFile(providersPath),
+    /Duplicate model id: shared-model|Fallback model is not configured: missing-model/,
+  );
+});
+
+test("provider catalogs parse cleanly", () => {
+  const catalogPaths = ["config/providers.example.yaml"];
+  const localCatalogPath = "config/providers.yaml";
+  if (existsSync(path.resolve(process.cwd(), localCatalogPath))) {
+    catalogPaths.push(localCatalogPath);
+  }
+
+  for (const relativePath of catalogPaths) {
+    assert.doesNotThrow(() => loadProvidersFile(path.resolve(process.cwd(), relativePath)), relativePath);
+  }
 });
 
 test("loadAppConfig defaults remote CLI tool auth to frontend and admin", () => {

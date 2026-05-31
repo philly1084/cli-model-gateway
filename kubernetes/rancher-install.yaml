@@ -416,20 +416,20 @@ data:
             fallbackModels:
               - deepseek-v4-flash
           - id: deepseek-chat
-            providerModel: deepseek-chat
-            description: Backward-compatible DeepSeek non-thinking alias; use deepseek-v4-flash for new traffic
+            providerModel: deepseek-v4-flash
+            description: Backward-compatible DeepSeek non-thinking alias mapped to deepseek-v4-flash
             fallbackModels:
               - deepseek-v4-flash
               - deepseek-v4-pro
           - id: deepseek-coder
-            providerModel: deepseek-chat
-            description: Backward-compatible DeepSeek coding alias mapped to deepseek-chat; use deepseek-v4-flash for new traffic
+            providerModel: deepseek-v4-flash
+            description: Backward-compatible DeepSeek coding alias mapped to deepseek-v4-flash
             fallbackModels:
               - deepseek-v4-flash
               - deepseek-v4-pro
           - id: deepseek-reasoner
-            providerModel: deepseek-reasoner
-            description: Backward-compatible DeepSeek thinking alias; use deepseek-v4-pro for new traffic
+            providerModel: deepseek-v4-pro
+            description: Backward-compatible DeepSeek thinking alias mapped to deepseek-v4-pro
             fallbackModels:
               - deepseek-v4-pro
               - deepseek-v4-flash
