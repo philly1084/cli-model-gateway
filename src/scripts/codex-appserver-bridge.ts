@@ -2009,6 +2009,15 @@ async function run(): Promise<void> {
             `Codex CLI image generation produced no image artifact within ${imageNoProgressTimeoutMs}ms.`,
           );
         }
+        if (
+          isImageGenerationRequest &&
+          imageItems.length === 0 &&
+          Date.now() - startedAt > imageNoProgressTimeoutMs
+        ) {
+          throw new Error(
+            `Codex CLI image generation produced no image artifact within ${imageNoProgressTimeoutMs}ms of request start.`,
+          );
+        }
       }
 
       if (toolCallSeenAt && Date.now() - toolCallSeenAt > 1200) {
