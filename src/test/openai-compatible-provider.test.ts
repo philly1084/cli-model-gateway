@@ -209,6 +209,106 @@ test("OpenAiCompatibleProvider rejects DeepSeek thinking tool turns without reas
   }
 });
 
+test("OpenAiCompatibleProvider forwards DeepSeek flash tool turns", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_status",
+                  type: "function",
+                  function: {
+                    name: "check_status",
+                    arguments: "{\"service\":\"api\"}",
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "deepseek-api",
+      type: "openai",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "deepseek-chat",
+          providerModel: "deepseek-v4-flash",
+        },
+      ],
+    });
+
+    const result = await provider.run({
+      requestId: "req_deepseek_flash_tools",
+      model: "deepseek-chat",
+      providerModel: "deepseek-v4-flash",
+      messages: [
+        {
+          role: "user",
+          content: "Use the tool if needed.",
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "check_status",
+          },
+        },
+      ],
+      metadata: {
+        tool_choice: {
+          type: "function",
+          function: {
+            name: "check_status",
+          },
+        },
+      },
+    });
+
+    assert.equal(capturedBody.model, "deepseek-v4-flash");
+    assert.equal(capturedBody.tools?.length, 1);
+    assert.deepEqual(capturedBody.tool_choice, {
+      type: "function",
+      function: {
+        name: "check_status",
+      },
+    });
+    assert.equal(result.finishReason, "tool_calls");
+    assert.equal(result.toolCalls[0]?.name, "check_status");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
 test("OpenAiCompatibleProvider forwards Groq local tool calls for chat models", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REMOTE_API_KEY;

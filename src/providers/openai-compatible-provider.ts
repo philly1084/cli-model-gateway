@@ -556,7 +556,8 @@ function isDeepSeekBaseUrl(baseUrl: string): boolean {
 }
 
 function isDeepSeekThinkingModel(providerModel: string): boolean {
-  return /^deepseek-(?:reasoner|r\d|v\d)/i.test(providerModel.trim());
+  const normalized = providerModel.trim();
+  return /^deepseek-(?:reasoner|r\d)/i.test(normalized) || /^deepseek-v\d.*-pro$/i.test(normalized);
 }
 
 function shouldRejectDeepSeekThinkingToolTurn(

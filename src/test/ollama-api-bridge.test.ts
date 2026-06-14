@@ -73,10 +73,10 @@ test("Ollama bridge maps request metadata into native chat options", () => {
           temperature: 0.2,
         },
       },
-      "gemma4:e4b",
+      "llama3.2",
     );
 
-    assert.equal(body.model, "gemma4:e4b");
+    assert.equal(body.model, "llama3.2");
     assert.equal(body.keep_alive, "30m");
     assert.equal(body.think, true);
     assert.deepEqual(body.options, {

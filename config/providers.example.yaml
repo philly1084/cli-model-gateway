@@ -53,8 +53,16 @@ providers:
       - id: gemini-2.5-flash
         providerModel: gemini-2.5-flash
         fallbackModels:
+          - gemini-2.5-flash-lite
           - gemini-3.5-flash
           - gemini-3-flash-preview
+      - id: gemini-2.5-flash-lite
+        providerModel: gemini-2.5-flash-lite
+        fallbackModels:
+          - gemini-3.1-flash-lite
+          - gemini-2.5-flash
+          - gemini-3.5-flash
+          - openrouter-free
     responseCommand:
       executable: node
       args:
@@ -300,41 +308,6 @@ providers:
       timeoutMs: 300000
     # No auth needed for local Ollama
 
-  - id: ollama-gemma4-cpu
-    type: cli
-    description: Local Ollama CPU-focused Gemma stack with Gemma 4 E4B primary and smaller fallbacks
-    models:
-      - id: gemma4-e4b
-        providerModel: gemma4:e4b
-        fallbackModels:
-          - gemma4-e2b
-          - gemma3-1b
-      - id: gemma4-e2b
-        providerModel: gemma4:e2b
-        fallbackModels:
-          - gemma3-1b
-      - id: gemma3-1b
-        providerModel: gemma3:1b
-    responseCommand:
-      executable: node
-      args:
-        - dist/scripts/ollama-api-bridge.js
-        - --model
-        - "{{provider_model}}"
-      env:
-        OLLAMA_BASE_URL: http://127.0.0.1:11434/api
-        OLLAMA_NUM_CTX: "8192"
-        OLLAMA_KEEP_ALIVE: "30m"
-        OLLAMA_HTTP_TIMEOUT_MS: "540000"
-      input: request_json_stdin
-      output: json_contract
-      timeoutMs: 600000
-    # Recommended Ollama server settings for CPU-only use:
-    #   OLLAMA_NUM_PARALLEL=1
-    #   OLLAMA_MAX_LOADED_MODELS=1
-    #   OLLAMA_CONTEXT_LENGTH=8192
-    # No auth needed for local Ollama unless you secure it behind a proxy.
-
   - id: groq-api
     type: openai
     description: Groq API - auto-discovers chat-usable models at startup
@@ -380,7 +353,7 @@ providers:
 
   - id: openrouter-free
     type: openai
-    description: OpenRouter free-model router
+    description: OpenRouter curated zero-priced model router
     baseUrl: https://openrouter.ai/api/v1
     apiKeyEnv: OPENROUTER_API_KEY
     timeoutMs: 120000
@@ -388,11 +361,64 @@ providers:
       - id: openrouter-free
         providerModel: openrouter/free
         fallbackModels:
-          - openai/gpt-oss-20b
-          - llama-3.1-8b-instant
-          - gemini-3.5-flash
-          - gemini-3-flash-preview
-
+          - qwen/qwen3-coder:free
+          - moonshotai/kimi-k2.6:free
+          - nvidia/nemotron-3-super-120b-a12b:free
+          - openai/gpt-oss-120b:free
+          - meta-llama/llama-3.3-70b-instruct:free
+      - id: qwen/qwen3-coder:free
+        providerModel: qwen/qwen3-coder:free
+        description: Free OpenRouter coding model with long-context tool support
+        fallbackModels:
+          - moonshotai/kimi-k2.6:free
+          - nvidia/nemotron-3-super-120b-a12b:free
+          - openai/gpt-oss-120b:free
+          - openrouter-free
+      - id: moonshotai/kimi-k2.6:free
+        providerModel: moonshotai/kimi-k2.6:free
+        description: Free OpenRouter Kimi K2.6 lane for agentic coding and long context
+        fallbackModels:
+          - qwen/qwen3-coder:free
+          - nvidia/nemotron-3-super-120b-a12b:free
+          - openai/gpt-oss-120b:free
+          - openrouter-free
+      - id: nvidia/nemotron-3-super-120b-a12b:free
+        providerModel: nvidia/nemotron-3-super-120b-a12b:free
+        description: Free OpenRouter 1M-context reasoning and tool-use model
+        fallbackModels:
+          - qwen/qwen3-coder:free
+          - moonshotai/kimi-k2.6:free
+          - openai/gpt-oss-120b:free
+          - openrouter-free
+      - id: openai/gpt-oss-120b:free
+        providerModel: openai/gpt-oss-120b:free
+        description: Free OpenRouter GPT-OSS 120B reasoning model
+        fallbackModels:
+          - openai/gpt-oss-20b:free
+          - qwen/qwen3-coder:free
+          - nvidia/nemotron-3-super-120b-a12b:free
+          - openrouter-free
+      - id: openai/gpt-oss-20b:free
+        providerModel: openai/gpt-oss-20b:free
+        description: Free OpenRouter lightweight GPT-OSS fallback
+        fallbackModels:
+          - openai/gpt-oss-120b:free
+          - qwen/qwen3-coder:free
+          - openrouter-free
+      - id: meta-llama/llama-3.3-70b-instruct:free
+        providerModel: meta-llama/llama-3.3-70b-instruct:free
+        description: Free OpenRouter Llama 3.3 70B general-purpose fallback
+        fallbackModels:
+          - openai/gpt-oss-120b:free
+          - qwen/qwen3-coder:free
+          - openrouter-free
+      - id: qwen/qwen3-next-80b-a3b-instruct:free
+        providerModel: qwen/qwen3-next-80b-a3b-instruct:free
+        description: Free OpenRouter Qwen instruction model with tools support
+        fallbackModels:
+          - qwen/qwen3-coder:free
+          - openai/gpt-oss-120b:free
+          - openrouter-free
   - id: kimi-api
     type: openai
     description: Kimi API via Moonshot OpenAI-compatible endpoint

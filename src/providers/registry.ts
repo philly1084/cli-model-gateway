@@ -1463,7 +1463,8 @@ function isDeepSeekThinkingBinding(provider: Provider, providerModel: string): b
     return false;
   }
 
-  return /^deepseek-(?:reasoner|r\d|v\d)/i.test(providerModel.trim());
+  const normalized = providerModel.trim();
+  return /^deepseek-(?:reasoner|r\d)/i.test(normalized) || /^deepseek-v\d.*-pro$/i.test(normalized);
 }
 
 function requiredCapabilityForRequest(

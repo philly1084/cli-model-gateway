@@ -468,6 +468,34 @@ test("registry exposes auto as a virtual gateway model", async () => {
   assert.equal(models[0]?.providerId, "gateway");
 });
 
+test("registry keeps tools capability for DeepSeek flash and removes it from DeepSeek pro", async () => {
+  const registry = await ProviderRegistry.create([
+    {
+      id: "deepseek-api",
+      type: "openai",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "TEST_REGISTRY_DEEPSEEK_API_KEY",
+      models: [
+        {
+          id: "deepseek-chat",
+          providerModel: "deepseek-v4-flash",
+        },
+        {
+          id: "deepseek-reasoner",
+          providerModel: "deepseek-v4-pro",
+        },
+      ],
+    },
+  ]);
+
+  const models = registry.listModels();
+  assert.equal(models.find((model) => model.id === "deepseek-chat")?.capabilities.includes("tools"), true);
+  assert.equal(
+    models.find((model) => model.id === "deepseek-reasoner")?.capabilities.includes("tools"),
+    false,
+  );
+});
+
 test("registry auto routing prefers coding models for coding prompts", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REGISTRY_AUTO_API_KEY;
