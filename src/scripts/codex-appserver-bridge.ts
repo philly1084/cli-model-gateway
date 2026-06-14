@@ -1445,6 +1445,17 @@ function parseStartupRequestTimeoutMs(totalTimeoutMs: number): number {
   return Math.min(45_000, totalTimeoutMs);
 }
 
+function parseImageNoProgressTimeoutMs(totalTimeoutMs: number): number {
+  const raw =
+    typeof process.env.CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS === "string"
+      ? Number(process.env.CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS)
+      : NaN;
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(Math.trunc(raw), totalTimeoutMs);
+  }
+  return Math.min(90_000, totalTimeoutMs);
+}
+
 function parseModelProvider(): string {
   if (
     typeof process.env.CODEX_APPSERVER_MODEL_PROVIDER === "string" &&
@@ -1537,6 +1548,7 @@ async function run(): Promise<void> {
   const timeoutMs = parseTimeoutMs();
   const initializeTimeoutMs = parseInitializeTimeoutMs(timeoutMs);
   const startupRequestTimeoutMs = parseStartupRequestTimeoutMs(timeoutMs);
+  const imageNoProgressTimeoutMs = parseImageNoProgressTimeoutMs(timeoutMs);
   const modelProvider = parseModelProvider();
   const chatGptFallbackModel = parseChatGptFallbackModel();
   const startedAt = Date.now();
@@ -1723,6 +1735,7 @@ async function run(): Promise<void> {
     const imageItemKeys = new Set<string>();
     const requestedImageCount = isImageGenerationRequest ? parseRequestedImageCount(request) : 1;
     let localImageItemsSeenAt = 0;
+    let firstImageRequestEventSeenAt = 0;
     let streamedOutputText = "";
     let streamedReasoningText = "";
     let turnCompleted = false;
@@ -1801,6 +1814,7 @@ async function run(): Promise<void> {
         });
       }
       if (isImageGenerationRequest && params) {
+        firstImageRequestEventSeenAt ||= Date.now();
         appendImageItems(collectImageGenerationItems(params));
       }
 
@@ -1986,6 +2000,15 @@ async function run(): Promise<void> {
         ) {
           break;
         }
+        if (
+          firstImageRequestEventSeenAt &&
+          imageItems.length === 0 &&
+          Date.now() - firstImageRequestEventSeenAt > imageNoProgressTimeoutMs
+        ) {
+          throw new Error(
+            `Codex CLI image generation produced no image artifact within ${imageNoProgressTimeoutMs}ms.`,
+          );
+        }
       }
 
       if (toolCallSeenAt && Date.now() - toolCallSeenAt > 1200) {
@@ -2003,6 +2026,10 @@ async function run(): Promise<void> {
     if (isImageGenerationRequest && imageItems.length > 0) {
       outputText = JSON.stringify({ data: imageItems });
       streamAggregateText("output_text_delta", outputText);
+    }
+
+    if (isImageGenerationRequest && imageItems.length === 0 && !outputText) {
+      throw new Error("Codex CLI image generation completed without producing an image artifact.");
     }
 
     const parsedContract = parseJsonContractFromText(outputText);

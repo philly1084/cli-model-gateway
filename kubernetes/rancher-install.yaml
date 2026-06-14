@@ -123,7 +123,7 @@ data:
         description: OpenAI Codex app-server bridge adapter
         models:
           - id: gpt-image-2
-            providerModel: gpt-5.5
+            providerModel: codex-latest
             description: OpenAI Image 2.0 via Codex CLI image generation
             capabilities:
               - image_generation
@@ -624,6 +624,8 @@ spec:
               value: "500"
             - name: REQUEST_TIMEOUT_MS
               value: "1200000"
+            - name: CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS
+              value: "90000"
             - name: PROVIDERS_CONFIG_PATH
               value: /app/config/providers.yaml
             - name: CODEX_EXECUTABLE
