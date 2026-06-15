@@ -140,6 +140,12 @@ spec:
                   name: n8n-openai-cli-gateway-secrets
                   key: moonshotApiKey
                   optional: true
+            - name: KIMI_CODE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: kimiApiKey
+                  optional: true
           volumeMounts:
             - name: providers-config
               mountPath: /app/config/providers.yaml
