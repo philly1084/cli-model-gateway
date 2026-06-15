@@ -61,3 +61,31 @@ test("CliProvider preserves top-level reasoning_content arrays as reasoningText"
   assert.equal(result.outputText, "ok");
   assert.equal(result.reasoningText, "Planned the next step first.");
 });
+
+test("CliProvider bounds stalled image generation commands", async () => {
+  const previous = process.env.CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS;
+  const previousGrace = process.env.CODEX_APPSERVER_IMAGE_COMMAND_GRACE_MS;
+  process.env.CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS = "100";
+  process.env.CODEX_APPSERVER_IMAGE_COMMAND_GRACE_MS = "15";
+  try {
+    const provider = createProvider("setTimeout(() => {}, 1000)");
+    await assert.rejects(
+      provider.run({
+        ...createRequest(),
+        requestKind: "images_generations",
+      }),
+      /Provider command timed out after 115ms\./,
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS;
+    } else {
+      process.env.CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS = previous;
+    }
+    if (previousGrace === undefined) {
+      delete process.env.CODEX_APPSERVER_IMAGE_COMMAND_GRACE_MS;
+    } else {
+      process.env.CODEX_APPSERVER_IMAGE_COMMAND_GRACE_MS = previousGrace;
+    }
+  }
+});

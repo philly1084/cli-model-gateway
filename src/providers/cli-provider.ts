@@ -223,10 +223,16 @@ export class CliProvider implements Provider {
       request.metadata,
       "gateway_benchmark_timeout_ms",
     );
-    if (timeoutMsOverride !== undefined) {
+    const imageRequestTimeoutMs =
+      request.requestKind === "images_generations"
+        ? parsePositiveIntegerEnv("CODEX_APPSERVER_IMAGE_NO_PROGRESS_TIMEOUT_MS", 90_000) +
+          parsePositiveIntegerEnv("CODEX_APPSERVER_IMAGE_COMMAND_GRACE_MS", 15_000)
+        : undefined;
+    const effectiveTimeoutMsOverride = minDefinedPositiveInteger(timeoutMsOverride, imageRequestTimeoutMs);
+    if (effectiveTimeoutMsOverride !== undefined) {
       commandSpec = {
         ...commandSpec,
-        timeoutMs: Math.min(commandSpec.timeoutMs, timeoutMsOverride),
+        timeoutMs: Math.min(commandSpec.timeoutMs, effectiveTimeoutMsOverride),
       };
     }
 
@@ -577,6 +583,22 @@ function readPositiveIntegerMetadata(
   }
   const value = metadata[key];
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function parsePositiveIntegerEnv(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return fallback;
+  }
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function minDefinedPositiveInteger(...values: Array<number | undefined>): number | undefined {
+  const defined = values.filter(
+    (value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0,
+  );
+  return defined.length > 0 ? Math.min(...defined) : undefined;
 }
 
 function parseJsonStreamEvent(line: string): ProviderStreamEvent | null {
