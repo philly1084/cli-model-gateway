@@ -1521,6 +1521,21 @@ function isChatGptCodexLatestUnsupportedError(error: unknown): boolean {
   );
 }
 
+export function resolveCodexAppServerTurnModel(
+  model: string,
+  requestKind: GatewayRequest["requestKind"],
+  chatGptFallbackModel: string,
+): string {
+  if (
+    requestKind === "images_generations" &&
+    model === "codex-latest" &&
+    chatGptFallbackModel !== model
+  ) {
+    return chatGptFallbackModel;
+  }
+  return model;
+}
+
 function readStdin(): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let data = "";
@@ -1649,7 +1664,16 @@ async function run(): Promise<void> {
     }
     rpc.notify("initialized");
 
-    let selectedModel = model;
+    let selectedModel = resolveCodexAppServerTurnModel(
+      model,
+      request.requestKind,
+      chatGptFallbackModel,
+    );
+    if (selectedModel !== model) {
+      process.stderr.write(
+        `codex-appserver-bridge: image generation model ${model} is not supported for ChatGPT app-server turns; using ${selectedModel}\n`,
+      );
+    }
     let threadStartResult: Record<string, unknown>;
     try {
       threadStartResult = (await rpc.request(
@@ -2035,6 +2059,10 @@ async function run(): Promise<void> {
     if (isImageGenerationRequest && imageItems.length > 0) {
       outputText = JSON.stringify({ data: imageItems });
       streamAggregateText("output_text_delta", outputText);
+    }
+
+    if (isImageGenerationRequest && imageItems.length === 0 && !outputText && turnFailedMessage) {
+      throw new Error(turnFailedMessage);
     }
 
     if (isImageGenerationRequest && imageItems.length === 0 && !outputText) {
