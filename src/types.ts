@@ -16,6 +16,7 @@ export interface ChatMessage {
   phase?: AssistantPhase;
   name?: string;
   tool_call_id?: string;
+  reasoningContent?: unknown;
 }
 
 export interface UnifiedToolDefinition {
@@ -64,6 +65,7 @@ export interface ProviderResult {
   toolCalls: ProviderToolCall[];
   finishReason: "stop" | "tool_calls" | "length" | "error";
   reasoningText?: string;
+  reasoningContent?: unknown;
   usage?: ProviderTokenUsage;
   resolvedModel?: string;
   raw?: unknown;

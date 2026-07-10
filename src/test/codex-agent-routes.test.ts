@@ -8,6 +8,11 @@ import type {
 } from "../types";
 import type { ProviderRegistry } from "../providers/registry";
 import { buildServer } from "../server";
+import { DEFAULT_CODEX_AGENT_MODEL } from "../jobs/codex-agent-manager";
+
+test("codex agent defaults to the verified GPT-5.6 Codex model", () => {
+  assert.equal(DEFAULT_CODEX_AGENT_MODEL, "gpt-5.6-sol");
+});
 
 test("codex agent run rejects workspaces outside allowed roots", async () => {
   const server = createCodexAgentTestServer();

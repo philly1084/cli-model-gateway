@@ -51,6 +51,7 @@ type ApiMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
   tool_call_id?: string;
+  reasoning_content?: unknown;
   tool_calls?: Array<{
     id?: string;
     type: "function";
@@ -65,6 +66,11 @@ type ProviderRequestInit = {
   method: string;
   body?: string;
   headers?: Record<string, string>;
+};
+
+type AnthropicMessage = {
+  role: "user" | "assistant";
+  content: string | Array<Record<string, unknown>>;
 };
 
 export class OpenAiCompatibleProvider implements Provider {
@@ -100,6 +106,9 @@ export class OpenAiCompatibleProvider implements Provider {
     if (request.requestKind === "images_generations") {
       return await this.runImageGeneration(providerModel, request);
     }
+    if (isKimiCodeApiBaseUrl(this.config.baseUrl)) {
+      return await this.runKimiCodeAnthropicMessages(providerModel, request);
+    }
 
     const suppressGroqLocalToolCalling = shouldSuppressGroqLocalToolCalling(
       this.config.baseUrl,
@@ -119,13 +128,14 @@ export class OpenAiCompatibleProvider implements Provider {
       model: providerModel,
       messages: buildApiMessages(request.messages, {
         suppressLocalToolCalling: suppressGroqLocalToolCalling,
+        preserveReasoningContent: isKimiK2ProviderModel(this.config.baseUrl, providerModel),
       }),
       stream: false,
     };
 
     const metadata = request.metadata;
     if (isKimiK2ProviderModel(this.config.baseUrl, providerModel)) {
-      copyKimiK2Metadata(body, metadata);
+      copyKimiK2Metadata(body, metadata, providerModel);
     } else {
       copyNumberMetadata(body, metadata, "temperature");
       copyNumberMetadata(body, metadata, "top_p");
@@ -176,6 +186,50 @@ export class OpenAiCompatibleProvider implements Provider {
     );
 
     return parseChatCompletionResponse(response);
+  }
+
+  private async runKimiCodeAnthropicMessages(
+    providerModel: string,
+    request: UnifiedRequest,
+  ): Promise<ProviderResult> {
+    const { system, messages } = buildAnthropicMessages(request.messages);
+    const body: Record<string, unknown> = {
+      model: providerModel,
+      max_tokens: readKimiCodeMaxTokens(request.metadata),
+      messages,
+    };
+    if (system) {
+      body.system = system;
+    }
+    if (request.tools.length > 0) {
+      body.tools = request.tools.map((tool) => ({
+        name: tool.function.name,
+        description: tool.function.description,
+        input_schema: tool.function.parameters || { type: "object" },
+      }));
+      const toolChoice = normalizeAnthropicToolChoice(
+        request.metadata && "tool_choice" in request.metadata
+          ? request.metadata.tool_choice
+          : undefined,
+      );
+      if (toolChoice) {
+        body.tool_choice = toolChoice;
+      }
+    }
+
+    const response = await this.requestJson(
+      "/messages",
+      {
+        method: "POST",
+        headers: {
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+      },
+      readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms"),
+    );
+
+    return parseAnthropicMessagesResponse(response);
   }
 
   private async runImageGeneration(
@@ -391,14 +445,15 @@ function extractModelList(payload: unknown): Array<{ id?: unknown; active?: unkn
 
 function buildApiMessages(
   messages: UnifiedRequest["messages"],
-  options?: { suppressLocalToolCalling?: boolean },
+  options?: { preserveReasoningContent?: boolean; suppressLocalToolCalling?: boolean },
 ): ApiMessage[] {
+  const preserveReasoningContent = Boolean(options?.preserveReasoningContent);
   const suppressLocalToolCalling = Boolean(options?.suppressLocalToolCalling);
   return messages.flatMap((message) => {
     if (message.role === "assistant") {
       const parsed = splitAssistantToolContext(message.content);
       if (!suppressLocalToolCalling && parsed.toolCalls.length > 0) {
-        return {
+        const apiMessage: ApiMessage = {
           role: "assistant",
           content: parsed.content || null,
           tool_calls: parsed.toolCalls.map((call) => ({
@@ -410,12 +465,20 @@ function buildApiMessages(
             },
           })),
         };
+        if (preserveReasoningContent && message.reasoningContent !== undefined) {
+          apiMessage.reasoning_content = message.reasoningContent;
+        }
+        return apiMessage;
       }
 
-      return {
+      const apiMessage: ApiMessage = {
         role: "assistant",
         content: parsed.content || message.content || null,
       };
+      if (preserveReasoningContent && message.reasoningContent !== undefined) {
+        apiMessage.reasoning_content = message.reasoningContent;
+      }
+      return apiMessage;
     }
 
     if (message.role === "tool") {
@@ -513,10 +576,12 @@ function parseChatCompletionResponse(payload: unknown): ProviderResult {
 
   const toolCalls = normalizeApiToolCalls(message?.tool_calls);
   const finishReason = normalizeFinishReason(choice.finish_reason, toolCalls.length > 0);
+  const reasoningContent = extractResponseReasoningContent(payload, choice, message);
 
   return normalizeAssistantResult({
     outputText: extractMessageText(payload, choice, message),
-    reasoningText: extractResponseReasoningText(payload, choice, message),
+    reasoningText: extractReasoningText(reasoningContent),
+    reasoningContent,
     toolCalls,
     finishReason,
     usage: normalizeProviderUsage((payload as Record<string, unknown>).usage, "provider"),
@@ -576,8 +641,16 @@ function isKimiBaseUrl(baseUrl: string): boolean {
   return /(?:api\.)?(?:moonshot|kimi)\.(?:ai|cn|com)/i.test(baseUrl);
 }
 
+function isKimiCodeApiBaseUrl(baseUrl: string): boolean {
+  return /api\.kimi\.com\/coding\/v1\/?$/i.test(baseUrl.trim());
+}
+
 function isKimiK2Model(providerModel: string): boolean {
   return /^kimi-k2(?:[.-]|$)/i.test(providerModel.trim());
+}
+
+function isKimiK27CodeModel(providerModel: string): boolean {
+  return /^kimi-k2\.7-code(?:-highspeed)?$/i.test(providerModel.trim());
 }
 
 function isKimiK2ProviderModel(baseUrl: string, providerModel: string): boolean {
@@ -612,6 +685,151 @@ function normalizeApiToolCalls(raw: unknown): ProviderToolCall[] {
   }
 
   return toolCalls;
+}
+
+function buildAnthropicMessages(
+  messages: UnifiedRequest["messages"],
+): { system?: string; messages: AnthropicMessage[] } {
+  const systemParts: string[] = [];
+  const out: AnthropicMessage[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system") {
+      if (message.content.trim()) {
+        systemParts.push(message.content.trim());
+      }
+      continue;
+    }
+
+    if (message.role === "tool") {
+      out.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: message.tool_call_id || "call_1",
+            content: message.content,
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const parsed = splitAssistantToolContext(message.content);
+      const content: Array<Record<string, unknown>> = [];
+      if (parsed.content) {
+        content.push({ type: "text", text: parsed.content });
+      }
+      for (const call of parsed.toolCalls) {
+        content.push({
+          type: "tool_use",
+          id: call.id,
+          name: call.name,
+          input: tryParseJson(call.arguments) ?? {},
+        });
+      }
+      out.push({
+        role: "assistant",
+        content: content.length > 0 ? content : message.content,
+      });
+      continue;
+    }
+
+    out.push({
+      role: "user",
+      content: message.content,
+    });
+  }
+
+  return {
+    system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
+    messages: out.length > 0 ? out : [{ role: "user", content: "" }],
+  };
+}
+
+function parseAnthropicMessagesResponse(payload: unknown): ProviderResult {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Provider API returned a non-object response.");
+  }
+
+  const record = payload as Record<string, unknown>;
+  const content = Array.isArray(record.content) ? record.content : [];
+  const textParts: string[] = [];
+  const toolCalls: ProviderToolCall[] = [];
+  const reasoningParts: string[] = [];
+
+  for (const item of content) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const part = item as Record<string, unknown>;
+    const type = typeof part.type === "string" ? part.type : "";
+    if (type === "text" && typeof part.text === "string") {
+      textParts.push(part.text);
+      continue;
+    }
+    if (type === "tool_use" && typeof part.name === "string") {
+      toolCalls.push({
+        id: typeof part.id === "string" && part.id ? part.id : `call_${toolCalls.length + 1}`,
+        name: part.name,
+        arguments: normalizeToolArguments(part.input),
+      });
+      continue;
+    }
+    if ((type.includes("thinking") || type.includes("reasoning")) && typeof part.text === "string") {
+      reasoningParts.push(part.text);
+    }
+  }
+
+  return normalizeAssistantResult({
+    outputText: textParts.join("\n\n").trim(),
+    reasoningText: reasoningParts.join("\n\n").trim() || undefined,
+    toolCalls,
+    finishReason: normalizeAnthropicStopReason(record.stop_reason, toolCalls.length > 0),
+    usage: normalizeProviderUsage(record.usage, "provider"),
+    resolvedModel: typeof record.model === "string" ? record.model : undefined,
+    raw: payload,
+  });
+}
+
+function normalizeAnthropicStopReason(
+  value: unknown,
+  hasToolCalls: boolean,
+): ProviderResult["finishReason"] {
+  if (value === "tool_use") {
+    return "tool_calls";
+  }
+  if (value === "max_tokens") {
+    return "length";
+  }
+  if (value === "end_turn" || value === "stop_sequence") {
+    return hasToolCalls ? "tool_calls" : "stop";
+  }
+  return hasToolCalls ? "tool_calls" : "stop";
+}
+
+function normalizeAnthropicToolChoice(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "auto" || normalized === "none") {
+      return { type: normalized };
+    }
+  }
+  return undefined;
+}
+
+function readKimiCodeMaxTokens(metadata: UnifiedRequest["metadata"]): number {
+  for (const key of ["max_completion_tokens", "max_tokens"]) {
+    const value = readMetadataValue(metadata, key);
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      return value;
+    }
+  }
+  return 32768;
 }
 
 function extractMessageText(
@@ -655,6 +873,14 @@ function extractResponseReasoningText(
   choice: Record<string, unknown>,
   message?: Record<string, unknown>,
 ): string | undefined {
+  return extractReasoningText(extractResponseReasoningContent(payload, choice, message));
+}
+
+function extractResponseReasoningContent(
+  payload: unknown,
+  choice: Record<string, unknown>,
+  message?: Record<string, unknown>,
+): unknown {
   for (const candidate of [
     ...extractReasoningCandidates(message),
     ...extractReasoningCandidates(choice),
@@ -664,7 +890,7 @@ function extractResponseReasoningText(
   ]) {
     const extracted = extractReasoningText(candidate);
     if (extracted) {
-      return extracted;
+      return candidate;
     }
   }
 
@@ -900,12 +1126,17 @@ function copyIntegerMetadata(
 function copyKimiK2Metadata(
   target: Record<string, unknown>,
   metadata: UnifiedRequest["metadata"],
+  providerModel: string,
 ): void {
   const maxCompletionTokens = readMetadataValue(metadata, "max_completion_tokens");
   if (typeof maxCompletionTokens === "number" && Number.isInteger(maxCompletionTokens)) {
     target.max_completion_tokens = maxCompletionTokens;
   } else {
     copyIntegerMetadata(target, metadata, "max_tokens");
+  }
+
+  if (isKimiK27CodeModel(providerModel)) {
+    return;
   }
 
   const thinking = normalizeKimiThinkingMetadata(

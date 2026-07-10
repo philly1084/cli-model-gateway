@@ -335,6 +335,7 @@ function buildChatMessage(
   content: string,
   options: {
     phase?: AssistantPhase;
+    reasoningContent?: unknown;
     tool_call_id?: string;
   } = {},
 ): ChatMessage {
@@ -345,6 +346,9 @@ function buildChatMessage(
 
   if (options.phase) {
     message.phase = options.phase;
+  }
+  if (options.reasoningContent !== undefined) {
+    message.reasoningContent = options.reasoningContent;
   }
   if (options.tool_call_id) {
     message.tool_call_id = options.tool_call_id;
@@ -482,6 +486,9 @@ function buildChatCompletionMessage(result: ProviderResult): Record<string, unkn
   };
   if (result.reasoningText) {
     message.reasoning = result.reasoningText;
+  }
+  if (result.reasoningContent !== undefined) {
+    message.reasoning_content = result.reasoningContent;
   }
   return message;
 }
@@ -1978,6 +1985,14 @@ export function normalizeChatMessages(raw: unknown[]): ChatMessage[] {
     if (typeof record.tool_call_id === "string") {
       message.tool_call_id = record.tool_call_id;
     }
+    const reasoningContent = firstDefined(
+      record.reasoning_content,
+      record.reasoningContent,
+      record.reasoning,
+    );
+    if (reasoningContent !== undefined) {
+      message.reasoningContent = reasoningContent;
+    }
     messages.push(message);
   }
   return messages;
@@ -2096,6 +2111,7 @@ export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] 
     return [
       buildChatMessage(role, content, {
         phase: role === "assistant" ? normalizeAssistantPhase(record.phase) : undefined,
+        reasoningContent: role === "assistant" ? extractReasoningContentField(record) : undefined,
       }),
     ];
   }
@@ -2118,6 +2134,7 @@ export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] 
     return [
       buildChatMessage(role, content, {
         phase: role === "assistant" ? normalizeAssistantPhase(record.phase) : undefined,
+        reasoningContent: role === "assistant" ? extractReasoningContentField(record) : undefined,
       }),
     ];
   }
@@ -2140,6 +2157,14 @@ function asRole(value: unknown): ChatMessage["role"] | undefined {
   }
 
   return undefined;
+}
+
+function extractReasoningContentField(record: Record<string, unknown>): unknown {
+  return firstDefined(
+    record.reasoning_content,
+    record.reasoningContent,
+    record.reasoning,
+  );
 }
 
 function inferResponsesRole(record: Record<string, unknown>): ChatMessage["role"] {

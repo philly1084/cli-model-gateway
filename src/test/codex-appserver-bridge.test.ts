@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import {
   buildImageGenerationPrompt,
   collectImageGenerationItems,
+  resolveCodexAppServerTurnModel,
 } from "../scripts/codex-appserver-bridge";
 
 test("buildImageGenerationPrompt explicitly invokes Codex image workflow", () => {
@@ -32,6 +33,21 @@ test("buildImageGenerationPrompt explicitly invokes Codex image workflow", () =>
   assert.match(prompt, /Respond with raw JSON only/i);
   assert.match(prompt, /actual generated image URL/i);
   assert.doesNotMatch(prompt, /example\.com/i);
+});
+
+test("resolveCodexAppServerTurnModel avoids codex-latest for image turns", () => {
+  assert.equal(
+    resolveCodexAppServerTurnModel("codex-latest", "images_generations", "gpt-5.5"),
+    "gpt-5.5",
+  );
+  assert.equal(
+    resolveCodexAppServerTurnModel("codex-latest", "chat_completions", "gpt-5.5"),
+    "codex-latest",
+  );
+  assert.equal(
+    resolveCodexAppServerTurnModel("gpt-5.5", "images_generations", "gpt-5.5"),
+    "gpt-5.5",
+  );
 });
 
 test("collectImageGenerationItems extracts app-server image call results", () => {

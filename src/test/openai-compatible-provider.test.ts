@@ -27,6 +27,7 @@ type CapturedRequestBody = {
   size?: string;
   quality?: string;
   style?: string;
+  system?: string;
 };
 
 test("OpenAiCompatibleProvider forwards remote session metadata and approval flags", async () => {
@@ -500,6 +501,251 @@ test("OpenAiCompatibleProvider normalizes Kimi K2 request knobs", async () => {
     assert.equal(capturedBody.reasoning_format, undefined);
     assert.deepEqual(capturedBody.thinking, { type: "disabled" });
     assert.equal(capturedBody.tool_choice, "auto");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider omits unsupported Kimi K2.7 thinking overrides", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: "ok",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "kimi-api",
+      type: "openai",
+      baseUrl: "https://api.moonshot.ai/v1",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "kimi-k2.7-code",
+          providerModel: "kimi-k2.7-code",
+        },
+      ],
+      discovery: {
+        enabled: false,
+      },
+    });
+
+    await provider.run({
+      requestId: "req_kimi_27",
+      model: "kimi-k2.7-code",
+      providerModel: "kimi-k2.7-code",
+      messages: [
+        {
+          role: "user",
+          content: "hi",
+        },
+      ],
+      tools: [],
+      metadata: {
+        max_completion_tokens: 1024,
+        thinking: { type: "disabled" },
+      },
+    });
+
+    assert.equal(capturedBody.model, "kimi-k2.7-code");
+    assert.equal(capturedBody.max_completion_tokens, 1024);
+    assert.equal(capturedBody.thinking, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider round-trips Kimi reasoning_content for tool turns", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: "ok",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "kimi-api",
+      type: "openai",
+      baseUrl: "https://api.moonshot.ai/v1",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "kimi-k2.7-code",
+          providerModel: "kimi-k2.7-code",
+        },
+      ],
+      discovery: {
+        enabled: false,
+      },
+    });
+
+    await provider.run({
+      requestId: "req_kimi_reasoning",
+      model: "kimi-k2.7-code",
+      providerModel: "kimi-k2.7-code",
+      messages: [
+        {
+          role: "assistant",
+          content: "I should inspect status.\n\nTOOL_CALLS:\n[{\"id\":\"call_1\",\"name\":\"check_status\",\"arguments\":\"{}\"}]",
+          reasoningContent: "Need to inspect status before answering.",
+        },
+        {
+          role: "tool",
+          content: "{\"ok\":true}",
+          tool_call_id: "call_1",
+        },
+      ],
+      tools: [],
+    });
+
+    assert.equal(capturedBody.messages?.[0]?.reasoning_content, "Need to inspect status before answering.");
+    assert.equal(capturedBody.messages?.[1]?.role, "tool");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider uses Anthropic messages for Kimi Code API", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+  let capturedUrl = "";
+  let capturedHeaders: Headers | undefined;
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedHeaders = new Headers(init?.headers);
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "kimi-k2.7-code",
+        content: [
+          {
+            type: "text",
+            text: "KIMI_CODE_OK",
+          },
+        ],
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 12,
+          output_tokens: 3,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "kimi-code-api",
+      type: "openai",
+      baseUrl: "https://api.kimi.com/coding/v1",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "kimi-k2.7-code",
+          providerModel: "kimi-k2.7-code",
+        },
+      ],
+      discovery: {
+        enabled: false,
+      },
+    });
+
+    const result = await provider.run({
+      requestId: "req_kimi_code_api",
+      model: "kimi-k2.7-code",
+      providerModel: "kimi-k2.7-code",
+      messages: [
+        {
+          role: "system",
+          content: "system prompt",
+        },
+        {
+          role: "user",
+          content: "hello",
+        },
+      ],
+      tools: [],
+      metadata: {
+        max_completion_tokens: 64,
+      },
+    });
+
+    assert.equal(capturedUrl, "https://api.kimi.com/coding/v1/messages");
+    assert.equal(capturedHeaders?.get("anthropic-version"), "2023-06-01");
+    assert.equal(capturedBody.model, "kimi-k2.7-code");
+    assert.equal(capturedBody.max_tokens, 64);
+    assert.equal(capturedBody.system, "system prompt");
+    assert.deepStrictEqual(capturedBody.messages, [{ role: "user", content: "hello" }]);
+    assert.equal(result.outputText, "KIMI_CODE_OK");
+    assert.equal(result.resolvedModel, "kimi-k2.7-code");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {

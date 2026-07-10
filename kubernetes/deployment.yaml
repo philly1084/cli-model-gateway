@@ -83,7 +83,7 @@ spec:
               readOnly: true
       containers:
         - name: gateway
-          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          image: ghcr.io/philly1084/cli-model-gateway:sha-1daaa709c4b9538897003411a1a50a42c13f3d2f
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
@@ -139,6 +139,12 @@ spec:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: moonshotApiKey
+                  optional: true
+            - name: KIMI_CODE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: kimiApiKey
                   optional: true
           volumeMounts:
             - name: providers-config
