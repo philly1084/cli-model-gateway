@@ -152,6 +152,12 @@ providers:
         description: OpenAI Image 2.0 via Codex CLI image generation
         capabilities:
           - image_generation
+      - id: gpt-5.6-sol
+        providerModel: gpt-5.6-sol
+        description: Latest Codex agent model for complex coding and professional work
+        fallbackModels:
+          - gpt-5.5
+          - gpt-5.4
       - id: codex-latest
         providerModel: codex-latest
         fallbackModels:

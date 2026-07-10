@@ -11,7 +11,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   IMAGE_ALIAS: philly1084/cli-model-gateway
-  EXTRA_NPM_GLOBAL_PACKAGES: "@google/gemini-cli @openai/codex opencode-ai"
+  EXTRA_NPM_GLOBAL_PACKAGES: "@google/gemini-cli@0.46.0 @openai/codex@0.144.1 opencode-ai@1.17.7"
 
 jobs:
   build:

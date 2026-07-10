@@ -5,6 +5,8 @@ import { getCodexExecutableCandidates } from "../utils/runtime-template-vars";
 
 type CodexAgentRunStatus = "starting" | "running" | "completed" | "failed" | "cancelled" | "input_required";
 
+export const DEFAULT_CODEX_AGENT_MODEL = "gpt-5.6-sol";
+
 export interface CodexAgentRunRequest {
   workspacePath: string;
   issue?: {
@@ -214,7 +216,7 @@ export class CodexAgentManager {
   private async startThreadAndTurn(record: CodexAgentRunRecord): Promise<void> {
     const rpc = requireRpc(record);
     const cfg = record.request.config ?? {};
-    const model = typeof cfg.model === "string" && cfg.model.trim() ? cfg.model.trim() : "codex-latest";
+    const model = typeof cfg.model === "string" && cfg.model.trim() ? cfg.model.trim() : DEFAULT_CODEX_AGENT_MODEL;
     const reasoningEffort = typeof cfg.reasoningEffort === "string" ? cfg.reasoningEffort : undefined;
     const approvalPolicy = cfg.approvalPolicy ?? "never";
     const sandbox = cfg.threadSandbox ?? "workspace-write";

@@ -12,7 +12,7 @@ RUN npm run build
 
 FROM --platform=$TARGETPLATFORM node:20-bookworm-slim AS runtime
 
-ARG EXTRA_NPM_GLOBAL_PACKAGES="@google/gemini-cli @openai/codex opencode-ai"
+ARG EXTRA_NPM_GLOBAL_PACKAGES="@google/gemini-cli@0.46.0 @openai/codex@0.144.1 opencode-ai@1.17.7"
 
 WORKDIR /app
 ENV NODE_ENV=production
