@@ -1820,10 +1820,14 @@ function scoreModelName(
   const name = modelSearchText(binding);
   let score = 0;
 
-  const isStrong = /gpt-5\.5|gpt-5\.4|opus|sonnet|gemini.*pro|deepseek.*(r1|reason|v4-pro)|reasoner|120b|k2|pro-preview|pro\b/.test(name);
-  const isFast = /flash|mini|lite|instant|haiku|8b|20b|free|compound-mini/.test(name);
+  const isGpt56Sol = /gpt-5\.6-sol/.test(name);
+  const isGpt56Terra = /gpt-5\.6-terra/.test(name);
+  const isGpt56Luna = /gpt-5\.6-luna/.test(name);
+  const isGpt56Family = isGpt56Sol || isGpt56Terra || isGpt56Luna;
+  const isStrong = /gpt-5\.5|gpt-5\.4|opus|sonnet|gemini.*pro|deepseek.*(r1|reason|v4-pro)|reasoner|120b|k2|pro-preview|pro\b/.test(name) || isGpt56Sol || isGpt56Terra;
+  const isFast = /flash|mini|lite|instant|haiku|8b|20b|free|compound-mini/.test(name) || isGpt56Luna;
   const isCoding = /kimi|codex|coder|codestral|deepseek|qwen|gpt-5|claude|sonnet/.test(name);
-  const isMediumPreferred = /groq|deepseek|kimi|moonshot|k2|compound/.test(name);
+  const isMediumPreferred = /groq|deepseek|kimi|moonshot|k2|compound/.test(name) || isGpt56Terra;
 
   if (context.requestKind === "images_generations") {
     score += bindingSupportsImageGeneration(binding) ? 100 : -100;
@@ -1854,6 +1858,16 @@ function scoreModelName(
 
   if (context.complexity >= 1 && context.complexity <= 2 && !context.wantsStrongReasoning) {
     score += isMediumPreferred ? 18 : 0;
+  }
+
+  if (isGpt56Family) {
+    if (context.wantsStrongReasoning || context.complexity >= 2) {
+      score += isGpt56Sol ? 18 : isGpt56Terra ? 8 : -8;
+    } else if (context.complexity === 0) {
+      score += isGpt56Luna ? 18 : isGpt56Terra ? 8 : 0;
+    } else {
+      score += isGpt56Terra ? 18 : 6;
+    }
   }
 
   if (/openrouter/.test(name)) {

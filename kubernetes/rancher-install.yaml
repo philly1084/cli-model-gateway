@@ -129,8 +129,26 @@ data:
               - image_generation
           - id: gpt-5.6-sol
             providerModel: gpt-5.6-sol
-            description: Latest Codex agent model for complex coding and professional work
+            description: GPT-5.6 frontier model for maximum capability
             fallbackModels:
+              - gpt-5.6-terra
+              - gpt-5.6-luna
+              - gpt-5.5
+              - gpt-5.4
+          - id: gpt-5.6-terra
+            providerModel: gpt-5.6-terra
+            description: GPT-5.6 model balancing intelligence and cost
+            fallbackModels:
+              - gpt-5.6-sol
+              - gpt-5.6-luna
+              - gpt-5.5
+              - gpt-5.4
+          - id: gpt-5.6-luna
+            providerModel: gpt-5.6-luna
+            description: GPT-5.6 model for efficient high-volume workloads
+            fallbackModels:
+              - gpt-5.6-terra
+              - gpt-5.6-sol
               - gpt-5.5
               - gpt-5.4
           - id: gpt-5.5

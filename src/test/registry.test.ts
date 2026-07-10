@@ -565,6 +565,46 @@ test("registry auto routing prefers coding models for coding prompts", async () 
   }
 });
 
+test("registry auto routing maps GPT-5.6 variants to efficient, balanced, and frontier workloads", async () => {
+  const registry = await ProviderRegistry.create([
+    cliProvider("codex-cli", [
+      {
+        id: "gpt-5.6-sol",
+        providerModel: "gpt-5.6-sol",
+      },
+      {
+        id: "gpt-5.6-terra",
+        providerModel: "gpt-5.6-terra",
+      },
+      {
+        id: "gpt-5.6-luna",
+        providerModel: "gpt-5.6-luna",
+      },
+    ]),
+  ]);
+
+  const efficient = registry.explainAutoRouting({
+    messages: [{ role: "user", content: "What is the gateway status?" }],
+    tools: [],
+    requestKind: "chat_completions",
+  });
+  const balanced = registry.explainAutoRouting({
+    messages: [{ role: "user", content: "Compare the deployment options and plan the rollout." }],
+    tools: [],
+    requestKind: "chat_completions",
+  });
+  const frontier = registry.explainAutoRouting({
+    messages: [{ role: "user", content: "Debug and refactor this multi-step TypeScript API architecture." }],
+    tools: [],
+    reasoningEffort: "high",
+    requestKind: "chat_completions",
+  });
+
+  assert.equal(efficient.selectedModelId, "gpt-5.6-luna");
+  assert.equal(balanced.selectedModelId, "gpt-5.6-terra");
+  assert.equal(frontier.selectedModelId, "gpt-5.6-sol");
+});
+
 test("registry auto routing prefers image-capable models for image requests", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REGISTRY_AUTO_API_KEY;
