@@ -83,7 +83,7 @@ spec:
               readOnly: true
       containers:
         - name: gateway
-          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          image: ghcr.io/philly1084/cli-model-gateway:sha-649bdde14454e51210bd855318ea4152eadcd365
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
