@@ -83,7 +83,7 @@ spec:
               readOnly: true
       containers:
         - name: gateway
-          image: ghcr.io/philly1084/cli-model-gateway:sha-649bdde14454e51210bd855318ea4152eadcd365
+          image: ghcr.io/philly1084/cli-model-gateway:sha-1daaa709c4b9538897003411a1a50a42c13f3d2f
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
