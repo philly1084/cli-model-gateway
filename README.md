@@ -863,6 +863,8 @@ $env:GROQ_API_KEY = "replace-with-groq-api-key"
 .\scripts\ensure-gateway-secrets.ps1
 $env:MOONSHOT_API_KEY = "replace-with-moonshot-api-key"
 .\scripts\ensure-gateway-secrets.ps1
+$env:XAI_API_KEY = "replace-with-xai-api-key"
+.\scripts\ensure-gateway-secrets.ps1
 ```
 
 Important for OAuth/token persistence:
@@ -936,6 +938,37 @@ If you prefer to log in directly inside the pod, use:
 kubectl -n n8n-openai-gateway exec -it deploy/n8n-openai-cli-gateway -- codex login --device-auth
 ```
 
+### Grok Build on Kubernetes
+
+The runtime image and Kubernetes bootstrap install `@xai-official/grok@0.2.93`. The gateway runs it
+through the ACP bridge and stores its login under `/var/lib/gateway-home/.grok` on the provider PVC.
+
+For a first-time browser/device registration, run:
+
+```bash
+kubectl -n n8n-openai-gateway exec -it deploy/n8n-openai-cli-gateway -- grok login --device-auth
+```
+
+Open the displayed URL on your computer, enter the short code, and then verify the cached login:
+
+```bash
+kubectl -n n8n-openai-gateway exec deploy/n8n-openai-cli-gateway -- grok --no-auto-update models
+```
+
+For non-interactive API-key authentication, add only the missing `xaiApiKey` Secret entry:
+
+```bash
+XAI_API_KEY="xai-..." ./scripts/ensure-gateway-secrets.sh
+```
+
+```powershell
+$env:XAI_API_KEY = "xai-..."
+.\scripts\ensure-gateway-secrets.ps1
+```
+
+The Secret helpers preserve any existing gateway keys. Restart the deployment only after the Grok
+provider config and bridge image are deployed.
+
 ## Build image
 
 ```bash
@@ -958,7 +991,7 @@ To bake CLI packages into the image:
 ```bash
 docker buildx build \
   --platform linux/arm64 \
-  --build-arg EXTRA_NPM_GLOBAL_PACKAGES="@openai/codex @google/gemini-cli opencode-ai" \
+  --build-arg EXTRA_NPM_GLOBAL_PACKAGES="@openai/codex @google/gemini-cli opencode-ai @xai-official/grok@0.2.93" \
   -t ghcr.io/your-org/n8n-openai-cli-gateway:latest \
   --push .
 ```

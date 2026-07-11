@@ -1377,7 +1377,7 @@ function hashString(value: string): number {
 function benchmarkCandidatePriority(binding: ModelBinding): number {
   const name = modelSearchText(binding);
   let score = 0;
-  if (/groq|deepseek|kimi|moonshot|k2/.test(name)) {
+  if (/groq|grok|xai|deepseek|kimi|moonshot|k2/.test(name)) {
     score += 40;
   }
   if (/gpt-5|codex|sonnet|qwen|llama|compound/.test(name)) {
@@ -1824,10 +1824,10 @@ function scoreModelName(
   const isGpt56Terra = /gpt-5\.6-terra/.test(name);
   const isGpt56Luna = /gpt-5\.6-luna/.test(name);
   const isGpt56Family = isGpt56Sol || isGpt56Terra || isGpt56Luna;
-  const isStrong = /gpt-5\.5|gpt-5\.4|opus|sonnet|gemini.*pro|deepseek.*(r1|reason|v4-pro)|reasoner|120b|k2|pro-preview|pro\b/.test(name) || isGpt56Sol || isGpt56Terra;
+  const isStrong = /gpt-5\.5|gpt-5\.4|grok-build|opus|sonnet|gemini.*pro|deepseek.*(r1|reason|v4-pro)|reasoner|120b|k2|pro-preview|pro\b/.test(name) || isGpt56Sol || isGpt56Terra;
   const isFast = /flash|mini|lite|instant|haiku|8b|20b|free|compound-mini/.test(name) || isGpt56Luna;
-  const isCoding = /kimi|codex|coder|codestral|deepseek|qwen|gpt-5|claude|sonnet/.test(name);
-  const isMediumPreferred = /groq|deepseek|kimi|moonshot|k2|compound/.test(name) || isGpt56Terra;
+  const isCoding = /kimi|codex|coder|codestral|deepseek|qwen|gpt-5|grok-build|claude|sonnet/.test(name);
+  const isMediumPreferred = /groq|grok|xai|deepseek|kimi|moonshot|k2|compound/.test(name) || isGpt56Terra;
 
   if (context.requestKind === "images_generations") {
     score += bindingSupportsImageGeneration(binding) ? 100 : -100;

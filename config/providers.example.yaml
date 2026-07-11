@@ -552,6 +552,51 @@ providers:
             exit 1
         timeoutMs: 30000
 
+  - id: grok-build-cli
+    type: cli
+    description: xAI Grok Build ACP bridge adapter
+    models:
+      - id: grok-build
+        providerModel: grok-build
+        description: xAI Grok Build coding and reasoning agent
+        fallbackModels:
+          - gpt-5.5
+          - gpt-5.4
+          - kimi-k2.6
+          - deepseek-v4-flash
+    responseCommand:
+      executable: node
+      args:
+        - dist/scripts/grok-acp-bridge.js
+        - --model
+        - "{{provider_model}}"
+      input: request_json_stdin
+      output: json_contract
+      timeoutMs: 600000
+    sessionCommand:
+      executable: grok
+      args:
+        - --no-auto-update
+      supportsModelSelection: true
+      modelFlag: --model
+      supportsWorkingDirectory: true
+      idleTimeoutMs: 1800000
+      maxLifetimeMs: 14400000
+      ptyMode: auto
+    auth:
+      loginCommand:
+        executable: grok
+        args:
+          - login
+          - --device-auth
+        timeoutMs: 900000
+      statusCommand:
+        executable: grok
+        args:
+          - --no-auto-update
+          - models
+        timeoutMs: 30000
+
   - id: deepseek-api
     type: openai
     description: DeepSeek API - excellent for coding tasks with free tier

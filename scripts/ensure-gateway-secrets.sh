@@ -10,6 +10,7 @@ OPENROUTER_VALUE="${OPENROUTER_API_KEY:-}"
 DEEPSEEK_VALUE="${DEEPSEEK_API_KEY:-}"
 MOONSHOT_VALUE="${MOONSHOT_API_KEY:-}"
 KIMI_CODE_VALUE="${KIMI_CODE_API_KEY:-}"
+XAI_VALUE="${XAI_API_KEY:-}"
 
 usage() {
   cat <<'EOF'
@@ -26,6 +27,7 @@ Options:
   --deepseek-api-key VALUE     Value for missing deepseekApiKey
   --moonshot-api-key VALUE     Value for missing moonshotApiKey
   --kimi-code-api-key VALUE    Value for missing kimiApiKey
+  --xai-api-key VALUE          Value for missing xaiApiKey
   --help                       Show this help
 
 This helper never overwrites existing Secret keys. It creates the Secret when
@@ -69,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --kimi-code-api-key)
       KIMI_CODE_VALUE="${2:-}"
+      shift 2
+      ;;
+    --xai-api-key)
+      XAI_VALUE="${2:-}"
       shift 2
       ;;
     --help|-h)
@@ -127,6 +133,7 @@ if ! secret_exists; then
   [[ -n "$DEEPSEEK_VALUE" ]] && stage_value "deepseekApiKey" "$DEEPSEEK_VALUE"
   [[ -n "$MOONSHOT_VALUE" ]] && stage_value "moonshotApiKey" "$MOONSHOT_VALUE"
   [[ -n "$KIMI_CODE_VALUE" ]] && stage_value "kimiApiKey" "$KIMI_CODE_VALUE"
+  [[ -n "$XAI_VALUE" ]] && stage_value "xaiApiKey" "$XAI_VALUE"
 
   create_args=()
   for i in "${!STAGED_KEYS[@]}"; do
@@ -180,6 +187,12 @@ if secret_has_key "kimiApiKey"; then
   echo "Keeping existing kimiApiKey."
 elif [[ -n "$KIMI_CODE_VALUE" ]]; then
   stage_value "kimiApiKey" "$KIMI_CODE_VALUE"
+fi
+
+if secret_has_key "xaiApiKey"; then
+  echo "Keeping existing xaiApiKey."
+elif [[ -n "$XAI_VALUE" ]]; then
+  stage_value "xaiApiKey" "$XAI_VALUE"
 fi
 
 if [[ "${#STAGED_KEYS[@]}" -eq 0 ]]; then

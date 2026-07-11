@@ -1012,6 +1012,37 @@ test("registry auto routing prefers Groq DeepSeek Kimi lane for medium tasks", a
   }
 });
 
+test("registry recognizes Grok Build as a strong coding lane", async () => {
+  const registry = await ProviderRegistry.create([
+    cliProvider("general-cli", [
+      {
+        id: "general-balanced",
+        providerModel: "general-balanced",
+      },
+    ]),
+    cliProvider("xai-grok-build", [
+      {
+        id: "grok-build",
+        providerModel: "grok-build",
+      },
+    ]),
+  ]);
+
+  const decision = registry.explainAutoRouting({
+    messages: [
+      {
+        role: "user",
+        content: "Refactor this TypeScript gateway and reason carefully about the failing tests.",
+      },
+    ],
+    tools: [],
+    requestKind: "chat_completions",
+  });
+
+  assert.equal(decision.selectedModelId, "grok-build");
+  assert.equal(decision.candidates[0]?.modelId, "grok-build");
+});
+
 test("registry explains auto routing prompt profile and ranked candidates", async () => {
   const registry = await ProviderRegistry.create([
     cliProvider("local-cli", [

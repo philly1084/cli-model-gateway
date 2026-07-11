@@ -45,6 +45,31 @@ spec:
           volumeMounts:
             - name: provider-home
               mountPath: /var/lib/gateway-home
+        - name: grok-bootstrap
+          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              export HOME=/var/lib/gateway-home
+              export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              mkdir -p "$HOME/.local/bin"
+              if [ ! -x "$HOME/.local/bin/grok" ]; then
+                npm install -g --prefix "$HOME/.local" @xai-official/grok@0.2.93
+              fi
+              "$HOME/.local/bin/grok" --no-auto-update version >/dev/null
+          env:
+            - name: HOME
+              value: /var/lib/gateway-home
+            - name: PATH
+              value: /var/lib/gateway-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: provider-home
+              mountPath: /var/lib/gateway-home
         - name: gemini-auth-bootstrap
           image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
           imagePullPolicy: Always
@@ -145,6 +170,12 @@ spec:
                 secretKeyRef:
                   name: n8n-openai-cli-gateway-secrets
                   key: kimiApiKey
+                  optional: true
+            - name: XAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-openai-cli-gateway-secrets
+                  key: xaiApiKey
                   optional: true
           volumeMounts:
             - name: providers-config
