@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadAppConfig, loadProvidersFile } from "../config";
+import { loadAppConfig, loadProvidersFile, loadRemoteCliTargetsFile } from "../config";
 
 test("loadProvidersFile parses remoteCliTargets", () => {
   const providersPath = writeTempProvidersFile(`
@@ -56,6 +56,27 @@ remoteCliTargets:
 `);
 
   assert.throws(() => loadProvidersFile(providersPath), /remoteCliTargets/);
+});
+
+test("loadRemoteCliTargetsFile keeps target inventory separate from providers", () => {
+  const targetsPath = writeTempProvidersFile(`
+remoteCliTargets:
+  - targetId: remote-prod
+    host: remote.example.com
+    user: deploy
+    allowedCwds:
+      - /opt/apps
+    defaultCwd: /opt/apps/demo
+`);
+
+  const targets = loadRemoteCliTargetsFile(targetsPath);
+  assert.equal(targets?.length, 1);
+  assert.equal(targets?.[0]?.targetId, "remote-prod");
+  assert.equal(targets?.[0]?.defaultCwd, "/opt/apps/demo");
+});
+
+test("loadRemoteCliTargetsFile allows an absent optional target inventory", () => {
+  assert.equal(loadRemoteCliTargetsFile(path.join(tmpdir(), "missing-targets.yaml")), undefined);
 });
 
 test("loadAppConfig defaults remote CLI tool auth to frontend and admin", () => {

@@ -1,13 +1,16 @@
-import { loadAppConfig, loadProvidersFile } from "./config";
+import { loadAppConfig, loadProvidersFile, loadRemoteCliTargetsFile } from "./config";
 import { ProviderRegistry } from "./providers/registry";
 import { buildServer } from "./server";
 
 async function main(): Promise<void> {
   const config = loadAppConfig();
   const providersFile = loadProvidersFile(config.providersPath);
+  const remoteCliTargets = config.remoteCliTargetsPath
+    ? loadRemoteCliTargetsFile(config.remoteCliTargetsPath) ?? providersFile.remoteCliTargets
+    : providersFile.remoteCliTargets;
   const registry = await ProviderRegistry.create(providersFile.providers);
   const { app, close } = buildServer(config, registry, {
-    remoteCliTargets: providersFile.remoteCliTargets,
+    remoteCliTargets,
   });
 
   // Track active connections for graceful shutdown
@@ -58,13 +61,14 @@ async function main(): Promise<void> {
       host: config.host,
       port: config.port,
       providersPath: config.providersPath,
+      remoteCliTargetsPath: config.remoteCliTargetsPath,
       models: registry.listModels().map((item) => item.id),
       rateLimitMax: config.rateLimitMax,
       rateLimitWindowMs: config.rateLimitWindowMs,
       maxRequestBodySize: config.maxRequestBodySize,
       frontendApiKeysConfigured: config.frontendApiKeys.size,
       frontendAllowedCwds: config.frontendAllowedCwds,
-      remoteCliTargetsConfigured: providersFile.remoteCliTargets?.length ?? 0,
+      remoteCliTargetsConfigured: remoteCliTargets?.length ?? 0,
       remoteCliToolAuthScopes: [...config.remoteCliToolAuthScopes],
       shutdownTimeoutMs: config.shutdownTimeoutMs,
       requestTimeoutMs: config.requestTimeoutMs,

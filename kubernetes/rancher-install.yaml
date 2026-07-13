@@ -770,6 +770,8 @@ spec:
               value: "90000"
             - name: PROVIDERS_CONFIG_PATH
               value: /app/config/providers.yaml
+            - name: REMOTE_CLI_TARGETS_CONFIG_PATH
+              value: /app/config/remote-targets/targets.yaml
             - name: CODEX_EXECUTABLE
               value: codex
             - name: HOME
@@ -826,6 +828,9 @@ spec:
             - name: providers-config
               mountPath: /app/config/providers.yaml
               subPath: providers.yaml
+            - name: remote-cli-targets
+              mountPath: /app/config/remote-targets
+              readOnly: true
             - name: provider-home
               mountPath: /var/lib/gateway-home
           startupProbe:
@@ -857,6 +862,10 @@ spec:
         - name: providers-config
           configMap:
             name: n8n-openai-cli-gateway-config
+        - name: remote-cli-targets
+          configMap:
+            name: n8n-openai-cli-gateway-targets
+            optional: true
         - name: provider-home
           persistentVolumeClaim:
             claimName: n8n-openai-cli-gateway-home

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { z } from "zod";
@@ -89,27 +89,29 @@ const openAiProviderSchema = z.object({
   discovery: discoverySchema.optional(),
 });
 
+const remoteCliTargetSchema = z.object({
+  targetId: z.string().min(1),
+  description: z.string().optional(),
+  host: z.string().min(1),
+  user: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  allowedCwds: z.array(z.string().min(1)).min(1),
+  defaultCwd: z.string().min(1).optional(),
+  defaultModel: z.string().min(1).optional(),
+  opencodeExecutable: z.string().min(1).optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  maxOutputBytes: z.number().int().positive().optional(),
+});
+
 const providersFileSchema = z.object({
   providers: z
     .array(z.discriminatedUnion("type", [cliProviderSchema, openAiProviderSchema]))
     .min(1),
-  remoteCliTargets: z
-    .array(
-      z.object({
-        targetId: z.string().min(1),
-        description: z.string().optional(),
-        host: z.string().min(1),
-        user: z.string().min(1).optional(),
-        port: z.number().int().min(1).max(65535).optional(),
-        allowedCwds: z.array(z.string().min(1)).min(1),
-        defaultCwd: z.string().min(1).optional(),
-        defaultModel: z.string().min(1).optional(),
-        opencodeExecutable: z.string().min(1).optional(),
-        timeoutMs: z.number().int().positive().optional(),
-        maxOutputBytes: z.number().int().positive().optional(),
-      }),
-    )
-    .default([]),
+  remoteCliTargets: z.array(remoteCliTargetSchema).default([]),
+});
+
+const remoteCliTargetsFileSchema = z.object({
+  remoteCliTargets: z.array(remoteCliTargetSchema),
 });
 
 const reasoningEffortSchema = z.enum(REASONING_EFFORT_VALUES);
@@ -297,6 +299,10 @@ export function loadAppConfig(): AppConfig {
     20000,
     1000,
   );
+  const remoteCliTargetsPathRaw = process.env.REMOTE_CLI_TARGETS_CONFIG_PATH?.trim();
+  const remoteCliTargetsPath = remoteCliTargetsPathRaw
+    ? path.resolve(process.cwd(), remoteCliTargetsPathRaw)
+    : undefined;
   const autoRouterBenchmarkMaxModels = parseIntegerEnv(
     "AUTO_ROUTER_BENCHMARK_MAX_MODELS",
     16,
@@ -328,6 +334,7 @@ export function loadAppConfig(): AppConfig {
     host,
     port,
     providersPath,
+    remoteCliTargetsPath,
     n8nApiKeys: parseApiKeys(),
     adminApiKey,
     frontendApiKeys: parseFrontendApiKeys(),
@@ -375,6 +382,31 @@ export function loadProvidersFile(providersPath: string): ProvidersFile {
   }
 
   return providersFileSchema.parse(parsed);
+}
+
+export function loadRemoteCliTargetsFile(targetsPath: string): ProvidersFile["remoteCliTargets"] {
+  if (!existsSync(targetsPath)) {
+    return undefined;
+  }
+
+  let raw = "";
+  try {
+    raw = readFileSync(targetsPath, "utf8");
+  } catch (error) {
+    throw new Error(`Unable to read remote CLI targets config at ${targetsPath}.`, { cause: error });
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(raw);
+  } catch (error) {
+    const details = describeYamlError(error, raw);
+    throw new Error(`Invalid YAML in ${targetsPath}.${details ? ` ${details}` : ""}`, {
+      cause: error,
+    });
+  }
+
+  return remoteCliTargetsFileSchema.parse(parsed).remoteCliTargets;
 }
 
 function describeYamlError(error: unknown, source: string): string {

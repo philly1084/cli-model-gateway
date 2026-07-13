@@ -218,6 +218,7 @@ export interface AppConfig {
   codexAgentAllowedWorkspaceRoots: string[];
   remoteCliToolAuthScopes: Set<RemoteCliToolAuthScope>;
   providersPath: string;
+  remoteCliTargetsPath?: string;
   logLevel: "trace" | "debug" | "info" | "warn" | "error" | "fatal";
   maxJobLogLines: number;
   // Graceful shutdown timeout in milliseconds
