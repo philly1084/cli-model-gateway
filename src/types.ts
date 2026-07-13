@@ -128,6 +128,7 @@ export interface SessionCommandConfig {
   idleTimeoutMs?: number;
   maxLifetimeMs?: number;
   ptyMode?: SessionPtyMode;
+  closeInputAfterWrite?: boolean;
 }
 
 export interface AuthConfig {

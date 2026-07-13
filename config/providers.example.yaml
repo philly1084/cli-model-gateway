@@ -519,14 +519,18 @@ providers:
       output: json_contract
       timeoutMs: 240000
     sessionCommand:
-      executable: kimi
-      args: []
+      executable: node
+      args:
+        - dist/scripts/remote-agent-session-bridge.js
+        - --provider
+        - kimi
       env:
         TERM: xterm-256color
       supportsWorkingDirectory: true
+      closeInputAfterWrite: true
       idleTimeoutMs: 1800000
       maxLifetimeMs: 14400000
-      ptyMode: auto
+      ptyMode: pipe
     auth:
       loginCommand:
         executable: sh
@@ -574,15 +578,18 @@ providers:
       output: json_contract
       timeoutMs: 600000
     sessionCommand:
-      executable: grok
+      executable: node
       args:
-        - --no-auto-update
+        - dist/scripts/remote-agent-session-bridge.js
+        - --provider
+        - grok
       supportsModelSelection: true
       modelFlag: --model
       supportsWorkingDirectory: true
+      closeInputAfterWrite: true
       idleTimeoutMs: 1800000
       maxLifetimeMs: 14400000
-      ptyMode: auto
+      ptyMode: pipe
     auth:
       loginCommand:
         executable: grok

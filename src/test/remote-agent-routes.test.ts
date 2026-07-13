@@ -133,6 +133,7 @@ function createRemoteAgentTestServer() {
       idleTimeoutMs: 5000,
       maxLifetimeMs: 30000,
       ptyMode: "pipe",
+      closeInputAfterWrite: true,
     },
   };
 

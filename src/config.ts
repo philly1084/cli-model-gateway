@@ -66,6 +66,7 @@ const cliProviderSchema = z.object({
       idleTimeoutMs: z.number().int().positive().optional(),
       maxLifetimeMs: z.number().int().positive().optional(),
       ptyMode: z.enum(["auto", "pipe", "script"]).optional(),
+      closeInputAfterWrite: z.boolean().optional(),
     })
     .optional(),
   auth: z

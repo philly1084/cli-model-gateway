@@ -34,6 +34,7 @@ interface ProviderSessionRecord {
   transcriptBytes: number;
   idleTimeoutMs: number;
   maxLifetimeMs: number;
+  closeInputAfterWrite: boolean;
   idleTimer?: ReturnType<typeof setTimeout>;
   lifetimeTimer?: ReturnType<typeof setTimeout>;
 }
@@ -197,6 +198,7 @@ export class ProviderSessionManager {
       transcriptBytes: 0,
       idleTimeoutMs: sessionConfig.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
       maxLifetimeMs: sessionConfig.maxLifetimeMs ?? DEFAULT_MAX_LIFETIME_MS,
+      closeInputAfterWrite: sessionConfig.closeInputAfterWrite === true,
     };
 
     this.sessions.set(summary.id, record);
@@ -240,6 +242,9 @@ export class ProviderSessionManager {
     const record = this.requireRecord(sessionId);
     ensureWritableSession(record.summary);
     record.child.stdin.write(data);
+    if (record.closeInputAfterWrite) {
+      record.child.stdin.end();
+    }
     this.markActivity(record);
     return { ...record.summary };
   }
