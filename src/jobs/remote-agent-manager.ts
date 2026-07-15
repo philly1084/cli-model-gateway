@@ -15,6 +15,7 @@ export interface CreateRemoteAgentTaskOptions {
   provider: Provider;
   targetId: string;
   task: string;
+  sessionId?: string;
   cwd?: string;
   model?: string;
   cols: number;
@@ -87,6 +88,7 @@ export class RemoteAgentManager {
       provider: options.provider,
       mode: "interactive",
       model: options.model,
+      continuationSessionId: options.sessionId,
       cols: options.cols,
       rows: options.rows,
       allowAnyCwd: options.allowAnyProviderCwd === true,

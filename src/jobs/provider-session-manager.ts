@@ -43,6 +43,7 @@ export interface CreateProviderSessionOptions {
   provider: Provider;
   mode: ProviderSessionMode;
   model?: string;
+  continuationSessionId?: string;
   cwd?: string;
   cols: number;
   rows: number;
@@ -150,6 +151,7 @@ export class ProviderSessionManager {
       sessionConfig,
       options.mode,
       options.model,
+      options.continuationSessionId,
       options.cwd,
       options.cols,
       options.rows,
@@ -438,6 +440,7 @@ function resolveSessionLaunch(
   sessionConfig: SessionCommandConfig,
   mode: ProviderSessionMode,
   model: string | undefined,
+  continuationSessionId: string | undefined,
   requestedCwd: string | undefined,
   cols: number,
   rows: number,
@@ -465,6 +468,7 @@ function resolveSessionLaunch(
     provider_id: provider.id,
     model: modelBinding?.id ?? "",
     provider_model: modelBinding?.providerModel ?? modelBinding?.id ?? "",
+    session_id: continuationSessionId?.trim() ?? "",
     cwd: cwd ?? "",
   });
   const args = [...(mode === "login" && sessionConfig.loginArgs ? sessionConfig.loginArgs : sessionConfig.args ?? [])];

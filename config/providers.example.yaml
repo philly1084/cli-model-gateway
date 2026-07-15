@@ -583,6 +583,8 @@ providers:
         - dist/scripts/remote-agent-session-bridge.js
         - --provider
         - grok
+        - --session
+        - "{{session_id}}"
       supportsModelSelection: true
       modelFlag: --model
       supportsWorkingDirectory: true

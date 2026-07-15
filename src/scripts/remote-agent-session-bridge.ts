@@ -9,6 +9,7 @@ export function buildRemoteAgentCliCommand(
   provider: string,
   prompt: string,
   model = "",
+  sessionId = "",
 ): RemoteAgentCliCommand {
   if (provider === "grok") {
     return {
@@ -23,6 +24,9 @@ export function buildRemoteAgentCliCommand(
         "--disable-web-search",
         "--no-subagents",
         "--no-memory",
+        "--output-format",
+        "streaming-json",
+        ...(sessionId ? ["--resume", sessionId] : []),
         "--single",
         prompt,
       ],
@@ -61,14 +65,19 @@ export async function readPromptFromStdin(maxBytes = 512 * 1024): Promise<string
 async function run(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const prompt = await readPromptFromStdin();
-  const command = buildRemoteAgentCliCommand(options.provider, prompt, options.model);
+  const command = buildRemoteAgentCliCommand(
+    options.provider,
+    prompt,
+    options.model,
+    options.sessionId,
+  );
   const child = spawn(command.executable, command.args, {
     cwd: process.cwd(),
     env: process.env,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  forwardOutput(child);
+  forwardOutput(child, options.provider);
   const forwardSignal = (signal: NodeJS.Signals) => {
     if (!child.killed) {
       child.kill(signal);
@@ -83,14 +92,69 @@ async function run(): Promise<void> {
   process.exitCode = exitCode;
 }
 
-function forwardOutput(child: { stdout: NodeJS.ReadableStream; stderr: NodeJS.ReadableStream }): void {
-  child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+function forwardOutput(
+  child: { stdout: NodeJS.ReadableStream; stderr: NodeJS.ReadableStream },
+  provider: string,
+): void {
+  if (provider === "grok") {
+    forwardGrokStreamingOutput(child.stdout);
+  } else {
+    child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+  }
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
 }
 
-function parseArgs(args: string[]): { provider: string; model: string } {
+export function parseGrokStreamingLine(line: string): { text?: string; sessionId?: string } {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return {};
+  }
+  try {
+    const event = JSON.parse(trimmed) as Record<string, unknown>;
+    if (event.type === "text" && typeof event.data === "string") {
+      return { text: event.data };
+    }
+    if (event.type === "end" && typeof event.sessionId === "string" && event.sessionId.trim()) {
+      return { sessionId: event.sessionId.trim() };
+    }
+  } catch {
+    return { text: line };
+  }
+  return {};
+}
+
+function forwardGrokStreamingOutput(stdout: NodeJS.ReadableStream): void {
+  stdout.setEncoding("utf8");
+  let buffer = "";
+  const flushLine = (line: string) => {
+    const event = parseGrokStreamingLine(line);
+    if (event.text) {
+      process.stdout.write(event.text);
+    }
+    if (event.sessionId) {
+      process.stdout.write(`\nREMOTE_CLI_SESSION_ID=${event.sessionId}\n`);
+    }
+  };
+  stdout.on("data", (chunk: string) => {
+    buffer += chunk;
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      flushLine(buffer.slice(0, newlineIndex));
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf("\n");
+    }
+  });
+  stdout.on("end", () => {
+    if (buffer) {
+      flushLine(buffer);
+    }
+  });
+}
+
+function parseArgs(args: string[]): { provider: string; model: string; sessionId: string } {
   let provider = "";
   let model = "";
+  let sessionId = "";
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === "--provider") {
@@ -99,9 +163,16 @@ function parseArgs(args: string[]): { provider: string; model: string } {
     } else if (value === "--model") {
       model = args[index + 1] ?? "";
       index += 1;
+    } else if (value === "--session") {
+      sessionId = args[index + 1] ?? "";
+      index += 1;
     }
   }
-  return { provider: provider.trim().toLowerCase(), model: model.trim() };
+  return {
+    provider: provider.trim().toLowerCase(),
+    model: model.trim(),
+    sessionId: sessionId.trim(),
+  };
 }
 
 if (require.main === module) {

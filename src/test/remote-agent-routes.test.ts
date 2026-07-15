@@ -15,6 +15,7 @@ import { buildServer } from "../server";
 const SESSION_SCRIPT = [
   "process.stdin.setEncoding('utf8');",
   "process.stdout.write('ready\\\\n');",
+  "process.stdout.write(`continuation:${process.argv[1] || 'fresh'}\\\\n`);",
   "process.stdin.on('data', (chunk) => {",
   "  process.stdout.write(`input:${chunk}`);",
   "});",
@@ -108,6 +109,47 @@ test("remote agent task rejects remote cwd outside target roots", async () => {
   }
 });
 
+test("remote agent task passes a continuation session id into the provider command", async () => {
+  const server = createRemoteAgentTestServer();
+  const sessionId = "019f6357-10a2-7f61-9bf8-541fa830de18";
+
+  try {
+    const response = await server.app.inject({
+      method: "POST",
+      url: "/admin/remote-agent-tasks",
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+      payload: {
+        providerId: "gemini-cli",
+        targetId: "k3s-prod",
+        cwd: "/srv/apps/music-board",
+        task: "Continue the music board rollout.",
+        sessionId,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as { task: { id: string } };
+    await sleep(100);
+    const transcriptResponse = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${body.task.id}/transcript`,
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+    });
+    const transcript = transcriptResponse.json() as { data: Array<{ type: string; data?: string }> };
+    const outputText = transcript.data
+      .filter((event) => event.type === "output")
+      .map((event) => event.data ?? "")
+      .join("");
+    assert.match(outputText, new RegExp(`continuation:${sessionId}`));
+  } finally {
+    await server.close();
+  }
+});
+
 function createRemoteAgentTestServer() {
   const cliConfig: CliProviderConfig = {
     id: "gemini-cli",
@@ -128,7 +170,7 @@ function createRemoteAgentTestServer() {
     },
     sessionCommand: {
       executable: process.execPath,
-      args: ["-e", SESSION_SCRIPT],
+      args: ["-e", SESSION_SCRIPT, "{{session_id}}"],
       supportsWorkingDirectory: true,
       idleTimeoutMs: 5000,
       maxLifetimeMs: 30000,

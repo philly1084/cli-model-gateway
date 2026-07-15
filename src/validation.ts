@@ -167,6 +167,7 @@ export const remoteAgentTaskCreateRequestSchema = z.object({
   providerId: z.string().min(1, "providerId is required"),
   targetId: z.string().min(1, "targetId is required"),
   task: z.string().min(1, "task is required"),
+  sessionId: z.string().min(1).max(256).optional(),
   cwd: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   cols: z.number().int().min(20).max(400).default(120),
