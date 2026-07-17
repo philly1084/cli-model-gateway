@@ -17,6 +17,7 @@ import type {
   UnifiedRequest,
 } from "../types";
 import type {
+  ModelFailureKind,
   ModelStatsModelSnapshot,
   ModelStatsSnapshot,
 } from "../stats/model-stats";
@@ -745,11 +746,11 @@ export class ProviderRegistry {
         break;
       }
       visited.add(currentModelId);
-      attempted.push(currentModelId);
-      const attemptIndex = attempted.length - 1;
 
       const binding = this.models.get(currentModelId);
       if (!binding) {
+        attempted.push(currentModelId);
+        const attemptIndex = attempted.length - 1;
         lastError = new Error(`Fallback model not found: ${currentModelId}`);
         this.modelStats.recordAttempt({
           modelId: currentModelId,
@@ -769,6 +770,44 @@ export class ProviderRegistry {
         });
         break;
       }
+
+      const skippedFailureKind = this.getModelSkipReason(binding, modelId);
+      if (skippedFailureKind) {
+        const nextModelId = this.findNextModelId(
+          binding,
+          autoFallbackModelIds,
+          visited,
+          request,
+        );
+        const stats = this.modelStats.snapshotModel(binding.modelId);
+        const unavailableState =
+          skippedFailureKind === "auth"
+            ? "auth_blocked"
+            : skippedFailureKind === "unknown"
+              ? stats?.suggestedState || "degraded"
+              : skippedFailureKind;
+        lastError = new Error(
+          `Model ${binding.modelId} is temporarily unavailable (${unavailableState}).` +
+            (stats?.suggestedCooldownSeconds
+              ? ` Retry after about ${stats.suggestedCooldownSeconds} seconds.`
+              : ""),
+        );
+        if (!nextModelId) {
+          break;
+        }
+        this.modelStats.recordFallback({
+          requestedModelId: modelId,
+          fromModelId: binding.modelId,
+          toModelId: nextModelId,
+          reason: skippedFailureKind,
+        });
+        trackFallback(binding.provider.id, nextModelId, skippedFailureKind);
+        currentModelId = nextModelId;
+        continue;
+      }
+
+      attempted.push(currentModelId);
+      const attemptIndex = attempted.length - 1;
 
       const startedAt = Date.now();
       this.modelStats.recordAttempt({
@@ -824,17 +863,12 @@ export class ProviderRegistry {
           error,
         });
         trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
-        const nextModelId =
-          binding.fallbackModelIds.find(
-            (fallback) =>
-              !visited.has(fallback) &&
-              this.modelSupportsRequest(fallback, request),
-          ) ??
-          autoFallbackModelIds.find(
-            (fallback) =>
-              !visited.has(fallback) &&
-              this.modelSupportsRequest(fallback, request),
-          );
+        const nextModelId = this.findNextModelId(
+          binding,
+          autoFallbackModelIds,
+          visited,
+          request,
+        );
         if (!nextModelId) {
           break;
         }
@@ -890,6 +924,69 @@ export class ProviderRegistry {
     }
 
     return !requiredCapability || bindingSupportsCapability(binding, requiredCapability);
+  }
+
+  private findNextModelId(
+    binding: ModelBinding,
+    autoFallbackModelIds: string[],
+    visited: Set<string>,
+    request: Omit<UnifiedRequest, "model" | "providerModel">,
+  ): string | undefined {
+    return (
+      binding.fallbackModelIds.find(
+        (fallback) =>
+          !visited.has(fallback) &&
+          this.modelSupportsRequest(fallback, request),
+      ) ??
+      autoFallbackModelIds.find(
+        (fallback) =>
+          !visited.has(fallback) &&
+          this.modelSupportsRequest(fallback, request),
+      )
+    );
+  }
+
+  private getModelSkipReason(
+    binding: ModelBinding,
+    requestedModelId: string,
+  ): ModelFailureKind | undefined {
+    const snapshot = this.modelStats.snapshot();
+    const providerQuotaBlocked = snapshot.models.some(
+      (model) =>
+        model.providerId === binding.provider.id &&
+        model.suggestedState === "quota_exhausted" &&
+        model.suggestedCooldownSeconds > 0,
+    );
+    if (providerQuotaBlocked) {
+      return "quota_exhausted";
+    }
+
+    const stats = snapshot.models.find((model) => model.modelId === binding.modelId);
+    if (!stats) {
+      return undefined;
+    }
+
+    if (stats.suggestedCooldownSeconds > 0) {
+      if (stats.suggestedState === "quota_exhausted") {
+        return "quota_exhausted";
+      }
+      if (stats.suggestedState === "rate_limited") {
+        return "rate_limited";
+      }
+      if (stats.suggestedState === "capacity_exhausted") {
+        return "capacity_exhausted";
+      }
+      if (stats.suggestedState === "auth_blocked") {
+        return "auth";
+      }
+      return stats.lastFailureKind || "unknown";
+    }
+
+    if (binding.modelId !== requestedModelId && stats.suggestedState === "degraded") {
+      return stats.lastFailureKind || "unknown";
+    }
+
+    return undefined;
   }
 
   private selectAutoModel(
