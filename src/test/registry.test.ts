@@ -280,6 +280,122 @@ test("registry falls back when image generation raw payload has no image data", 
   }
 });
 
+test("registry skips quota-blocked provider siblings and reuses the circuit on later requests", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalQuotaApiKey = process.env.TEST_REGISTRY_QUOTA_API_KEY;
+  const originalHealthyApiKey = process.env.TEST_REGISTRY_HEALTHY_API_KEY;
+  const requestedProviderModels: string[] = [];
+  process.env.TEST_REGISTRY_QUOTA_API_KEY = "quota-test-key";
+  process.env.TEST_REGISTRY_HEALTHY_API_KEY = "healthy-test-key";
+
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+    requestedProviderModels.push(body.model ?? "");
+
+    if (body.model === "k3") {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "You've reached your usage limit for this billing cycle.",
+          },
+        }),
+        {
+          status: 403,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        model: body.model,
+        choices: [
+          {
+            message: {
+              content: "Healthy fallback response.",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const registry = await ProviderRegistry.create([
+      {
+        id: "quota-provider",
+        type: "openai",
+        baseUrl: "https://quota.test/v1",
+        apiKeyEnv: "TEST_REGISTRY_QUOTA_API_KEY",
+        models: [
+          {
+            id: "kimi-k3",
+            providerModel: "k3",
+            fallbackModels: ["kimi-sibling"],
+          },
+          {
+            id: "kimi-sibling",
+            providerModel: "kimi-sibling",
+            fallbackModels: ["healthy-fallback"],
+          },
+        ],
+      },
+      {
+        id: "healthy-provider",
+        type: "openai",
+        baseUrl: "https://healthy.test/v1",
+        apiKeyEnv: "TEST_REGISTRY_HEALTHY_API_KEY",
+        models: [
+          {
+            id: "healthy-fallback",
+            providerModel: "healthy-fallback",
+          },
+        ],
+      },
+    ]);
+    const request = {
+      requestId: "req_quota_circuit",
+      messages: [{ role: "user" as const, content: "Hello." }],
+      tools: [],
+      requestKind: "chat_completions",
+    };
+
+    const firstResult = await registry.runModel("kimi-k3", request);
+    const secondResult = await registry.runModel("kimi-k3", {
+      ...request,
+      requestId: "req_quota_circuit_again",
+    });
+
+    assert.equal(firstResult.outputText, "Healthy fallback response.");
+    assert.equal(firstResult.resolvedModel, "healthy-fallback");
+    assert.equal(secondResult.resolvedModel, "healthy-fallback");
+    assert.deepEqual(requestedProviderModels, ["k3", "healthy-fallback", "healthy-fallback"]);
+    assert.equal(registry.getModelStatsById("kimi-k3")?.attempts, 1);
+    assert.equal(registry.getModelStatsById("kimi-sibling")?.attempts, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalQuotaApiKey === undefined) {
+      delete process.env.TEST_REGISTRY_QUOTA_API_KEY;
+    } else {
+      process.env.TEST_REGISTRY_QUOTA_API_KEY = originalQuotaApiKey;
+    }
+    if (originalHealthyApiKey === undefined) {
+      delete process.env.TEST_REGISTRY_HEALTHY_API_KEY;
+    } else {
+      process.env.TEST_REGISTRY_HEALTHY_API_KEY = originalHealthyApiKey;
+    }
+  }
+});
+
 test("registry rejects image-only models for chat requests", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REGISTRY_IMAGE_API_KEY;
