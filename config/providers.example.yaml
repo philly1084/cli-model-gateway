@@ -475,6 +475,11 @@ providers:
     apiKeyEnv: KIMI_CODE_API_KEY
     timeoutMs: 240000
     models:
+      - id: kimi-k3
+        providerModel: k3
+        description: Kimi K3 flagship reasoning model via Kimi Code API
+        fallbackModels:
+          - gpt-5.6-sol
       - id: kimi-k2.7-code
         providerModel: kimi-k2.7-code
         fallbackModels:

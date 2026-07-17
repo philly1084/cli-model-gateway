@@ -17,6 +17,7 @@ type CapturedRequestBody = {
   presence_penalty?: number;
   frequency_penalty?: number;
   max_tokens?: number;
+  max_output_tokens?: number;
   max_completion_tokens?: number;
   thinking?: Record<string, unknown>;
   reasoning_effort?: string;
@@ -746,6 +747,112 @@ test("OpenAiCompatibleProvider uses Anthropic messages for Kimi Code API", async
     assert.deepStrictEqual(capturedBody.messages, [{ role: "user", content: "hello" }]);
     assert.equal(result.outputText, "KIMI_CODE_OK");
     assert.equal(result.resolvedModel, "kimi-k2.7-code");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider parses Kimi K3 thinking and uses a bounded default output budget", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        id: "msg_k3",
+        type: "message",
+        role: "assistant",
+        model: "k3",
+        content: [
+          { type: "thinking", thinking: "Check the live state first." },
+          { type: "text", text: "K3_OK" },
+        ],
+        stop_reason: "end_turn",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "kimi-code-api",
+      type: "openai",
+      baseUrl: "https://api.kimi.com/coding/v1",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [{ id: "kimi-k3", providerModel: "k3" }],
+      discovery: { enabled: false },
+    });
+
+    const result = await provider.run({
+      requestId: "req_kimi_k3",
+      model: "kimi-k3",
+      providerModel: "k3",
+      messages: [{ role: "user", content: "hello" }],
+      tools: [],
+    });
+
+    assert.equal(capturedBody.max_tokens, 8192);
+    assert.equal(result.outputText, "K3_OK");
+    assert.equal(result.reasoningText, "Check the live state first.");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider honors max_output_tokens for Kimi Code API", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let capturedBody: CapturedRequestBody = {};
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
+    return new Response(
+      JSON.stringify({
+        id: "msg_k3_limit",
+        type: "message",
+        role: "assistant",
+        model: "k3",
+        content: [{ type: "text", text: "LIMIT_OK" }],
+        stop_reason: "end_turn",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "kimi-code-api",
+      type: "openai",
+      baseUrl: "https://api.kimi.com/coding/v1",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [{ id: "kimi-k3", providerModel: "k3" }],
+      discovery: { enabled: false },
+    });
+
+    await provider.run({
+      requestId: "req_kimi_k3_limit",
+      model: "kimi-k3",
+      providerModel: "k3",
+      messages: [{ role: "user", content: "hello" }],
+      tools: [],
+      metadata: { max_output_tokens: 4096 },
+    });
+
+    assert.equal(capturedBody.max_tokens, 4096);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {

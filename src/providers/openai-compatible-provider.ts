@@ -15,6 +15,7 @@ import type { Provider } from "./provider";
 import { normalizeProviderUsage } from "../utils/usage";
 
 const DEFAULT_TIMEOUT_MS = 240000;
+const DEFAULT_KIMI_CODE_MAX_TOKENS = 8192;
 const DEFAULT_DISCOVERY_EXCLUDES = [
   "*whisper*",
   "*transcribe*",
@@ -777,8 +778,11 @@ function parseAnthropicMessagesResponse(payload: unknown): ProviderResult {
       });
       continue;
     }
-    if ((type.includes("thinking") || type.includes("reasoning")) && typeof part.text === "string") {
-      reasoningParts.push(part.text);
+    if (type.includes("thinking") || type.includes("reasoning")) {
+      const reasoning = typeof part.thinking === "string" ? part.thinking : part.text;
+      if (typeof reasoning === "string") {
+        reasoningParts.push(reasoning);
+      }
     }
   }
 
@@ -823,13 +827,13 @@ function normalizeAnthropicToolChoice(value: unknown): unknown {
 }
 
 function readKimiCodeMaxTokens(metadata: UnifiedRequest["metadata"]): number {
-  for (const key of ["max_completion_tokens", "max_tokens"]) {
+  for (const key of ["max_output_tokens", "max_completion_tokens", "max_tokens"]) {
     const value = readMetadataValue(metadata, key);
     if (typeof value === "number" && Number.isInteger(value) && value > 0) {
       return value;
     }
   }
-  return 32768;
+  return DEFAULT_KIMI_CODE_MAX_TOKENS;
 }
 
 function extractMessageText(
