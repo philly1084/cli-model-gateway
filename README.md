@@ -394,7 +394,25 @@ Both `POST /api/codex-agent/run` and `POST /admin/remote-agent-tasks` accept an 
 
 The default 10 MiB request-body limit is deliberate: the 6 MiB decoded handoff ceiling remains below it after base64 expansion. Do not increase the file caps without changing and testing the gateway body limit or moving larger files to short-lived checksum-bound object-store URLs.
 
-For the first production promotion, use `bash scripts/promote-remote-agent-handoff.sh <immutable-image>` to preview the narrow Deployment patch. It changes only the gateway image and removes the known `remote-cli-tail-hotfix` code-shadow mount; the ConfigMap is retained so `kubectl rollout undo` remains the immediate rollback path. `--apply` is fail-closed unless `ALLOW_PROD_WRITE=yes`, `HUMAN_APPROVED=yes`, and `CHANGE_TICKET` are all present. Router health plus Codex/Kimi/Grok artifact canaries are still required before promoting KimiBuilt.
+If the live ConfigMap still has only `kimi-for-coding`, run `npm run reconcile:kimi-k3` first. `scripts/reconcile-kimi-k3-configmap.mjs` defaults to a server-side dry run and reads the complete ConfigMap as JSON with a non-shell `kubectl` process. It preserves every other ConfigMap field, provider, model, comment, and unrelated YAML byte while adding or repairing only the no-fallback `k3` model and the two session model-selection fields. The JSON Patch atomically tests both `metadata.resourceVersion` and the exact old `data.providers.yaml` before replacement; stdout contains only the before and after SHA-256 values.
+
+Applying the reconciliation is an explicit production operation:
+
+```bash
+ALLOW_PROD_WRITE=yes HUMAN_APPROVED=yes CHANGE_TICKET=CHG-1234 \
+  node scripts/reconcile-kimi-k3-configmap.mjs --apply
+```
+
+```powershell
+$env:ALLOW_PROD_WRITE = "yes"
+$env:HUMAN_APPROVED = "yes"
+$env:CHANGE_TICKET = "CHG-1234"
+npm run reconcile:kimi-k3 -- --apply
+```
+
+`--apply` first repeats the server-side dry run, then writes the exact prior `providers.yaml` with owner-only permissions under `router-config-rollbacks/` (override with `--backup-dir` or `ROUTER_CONFIG_ROLLBACK_DIR`). It applies the same resource-version/content-guarded patch, rereads the ConfigMap, requires the exact expected SHA-256, and runs the Kimi K3 provider gate again. It does not restart or roll out the Deployment.
+
+For the first production promotion, use `bash scripts/promote-remote-agent-handoff.sh <immutable-image>` to preview the narrow Deployment patch. Before even reading or patching the Deployment, both dry-run and apply modes fetch the current `providers.yaml` from `n8n-openai-cli-gateway-config` and require exactly one `kimi-code-cli` provider whose no-fallback `k3` model maps to provider model `k3` through the bounded Kimi session bridge with `supportsModelSelection: true` and `modelFlag: --model`. The promotion script never applies or replaces the ConfigMap. It changes only the gateway image and removes the known `remote-cli-tail-hotfix` code-shadow mount; the ConfigMap is retained so `kubectl rollout undo` remains the immediate rollback path. `--apply` repeats the server-side Deployment dry run before checking its production-write gates and before issuing exactly one real patch; a failed gate exits before rollout or mutation. Apply is fail-closed unless `ALLOW_PROD_WRITE=yes`, `HUMAN_APPROVED=yes`, and a valid `CHANGE_TICKET` are all present. The ticket must be 2–128 characters, start with an ASCII letter or digit, and contain only ASCII letters, digits, `.`, `_`, `:`, `/`, or `-`; whitespace is rejected. Router health plus Codex/Kimi/Grok artifact canaries are still required before promoting KimiBuilt.
 
 #### Codex/Kimi/Grok artifact canary
 
@@ -413,7 +431,7 @@ node scripts/canary-remote-agent-handoff.mjs --dry-run --mode all
 node scripts/canary-remote-agent-handoff.mjs --run --mode all
 ```
 
-Use `GATEWAY_BEARER_TOKEN` instead of `GATEWAY_API_KEY` when bearer authentication is required; never set both. Run a single lane with `--mode codex`, `--mode kimi`, or `--mode grok`. Kimi and Grok default to provider IDs `kimi-code-cli` and `grok-build-cli`; override them with `CANARY_KIMI_PROVIDER_ID` and `CANARY_GROK_PROVIDER_ID`. Optional model selectors are `CANARY_CODEX_MODEL`, `CANARY_KIMI_MODEL`, and `CANARY_GROK_MODEL`. The defaults are a 240-second per-agent timeout, 2-second polling, and 15-second HTTP timeout; bound them with `CANARY_TIMEOUT_MS`, `CANARY_POLL_INTERVAL_MS`, and `CANARY_REQUEST_TIMEOUT_MS`.
+Use `GATEWAY_BEARER_TOKEN` instead of `GATEWAY_API_KEY` when bearer authentication is required; never set both. Run a single lane with `--mode codex`, `--mode kimi`, or `--mode grok`. Kimi is release-pinned to provider ID `kimi-code-cli`; `CANARY_KIMI_PROVIDER_ID` may be omitted or set only to that exact value. Grok defaults to `grok-build-cli` and may be overridden with `CANARY_GROK_PROVIDER_ID`. The Kimi lane is also pinned to `k3`, sends `model: "k3"`, and fails unless every returned provider-task summary attests `task.model: "k3"`; `CANARY_KIMI_MODEL` may therefore be omitted or set only to exact `k3`. Optional selectors for the other lanes are `CANARY_CODEX_MODEL` and `CANARY_GROK_MODEL`. The defaults are a 240-second per-agent timeout, 2-second polling, and 15-second HTTP timeout; bound them with `CANARY_TIMEOUT_MS`, `CANARY_POLL_INTERVAL_MS`, and `CANARY_REQUEST_TIMEOUT_MS`.
 
 Agents SDK server-side usage:
 

@@ -10,6 +10,10 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "preflight:k8s": "node scripts/check-k8s-dist-overlays.mjs",
+    "preflight:kimi-k3": "node scripts/check-kimi-k3-provider-config.mjs config/providers.example.yaml",
+    "reconcile:kimi-k3": "node scripts/reconcile-kimi-k3-configmap.mjs",
+    "canary:remote-agent-handoff:dry-run": "node scripts/canary-remote-agent-handoff.mjs --dry-run --mode all",
+    "test:remote-agent-handoff-release": "node --test scripts/check-kimi-k3-provider-config.test.mjs scripts/reconcile-kimi-k3-configmap.test.mjs scripts/promote-remote-agent-handoff.test.mjs scripts/canary-remote-agent-handoff.test.mjs",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "node scripts/run-compiled-tests.mjs"
   },

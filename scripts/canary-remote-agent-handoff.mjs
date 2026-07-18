@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const HANDOFF_VERSION = 'RemoteAgentHandoff/v1';
 const RESULT_VERSION = 'RemoteAgentResultFiles/v1';
@@ -25,7 +27,7 @@ are accepted only through GATEWAY_BASE_URL plus GATEWAY_API_KEY or
 GATEWAY_BEARER_TOKEN. See README.md for the remaining environment variables.`;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   let action = null;
   let mode = 'all';
   let help = false;
@@ -73,7 +75,7 @@ function boundedInteger(value, fallback, label, minimum, maximum) {
   return parsed;
 }
 
-function loadConfig({ dryRun, modes }) {
+export function loadConfig({ dryRun, modes }) {
   const apiKey = process.env.GATEWAY_API_KEY?.trim() || '';
   const bearerToken = process.env.GATEWAY_BEARER_TOKEN?.trim() || '';
   if (apiKey && bearerToken) {
@@ -114,12 +116,19 @@ function loadConfig({ dryRun, modes }) {
     remoteCwd: process.env.CANARY_REMOTE_CWD?.trim() || '[required:CANARY_REMOTE_CWD]',
     kimiProviderId: process.env.CANARY_KIMI_PROVIDER_ID?.trim() || 'kimi-code-cli',
     grokProviderId: process.env.CANARY_GROK_PROVIDER_ID?.trim() || 'grok-build-cli',
-    kimiModel: process.env.CANARY_KIMI_MODEL?.trim() || '',
+    kimiModel: process.env.CANARY_KIMI_MODEL?.trim() || 'k3',
     grokModel: process.env.CANARY_GROK_MODEL?.trim() || '',
     timeoutMs: boundedInteger(process.env.CANARY_TIMEOUT_MS, 240_000, 'CANARY_TIMEOUT_MS', 15_000, 900_000),
     pollIntervalMs: boundedInteger(process.env.CANARY_POLL_INTERVAL_MS, 2_000, 'CANARY_POLL_INTERVAL_MS', 250, 10_000),
     requestTimeoutMs: boundedInteger(process.env.CANARY_REQUEST_TIMEOUT_MS, 15_000, 'CANARY_REQUEST_TIMEOUT_MS', 1_000, 60_000),
   };
+
+  if (modes.includes('kimi') && config.kimiModel !== 'k3') {
+    throw new Error('CANARY_KIMI_MODEL must be exactly k3 for the Kimi artifact handoff canary.');
+  }
+  if (modes.includes('kimi') && config.kimiProviderId !== 'kimi-code-cli') {
+    throw new Error('CANARY_KIMI_PROVIDER_ID must be exactly kimi-code-cli for the Kimi artifact handoff canary.');
+  }
 
   if (!dryRun) {
     if (!config.baseUrl) {
@@ -267,7 +276,7 @@ function createAgentPrompt(handoff) {
   ].join('\n');
 }
 
-function createPlan(mode, config) {
+export function createPlan(mode, config) {
   const { handoff, expectedFiles } = createHandoff(mode);
   const prompt = createAgentPrompt(handoff);
   if (mode === 'codex') {
@@ -495,12 +504,25 @@ async function pollCodex(client, runId, config, onStatus) {
   }
 }
 
-async function pollProvider(client, taskId, config, onStatus) {
+export function assertProviderTaskModel(task, plan) {
+  if (plan.mode !== 'kimi') {
+    return;
+  }
+  if (plan.body?.model !== 'k3') {
+    throw new Error('Kimi canary plan is not pinned to model k3.');
+  }
+  if (!task || typeof task !== 'object' || task.model !== 'k3') {
+    throw new Error('Kimi provider task did not attest task.model as k3.');
+  }
+}
+
+async function pollProvider(client, taskId, plan, config, onStatus) {
   const deadline = Date.now() + config.timeoutMs;
   let cursor = 0;
   let eventCount = 0;
   while (true) {
     const task = await client.json(`/admin/remote-agent-tasks/${encodeURIComponent(taskId)}`);
+    assertProviderTaskModel(task, plan);
     onStatus(task?.status);
     const transcript = await client.json(`/admin/remote-agent-tasks/${encodeURIComponent(taskId)}/transcript?after=${cursor}`);
     if (!Array.isArray(transcript?.data)) {
@@ -621,10 +643,11 @@ async function executePlan(client, plan, config) {
       if (!id || start?.task?.providerId !== plan.providerId) {
         throw new Error(`${plan.mode} start response did not include the expected provider task.`);
       }
+      assertProviderTaskModel(start.task, plan);
       latestStatus = start.task.status;
       assertExactAcknowledgement(start.task.handoff, plan.handoff);
       resultPath = client.exactResultPath(start.resultFilesUrl, `/admin/remote-agent-tasks/${id}/result-files`);
-      terminal = await pollProvider(client, id, config, (status) => { latestStatus = status; });
+      terminal = await pollProvider(client, id, plan, config, (status) => { latestStatus = status; });
     }
     const result = await client.json(resultPath);
     const files = verifyResultEnvelope(result, plan);
@@ -632,6 +655,7 @@ async function executePlan(client, plan, config) {
       mode: plan.mode,
       operationId: plan.operationId,
       status: terminal.status,
+      ...(plan.body?.model ? { model: plan.body.model } : {}),
       observedEvents: terminal.eventCount,
       elapsedMs: Date.now() - startedAt,
       files,
@@ -671,7 +695,10 @@ async function main() {
   console.log(JSON.stringify({ ok: true, contract: HANDOFF_VERSION, results }, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
+if (import.meta.url === invokedPath) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

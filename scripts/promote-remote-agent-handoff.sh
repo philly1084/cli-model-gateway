@@ -9,7 +9,13 @@ Usage:
 The default is a server-side dry run. --apply requires:
   ALLOW_PROD_WRITE=yes
   HUMAN_APPROVED=yes
-  CHANGE_TICKET=<non-empty id>
+  CHANGE_TICKET=<ticket id>
+
+Ticket ids are 2-128 characters, start with a letter or digit, and contain only
+letters, digits, periods, underscores, colons, slashes, or hyphens.
+
+Both modes first read the current live gateway ConfigMap and require the exact
+Kimi K3 CLI session bridge contract. The script never replaces providers.yaml.
 
 Accepted image forms:
   ghcr.io/philly1084/cli-model-gateway:sha-<40 hex commit>
@@ -21,8 +27,12 @@ image="${1:-}"
 mode="${2:---dry-run}"
 namespace="${ROUTER_NAMESPACE:-n8n-openai-gateway}"
 deployment="${ROUTER_DEPLOYMENT:-n8n-openai-cli-gateway}"
+configmap="${ROUTER_CONFIGMAP:-n8n-openai-cli-gateway-config}"
 container="gateway"
 overlay="remote-cli-tail-hotfix"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+node_bin="${NODE_EXECUTABLE:-node}"
+kubectl_bin="${KUBECTL_EXECUTABLE:-kubectl}"
 
 if [[ -z "${image}" || "${image}" == "--help" || "${image}" == "-h" ]]; then
   usage
@@ -40,12 +50,38 @@ if [[ "${mode}" != "--dry-run" && "${mode}" != "--apply" ]]; then
   exit 2
 fi
 
-if ! command -v kubectl >/dev/null 2>&1; then
-  echo "kubectl is required." >&2
+if ! command -v "${kubectl_bin}" >/dev/null 2>&1; then
+  echo "kubectl is required (resolved ${kubectl_bin})." >&2
   exit 2
 fi
 
-current_image="$(kubectl get deployment "${deployment}" -n "${namespace}" \
+if ! command -v "${node_bin}" >/dev/null 2>&1; then
+  echo "Node.js is required (resolved ${node_bin})." >&2
+  exit 2
+fi
+
+preflight_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf -- "${preflight_dir}"
+}
+trap cleanup EXIT
+providers_file="${preflight_dir}/providers.yaml"
+
+if ! "${kubectl_bin}" get configmap "${configmap}" -n "${namespace}" \
+  -o "jsonpath={.data.providers\\.yaml}" >"${providers_file}"; then
+  echo "Unable to read providers.yaml from live ConfigMap ${configmap}." >&2
+  exit 1
+fi
+if [[ ! -s "${providers_file}" ]]; then
+  echo "Live ConfigMap ${configmap} has no non-empty providers.yaml." >&2
+  exit 1
+fi
+if ! "${node_bin}" "${script_dir}/check-kimi-k3-provider-config.mjs" "${providers_file}"; then
+  echo "Refusing promotion: live ConfigMap ${configmap} does not satisfy the Kimi K3 CLI gate." >&2
+  exit 1
+fi
+
+current_image="$("${kubectl_bin}" get deployment "${deployment}" -n "${namespace}" \
   -o "jsonpath={.spec.template.spec.containers[?(@.name=='${container}')].image}")"
 if [[ -z "${current_image}" ]]; then
   echo "Unable to resolve the current ${container} image." >&2
@@ -71,44 +107,47 @@ EOF
 
 echo "namespace=${namespace}"
 echo "deployment=${deployment}"
+echo "providers_configmap=${configmap}"
+echo "verified_kimi_model=k3"
 echo "current_image=${current_image}"
 echo "requested_image=${image}"
 echo "rollback=kubectl rollout undo deployment/${deployment} -n ${namespace}"
 echo "note=the ${overlay} ConfigMap is retained but unmounted until post-canary cleanup"
 
+"${kubectl_bin}" patch deployment "${deployment}" -n "${namespace}" \
+  --type=strategic \
+  --patch "${patch}" \
+  --dry-run=server \
+  -o name
+
 if [[ "${mode}" == "--dry-run" ]]; then
-  kubectl patch deployment "${deployment}" -n "${namespace}" \
-    --type=strategic \
-    --patch "${patch}" \
-    --dry-run=server \
-    -o name
   echo "decision=dry_run_pass"
   exit 0
 fi
 
 if [[ "${ALLOW_PROD_WRITE:-}" != "yes" \
   || "${HUMAN_APPROVED:-}" != "yes" \
-  || -z "${CHANGE_TICKET:-}" ]]; then
-  echo "Production apply requires ALLOW_PROD_WRITE=yes, HUMAN_APPROVED=yes, and CHANGE_TICKET." >&2
+  || ! "${CHANGE_TICKET:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]{1,127}$ ]]; then
+  echo "Production apply requires ALLOW_PROD_WRITE=yes, HUMAN_APPROVED=yes, and a non-whitespace CHANGE_TICKET id." >&2
   exit 3
 fi
 
 echo "change_ticket=${CHANGE_TICKET}"
-kubectl patch deployment "${deployment}" -n "${namespace}" \
+"${kubectl_bin}" patch deployment "${deployment}" -n "${namespace}" \
   --type=strategic \
   --patch "${patch}"
-kubectl rollout status "deployment/${deployment}" -n "${namespace}" --timeout=300s
+"${kubectl_bin}" rollout status "deployment/${deployment}" -n "${namespace}" --timeout=300s
 
-actual_image="$(kubectl get deployment "${deployment}" -n "${namespace}" \
+actual_image="$("${kubectl_bin}" get deployment "${deployment}" -n "${namespace}" \
   -o "jsonpath={.spec.template.spec.containers[?(@.name=='${container}')].image}")"
 if [[ "${actual_image}" != "${image}" ]]; then
   echo "Rollout image mismatch: expected ${image}, received ${actual_image}." >&2
   exit 1
 fi
 
-mounts="$(kubectl get deployment "${deployment}" -n "${namespace}" \
+mounts="$("${kubectl_bin}" get deployment "${deployment}" -n "${namespace}" \
   -o "jsonpath={range .spec.template.spec.containers[?(@.name=='${container}')].volumeMounts[*]}{.name}={.mountPath}{'\n'}{end}")"
-volumes="$(kubectl get deployment "${deployment}" -n "${namespace}" \
+volumes="$("${kubectl_bin}" get deployment "${deployment}" -n "${namespace}" \
   -o "jsonpath={range .spec.template.spec.volumes[*]}{.name}{'\n'}{end}")"
 if grep -Eq "(^|=)${overlay}(=|$)|=/app/dist/" <<<"${mounts}" \
   || grep -Fxq "${overlay}" <<<"${volumes}"; then
