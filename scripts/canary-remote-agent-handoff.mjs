@@ -110,8 +110,8 @@ export function loadConfig({ dryRun, modes }) {
         ? { authorization: `Bearer ${bearerToken}` }
         : {},
     authConfigured: Boolean(apiKey || bearerToken),
-    codexWorkspace: process.env.CANARY_CODEX_WORKSPACE?.trim() || '[required:CANARY_CODEX_WORKSPACE]',
-    codexModel: process.env.CANARY_CODEX_MODEL?.trim() || '',
+    codexProviderId: process.env.CANARY_CODEX_PROVIDER_ID?.trim() || 'codex-cli',
+    codexModel: process.env.CANARY_CODEX_MODEL?.trim() || 'gpt-5.6-sol',
     remoteTargetId: process.env.CANARY_REMOTE_TARGET_ID?.trim() || '[required:CANARY_REMOTE_TARGET_ID]',
     remoteCwd: process.env.CANARY_REMOTE_CWD?.trim() || '[required:CANARY_REMOTE_CWD]',
     kimiProviderId: process.env.CANARY_KIMI_PROVIDER_ID?.trim() || 'kimi-code-cli',
@@ -137,15 +137,12 @@ export function loadConfig({ dryRun, modes }) {
     if (!config.authConfigured) {
       throw new Error('GATEWAY_API_KEY or GATEWAY_BEARER_TOKEN is required with --run.');
     }
-    if (modes.includes('codex') && config.codexWorkspace.startsWith('[required:')) {
-      throw new Error('CANARY_CODEX_WORKSPACE is required for Codex mode.');
-    }
-    if (modes.some((mode) => mode !== 'codex')) {
+    if (modes.length > 0) {
       if (config.remoteTargetId.startsWith('[required:')) {
-        throw new Error('CANARY_REMOTE_TARGET_ID is required for Kimi/Grok mode.');
+        throw new Error('CANARY_REMOTE_TARGET_ID is required for live agent canaries.');
       }
       if (config.remoteCwd.startsWith('[required:')) {
-        throw new Error('CANARY_REMOTE_CWD is required for Kimi/Grok mode.');
+        throw new Error('CANARY_REMOTE_CWD is required for live agent canaries.');
       }
       if (!config.remoteCwd.startsWith('/')) {
         throw new Error('CANARY_REMOTE_CWD must be an absolute POSIX path.');
@@ -279,30 +276,16 @@ function createAgentPrompt(handoff) {
 export function createPlan(mode, config) {
   const { handoff, expectedFiles } = createHandoff(mode);
   const prompt = createAgentPrompt(handoff);
-  if (mode === 'codex') {
-    return {
-      mode,
-      operationId: handoff.operationId,
-      handoff,
-      expectedFiles,
-      startPath: '/api/codex-agent/run',
-      body: {
-        workspacePath: config.codexWorkspace,
-        prompt,
-        continuation: false,
-        config: {
-          approvalPolicy: 'never',
-          threadSandbox: 'workspace-write',
-          turnTimeoutMs: config.timeoutMs,
-          stallTimeoutMs: Math.min(60_000, Math.max(15_000, Math.floor(config.timeoutMs / 2))),
-          ...(config.codexModel ? { model: config.codexModel } : {}),
-        },
-        handoff,
-      },
-    };
-  }
-  const providerId = mode === 'kimi' ? config.kimiProviderId : config.grokProviderId;
-  const model = mode === 'kimi' ? config.kimiModel : config.grokModel;
+  const providerId = mode === 'codex'
+    ? config.codexProviderId
+    : mode === 'kimi'
+      ? config.kimiProviderId
+      : config.grokProviderId;
+  const model = mode === 'codex'
+    ? config.codexModel
+    : mode === 'kimi'
+      ? config.kimiModel
+      : config.grokModel;
   return {
     mode,
     operationId: handoff.operationId,
@@ -333,9 +316,7 @@ function redactedPlan(plan, config) {
   };
   const body = {
     ...plan.body,
-    ...(plan.mode === 'codex'
-      ? { prompt: '[bounded byte-identical XML/SVG canary prompt]' }
-      : { task: '[bounded byte-identical XML/SVG canary prompt]' }),
+    task: '[bounded byte-identical XML/SVG canary prompt]',
     handoff,
   };
   return {
@@ -669,9 +650,7 @@ export async function verifyLiveAuthFailClosed(config) {
 }
 
 async function bestEffortCancel(client, mode, id) {
-  const path = mode === 'codex'
-    ? `/api/codex-agent/runs/${encodeURIComponent(id)}/cancel`
-    : `/admin/remote-agent-tasks/${encodeURIComponent(id)}/cancel`;
+  const path = `/admin/remote-agent-tasks/${encodeURIComponent(id)}/cancel`;
   try {
     await client.json(path, { method: 'POST' });
   } catch {
@@ -686,26 +665,15 @@ async function executePlan(client, plan, config) {
   let resultPath = '';
   try {
     const start = await client.json(plan.startPath, { method: 'POST', body: plan.body });
-    if (plan.mode === 'codex') {
-      id = typeof start?.runId === 'string' ? start.runId : '';
-      if (!id || start?.ok !== true) {
-        throw new Error('Codex start response did not include a valid runId.');
-      }
-      latestStatus = start.status;
-      assertExactAcknowledgement(start.handoff, plan.handoff);
-      resultPath = client.exactResultPath(start.resultFilesUrl, `/api/codex-agent/runs/${id}/result-files`);
-      var terminal = await pollCodex(client, id, config, (status) => { latestStatus = status; });
-    } else {
-      id = typeof start?.task?.id === 'string' ? start.task.id : '';
-      if (!id || start?.task?.providerId !== plan.providerId) {
-        throw new Error(`${plan.mode} start response did not include the expected provider task.`);
-      }
-      assertProviderTaskModel(start.task, plan);
-      latestStatus = start.task.status;
-      assertExactAcknowledgement(start.task.handoff, plan.handoff);
-      resultPath = client.exactResultPath(start.resultFilesUrl, `/admin/remote-agent-tasks/${id}/result-files`);
-      terminal = await pollProvider(client, id, plan, config, (status) => { latestStatus = status; });
+    id = typeof start?.task?.id === 'string' ? start.task.id : '';
+    if (!id || start?.task?.providerId !== plan.providerId) {
+      throw new Error(`${plan.mode} start response did not include the expected provider task.`);
     }
+    assertProviderTaskModel(start.task, plan);
+    latestStatus = start.task.status;
+    assertExactAcknowledgement(start.task.handoff, plan.handoff);
+    resultPath = client.exactResultPath(start.resultFilesUrl, `/admin/remote-agent-tasks/${id}/result-files`);
+    const terminal = await pollProvider(client, id, plan, config, (status) => { latestStatus = status; });
     const result = await client.json(resultPath);
     const files = verifyResultEnvelope(result, plan);
     return {
@@ -718,7 +686,7 @@ async function executePlan(client, plan, config) {
       files,
     };
   } catch (error) {
-    const terminalSet = plan.mode === 'codex' ? TERMINAL_CODEX : TERMINAL_PROVIDER;
+    const terminalSet = TERMINAL_PROVIDER;
     if (id && !terminalSet.has(latestStatus)) {
       await bestEffortCancel(client, plan.mode, id);
     }

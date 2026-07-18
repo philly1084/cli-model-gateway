@@ -15,7 +15,7 @@ Ticket ids are 2-128 characters, start with a letter or digit, and contain only
 letters, digits, periods, underscores, colons, slashes, or hyphens.
 
 Both modes require a signed GitHub build-provenance attestation from the
-canonical main branch, the exact live Kimi K3 provider contract, and the exact
+canonical main branch, the exact live Codex/Kimi remote-agent provider contract, and the exact
 known Deployment mount/volume shape. Promotion creates or reuses a
 content-addressed immutable providers ConfigMap and points the new pod template
 at that snapshot.
@@ -118,15 +118,15 @@ read_configmap_snapshot() {
     return 1
   fi
   if [[ -z "${resource_version_before}" || "${resource_version_before}" != "${resource_version_after}" ]]; then
-    echo "Live ConfigMap ${configmap} changed while reading the ${label} Kimi K3 snapshot." >&2
+    echo "Live ConfigMap ${configmap} changed while reading the ${label} remote-agent provider snapshot." >&2
     return 1
   fi
   if [[ ! -s "${destination}" ]]; then
     echo "Live ConfigMap ${configmap} has no non-empty providers.yaml." >&2
     return 1
   fi
-  if ! "${node_bin}" "${script_dir}/check-kimi-k3-provider-config.mjs" "${destination}"; then
-    echo "Refusing promotion: ${label} ConfigMap ${configmap} does not satisfy the Kimi K3 CLI gate." >&2
+  if ! "${node_bin}" "${script_dir}/check-remote-agent-provider-config.mjs" "${destination}"; then
+    echo "Refusing promotion: ${label} ConfigMap ${configmap} does not satisfy the Codex/Kimi remote-agent gate." >&2
     return 1
   fi
   snapshot_resource_version="${resource_version_after}"

@@ -15,9 +15,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
 import { checkKimiK3ProviderConfig } from './check-kimi-k3-provider-config.mjs';
+import { checkRemoteAgentProviderConfig } from './check-remote-agent-provider-config.mjs';
 import {
   parseArgs,
   reconcileKimiK3ProviderConfig,
+  reconcileRemoteAgentProviderConfig,
   sha256,
 } from './reconcile-kimi-k3-configmap.mjs';
 
@@ -33,6 +35,32 @@ remoteCliTargets:
 customRoot:
   exact: 'keep this style'
 providers:
+  - id: codex-cli
+    type: cli
+    description: Host-side Codex bridge
+    models:
+      - id: gpt-5.6-sol
+        providerModel: gpt-5.6-sol
+    responseCommand:
+      executable: node
+      args:
+        - dist/scripts/codex-appserver-bridge.js
+    sessionCommand:
+      executable: node
+      args:
+        - dist/scripts/remote-agent-session-bridge.js
+        - --provider
+        - codex
+        - --session
+        - "{{session_id}}"
+      supportsModelSelection: true
+      modelFlag: --model
+      supportsWorkingDirectory: true
+      closeInputAfterWrite: true
+      idleTimeoutMs: 1800000
+      maxLifetimeMs: 14400000
+      ptyMode: pipe
+
   - id: another-provider
     type: openai
     description: Never rewrite me
@@ -263,11 +291,25 @@ test('AST reconciliation inserts only K3 and model-selection fields while preser
   assert.deepEqual(after.customRoot, before.customRoot);
   assert.deepEqual(after.unrelatedTail, before.unrelatedTail);
   assert.deepEqual(after.providers[0], before.providers[0]);
-  assert.deepEqual(after.providers[1].models[1], before.providers[1].models[0]);
-  assert.deepEqual(after.providers[1].responseCommand, before.providers[1].responseCommand);
-  assert.deepEqual(after.providers[1].customKimiKey, before.providers[1].customKimiKey);
-  assert.deepEqual(after.providers[1].sessionCommand.env, before.providers[1].sessionCommand.env);
+  assert.deepEqual(after.providers[1], before.providers[1]);
+  assert.deepEqual(after.providers[2].models[1], before.providers[2].models[0]);
+  assert.deepEqual(after.providers[2].responseCommand, before.providers[2].responseCommand);
+  assert.deepEqual(after.providers[2].customKimiKey, before.providers[2].customKimiKey);
+  assert.deepEqual(after.providers[2].sessionCommand.env, before.providers[2].sessionCommand.env);
   assert.equal(reconcileKimiK3ProviderConfig(reconciled), reconciled, 'must be byte-idempotent');
+});
+
+test('remote-agent reconciliation inserts the bounded Codex host-side session without rewriting provider bytes', () => {
+  const source = liveLikeProvidersSource();
+  const sessionStart = source.indexOf('    sessionCommand:\n', source.indexOf('  - id: codex-cli\n'));
+  const nextProvider = source.indexOf('  - id: another-provider\n');
+  assert.ok(sessionStart > 0 && nextProvider > sessionStart);
+  const withoutCodexSession = `${source.slice(0, sessionStart)}${source.slice(nextProvider)}`;
+  const reconciled = reconcileRemoteAgentProviderConfig(withoutCodexSession);
+  const result = checkRemoteAgentProviderConfig(reconciled);
+  assert.equal(result.codex.providerId, 'codex-cli');
+  assert.match(reconciled, /    sessionCommand:\n      executable: node\n      args:\n        - dist\/scripts\/remote-agent-session-bridge\.js\n        - --provider\n        - codex/u);
+  assert.equal(reconcileRemoteAgentProviderConfig(reconciled), reconciled);
 });
 
 test('AST reconciliation repairs an existing K3 entry without retaining fallbacks', () => {
@@ -307,13 +349,15 @@ test('AST reconciliation preserves CRLF input and refuses an unexpected Kimi bri
     reconcileKimiK3ProviderConfig(crlf),
     expectedReconciledSource(crlf, '\r\n'),
   );
+  const source = liveLikeProvidersSource();
+  const kimiStart = source.indexOf('  - id: kimi-code-cli\n');
+  const kimiSessionStart = source.indexOf('    sessionCommand:\n', kimiStart);
+  const kimiExecutableStart = source.indexOf('      executable: node\n', kimiSessionStart);
+  const unexpectedExecutable = `${source.slice(0, kimiExecutableStart)}`
+    + `      executable: kimi\n`
+    + source.slice(kimiExecutableStart + '      executable: node\n'.length);
   assert.throws(
-    () => reconcileKimiK3ProviderConfig(
-      liveLikeProvidersSource().replace(
-        '    sessionCommand:\n      executable: node\n',
-        '    sessionCommand:\n      executable: kimi\n',
-      ),
-    ),
+    () => reconcileKimiK3ProviderConfig(unexpectedExecutable),
     /must already invoke the exact bounded Kimi bridge/u,
   );
   assert.throws(
