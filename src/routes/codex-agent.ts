@@ -34,6 +34,7 @@ export const codexAgentRoutes: FastifyPluginAsync<CodexAgentRoutesOptions> = asy
 
     try {
       const run = await options.manager.startRun(validationResult.data);
+      const handoff = options.manager.getHandoffAcknowledgement(run.runId);
       return {
         ok: true,
         runId: run.runId,
@@ -41,6 +42,12 @@ export const codexAgentRoutes: FastifyPluginAsync<CodexAgentRoutesOptions> = asy
         turnId: run.turnId,
         sessionId: run.sessionId,
         status: run.status,
+        ...(handoff ? {
+          handoff,
+          ...(handoff.resultManifestPath
+            ? { resultFilesUrl: `/api/codex-agent/runs/${run.runId}/result-files` }
+            : {}),
+        } : {}),
       };
     } catch (error) {
       return reply.status(400).send({
@@ -62,10 +69,31 @@ export const codexAgentRoutes: FastifyPluginAsync<CodexAgentRoutesOptions> = asy
   app.post("/runs/:runId/cancel", async (request, reply) => {
     const runId = getRunId(request);
     try {
-      const run = options.manager.cancelRun(runId);
+      const run = await options.manager.cancelRun(runId);
       return { ok: true, status: run.status };
     } catch (error) {
       return handleMutationError(reply, error);
+    }
+  });
+
+  app.get("/runs/:runId/result-files", async (request, reply) => {
+    const runId = getRunId(request);
+    const run = options.manager.getRun(runId);
+    if (!run) {
+      return reply.status(404).send({ error: `Unknown codex agent run: ${runId}` });
+    }
+    if (!isTerminalStatus(run.status)) {
+      return reply.status(409).send({ error: `Codex agent run is not terminal: ${runId}` });
+    }
+    if (!options.manager.getHandoffAcknowledgement(runId)?.resultManifestPath) {
+      return reply.status(404).send({ error: `Codex agent run did not request result files: ${runId}` });
+    }
+    try {
+      return await options.manager.getResultFiles(runId);
+    } catch (error) {
+      return reply.status(422).send({
+        error: error instanceof Error ? error.message : "Unable to collect Codex agent result files.",
+      });
     }
   });
 

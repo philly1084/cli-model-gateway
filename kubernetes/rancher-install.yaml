@@ -1,3 +1,6 @@
+# Release baseline only: this bundle intentionally omits the live-only admin
+# tool scopes and /opt/kimibuilt hostPath. Do not treat it as production-authoritative
+# until those security-sensitive settings are explicitly approved and reconciled.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -253,6 +256,9 @@ data:
         type: cli
         description: Kimi Code ACP bridge adapter
         models:
+          - id: k3
+            providerModel: k3
+            description: Kimi K3 flagship reasoning model via the authenticated Kimi CLI
           - id: kimi-for-coding
             providerModel: kimi-for-coding
             fallbackModels:
@@ -275,6 +281,8 @@ data:
             - dist/scripts/remote-agent-session-bridge.js
             - --provider
             - kimi
+          supportsModelSelection: true
+          modelFlag: --model
           env:
             TERM: xterm-256color
           supportsWorkingDirectory: true
@@ -587,6 +595,41 @@ data:
               - deepseek-v4-flash
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n-openai-cli-gateway-targets
+  namespace: n8n-openai-gateway
+data:
+  targets.yaml: |
+    remoteCliTargets:
+      - targetId: k3s-prod
+        description: Main k3s production host on demoserver2 via Codex wrapper
+        host: 162.55.163.199
+        user: root
+        port: 22
+        allowedCwds:
+          - /srv/apps
+          - /opt/agent-apps
+          - /opt/kimibuilt
+          - /srv/gitlab
+        defaultCwd: /opt/kimibuilt
+        opencodeExecutable: /usr/local/bin/codex-remote-run
+        timeoutMs: 1800000
+      - targetId: prod
+        description: Legacy alias for main k3s production host via Codex wrapper
+        host: 162.55.163.199
+        user: root
+        port: 22
+        allowedCwds:
+          - /srv/apps
+          - /opt/agent-apps
+          - /opt/kimibuilt
+          - /srv/gitlab
+        defaultCwd: /opt/kimibuilt
+        opencodeExecutable: /usr/local/bin/codex-remote-run
+        timeoutMs: 1800000
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: n8n-openai-cli-gateway-home
@@ -623,7 +666,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: gemini-bootstrap
-          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
           imagePullPolicy: Always
           command:
             - sh
@@ -651,7 +694,7 @@ spec:
             - name: provider-home
               mountPath: /var/lib/gateway-home
         - name: kimi-bootstrap
-          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
           imagePullPolicy: Always
           command:
             - sh
@@ -684,7 +727,7 @@ spec:
             - name: provider-home
               mountPath: /var/lib/gateway-home
         - name: grok-bootstrap
-          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
           imagePullPolicy: Always
           command:
             - sh
@@ -712,7 +755,7 @@ spec:
             - name: provider-home
               mountPath: /var/lib/gateway-home
         - name: gemini-auth-bootstrap
-          image: ghcr.io/philly1084/n8n-openai-cli-gateway:latest
+          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
           imagePullPolicy: Always
           command:
             - sh
@@ -752,7 +795,7 @@ spec:
               readOnly: true
       containers:
         - name: gateway
-          image: ghcr.io/philly1084/cli-model-gateway:sha-1daaa709c4b9538897003411a1a50a42c13f3d2f
+          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false

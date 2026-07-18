@@ -1,11 +1,22 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { makeId } from "../utils/ids";
 import { getCodexExecutableCandidates } from "../utils/runtime-template-vars";
+import type { RemoteAgentHandoff } from "../validation";
+import {
+  AgentHandoffStore,
+  buildHandoffPrompt,
+  redactAgentHandoff,
+  type AgentHandoffAcknowledgement,
+  type GatewayVerifiedResultFiles,
+} from "./agent-handoff-store";
 
 type CodexAgentRunStatus = "starting" | "running" | "completed" | "failed" | "cancelled" | "input_required";
 
 export const DEFAULT_CODEX_AGENT_MODEL = "gpt-5.6-sol";
+const DEFAULT_HANDOFF_CLAIM_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_RESULT_CACHE_TTL_MS = 2 * 60 * 1000;
 
 export interface CodexAgentRunRequest {
   workspacePath: string;
@@ -30,6 +41,7 @@ export interface CodexAgentRunRequest {
     model?: string;
     reasoningEffort?: string;
   };
+  handoff?: RemoteAgentHandoff;
 }
 
 export interface CodexAgentRunSummary {
@@ -73,20 +85,41 @@ interface CodexAgentRunRecord {
   stderr: string;
   stallTimer?: ReturnType<typeof setTimeout>;
   turnTimer?: ReturnType<typeof setTimeout>;
+  handoff?: RemoteAgentHandoff;
+  handoffAcknowledgement?: AgentHandoffAcknowledgement;
+  resultFiles?: GatewayVerifiedResultFiles;
+  resultCollection?: Promise<GatewayVerifiedResultFiles>;
+  retentionTimer?: ReturnType<typeof setTimeout>;
 }
 
 export class CodexAgentManager {
   private readonly runs = new Map<string, CodexAgentRunRecord>();
   private readonly allowedRoots: string[];
   private readonly codexExecutableCandidates: string[];
+  private readonly handoffStore: AgentHandoffStore;
+  private readonly handoffClaimTtlMs: number;
+  private readonly resultCacheTtlMs: number;
+  private closed = false;
 
-  constructor(options: { allowedWorkspaceRoots?: string[]; codexExecutableCandidates?: string[] } = {}) {
+  constructor(options: {
+    allowedWorkspaceRoots?: string[];
+    codexExecutableCandidates?: string[];
+    handoffStore?: AgentHandoffStore;
+    handoffClaimTtlMs?: number;
+    resultCacheTtlMs?: number;
+  } = {}) {
     this.allowedRoots = (options.allowedWorkspaceRoots ?? []).map((entry) => normalizePath(entry));
     this.codexExecutableCandidates = options.codexExecutableCandidates ?? getCodexExecutableCandidates();
+    this.handoffStore = options.handoffStore ?? new AgentHandoffStore();
+    this.handoffClaimTtlMs = positiveNumber(options.handoffClaimTtlMs) ?? DEFAULT_HANDOFF_CLAIM_TTL_MS;
+    this.resultCacheTtlMs = positiveNumber(options.resultCacheTtlMs) ?? DEFAULT_RESULT_CACHE_TTL_MS;
   }
 
   async startRun(request: CodexAgentRunRequest): Promise<CodexAgentRunSummary> {
-    const workspacePath = this.resolveWorkspacePath(request.workspacePath);
+    if (this.closed) {
+      throw new Error("Codex agent manager is closed.");
+    }
+    const workspacePath = await this.resolveWorkspacePath(request.workspacePath);
     if (!request.prompt.trim()) {
       throw new Error("prompt is required.");
     }
@@ -111,10 +144,28 @@ export class CodexAgentManager {
       outputTextParts: [],
       reasoningParts: [],
       stderr: "",
+      handoff: request.handoff,
     };
     this.runs.set(runId, record);
 
-    await this.launchCodex(record);
+    let handoffStaged = false;
+    try {
+      if (record.handoff) {
+        record.handoffAcknowledgement = await this.handoffStore.stageLocal(workspacePath, record.handoff);
+        handoffStaged = true;
+      }
+      await this.launchCodex(record);
+      if (record.handoff) {
+        record.handoff = redactAgentHandoff(record.handoff);
+        record.request.handoff = record.handoff;
+      }
+    } catch (error) {
+      if (handoffStaged && record.handoff) {
+        await this.handoffStore.cleanupLocal(workspacePath, record.handoff).catch(() => undefined);
+      }
+      this.runs.delete(runId);
+      throw error;
+    }
     return { ...record.summary };
   }
 
@@ -131,6 +182,53 @@ export class CodexAgentManager {
     return record.events.filter((event) => event.cursor > afterCursor).map((event) => ({ ...event }));
   }
 
+  getHandoffAcknowledgement(runId: string): AgentHandoffAcknowledgement | undefined {
+    const acknowledgement = this.runs.get(runId)?.handoffAcknowledgement;
+    return acknowledgement ? { ...acknowledgement } : undefined;
+  }
+
+  async getResultFiles(runId: string): Promise<GatewayVerifiedResultFiles> {
+    const record = this.requireRun(runId);
+    if (!record.terminal) {
+      throw new Error(`Codex agent run is not terminal: ${runId}`);
+    }
+    if (!record.resultFiles && !record.handoff?.output.enabled) {
+      throw new Error(`Codex agent run did not request result files: ${runId}`);
+    }
+    if (!record.resultFiles) {
+      const handoff = record.handoff;
+      if (!handoff) {
+        throw new Error(`Codex agent run did not request result files: ${runId}`);
+      }
+      this.clearRetentionTimer(record);
+      if (!record.resultCollection) {
+        record.resultCollection = this.handoffStore.collectLocal(record.summary.workspacePath, handoff)
+          .then((result) => {
+            if (this.runs.get(runId) === record) {
+              record.resultFiles = result;
+            }
+            return result;
+          })
+          .finally(() => {
+            record.handoff = undefined;
+            record.request.handoff = undefined;
+            record.resultCollection = undefined;
+            if (this.runs.get(runId) === record) {
+              this.armResultCacheEviction(record);
+            }
+          });
+      }
+      await record.resultCollection;
+    }
+    if (!record.resultFiles) {
+      throw new Error(`Codex agent result files are no longer retained: ${runId}`);
+    }
+    return {
+      ...record.resultFiles,
+      files: record.resultFiles.files.map((file) => ({ ...file })),
+    };
+  }
+
   subscribe(runId: string, listener: (event: CodexAgentEvent) => void): (() => void) | null {
     const record = this.runs.get(runId);
     if (!record || record.terminal) {
@@ -143,21 +241,41 @@ export class CodexAgentManager {
     };
   }
 
-  cancelRun(runId: string): CodexAgentRunSummary {
+  async cancelRun(runId: string): Promise<CodexAgentRunSummary> {
     const record = this.requireRun(runId);
     this.finalize(record, "cancelled", {
       event: "turn_cancelled",
       message: "Run cancelled.",
     });
+    if (record.handoff) {
+      try {
+        await this.handoffStore.cleanupLocal(record.summary.workspacePath, record.handoff);
+      } finally {
+        record.handoff = undefined;
+        record.request.handoff = undefined;
+      }
+    }
     return { ...record.summary };
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     for (const record of this.runs.values()) {
+      this.clearRetentionTimer(record);
       if (!record.terminal) {
         this.finalize(record, "cancelled", { event: "turn_cancelled", message: "Server shutting down." });
       }
+      if (record.handoff && !record.resultFiles) {
+        await this.handoffStore.cleanupLocal(record.summary.workspacePath, record.handoff).catch(() => undefined);
+        record.handoff = undefined;
+        record.request.handoff = undefined;
+      }
+      record.resultFiles = undefined;
+      record.resultCollection = undefined;
+      this.clearRetentionTimer(record);
+      await this.waitForChildExit(record);
     }
+    this.runs.clear();
   }
 
   private async launchCodex(record: CodexAgentRunRecord): Promise<void> {
@@ -166,7 +284,15 @@ export class CodexAgentManager {
       try {
         const child = spawn(executable, ["app-server", "--listen", "stdio://"], {
           cwd: record.summary.workspacePath,
-          env: process.env,
+          env: {
+            ...process.env,
+            ...(record.handoffAcknowledgement ? {
+              KIMIBUILT_CONTEXT_MANIFEST: record.handoffAcknowledgement.inputManifestPath,
+              ...(record.handoffAcknowledgement.resultManifestPath
+                ? { KIMIBUILT_RESULT_MANIFEST: record.handoffAcknowledgement.resultManifestPath }
+                : {}),
+            } : {}),
+          },
           stdio: "pipe",
           shell: false,
           windowsHide: true,
@@ -238,9 +364,12 @@ export class CodexAgentManager {
       throw new Error("codex app-server did not return thread id.");
     }
 
+    const prompt = record.handoff
+      ? `${buildHandoffPrompt(record.handoff)}\n\n${record.request.prompt}`
+      : record.request.prompt;
     const turnStart = await rpc.request("turn/start", {
       threadId,
-      input: [{ type: "text", text: record.request.prompt }],
+      input: [{ type: "text", text: prompt }],
       model,
       reasoningEffort,
       sandboxPolicy: cfg.turnSandboxPolicy,
@@ -374,6 +503,68 @@ export class CodexAgentManager {
     this.emit(record, event);
     this.killChild(record);
     record.subscribers.clear();
+    this.armTerminalEviction(record);
+  }
+
+  private armTerminalEviction(record: CodexAgentRunRecord): void {
+    this.armRetentionTimer(record, this.handoffClaimTtlMs);
+  }
+
+  private armResultCacheEviction(record: CodexAgentRunRecord): void {
+    this.armRetentionTimer(record, this.resultCacheTtlMs);
+  }
+
+  private armRetentionTimer(record: CodexAgentRunRecord, ttlMs: number): void {
+    if (this.closed || this.runs.get(record.summary.runId) !== record) {
+      return;
+    }
+    this.clearRetentionTimer(record);
+    record.retentionTimer = setTimeout(() => {
+      void this.evictRun(record);
+    }, ttlMs);
+    record.retentionTimer.unref();
+  }
+
+  private clearRetentionTimer(record: CodexAgentRunRecord): void {
+    if (record.retentionTimer) {
+      clearTimeout(record.retentionTimer);
+      record.retentionTimer = undefined;
+    }
+  }
+
+  private async evictRun(record: CodexAgentRunRecord): Promise<void> {
+    if (this.runs.get(record.summary.runId) !== record) {
+      return;
+    }
+    this.clearRetentionTimer(record);
+    if (record.resultCollection) {
+      this.armResultCacheEviction(record);
+      return;
+    }
+    if (record.handoff && !record.resultFiles) {
+      await this.handoffStore.cleanupLocal(record.summary.workspacePath, record.handoff).catch(() => undefined);
+      record.handoff = undefined;
+      record.request.handoff = undefined;
+    }
+    record.resultFiles = undefined;
+    await this.waitForChildExit(record);
+    this.runs.delete(record.summary.runId);
+  }
+
+  private async waitForChildExit(record: CodexAgentRunRecord): Promise<void> {
+    const child = record.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      return;
+    }
+    if (await waitForProcessClose(child, 1000)) {
+      return;
+    }
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // The process may have exited between the bounded wait and forced termination.
+    }
+    await waitForProcessClose(child, 1000);
   }
 
   private emit(record: CodexAgentRunRecord, event: Omit<CodexAgentEvent, "timestamp" | "cursor">): void {
@@ -410,15 +601,31 @@ export class CodexAgentManager {
     return record;
   }
 
-  private resolveWorkspacePath(workspacePath: string): string {
+  private async resolveWorkspacePath(workspacePath: string): Promise<string> {
     const resolved = normalizePath(workspacePath);
     if (this.allowedRoots.length === 0) {
       throw new Error("No Codex agent workspace roots are configured.");
     }
-    if (!this.allowedRoots.some((root) => isWithinRoot(resolved, root))) {
+    const candidateRoots = this.allowedRoots.filter((root) => isWithinRoot(resolved, root));
+    if (candidateRoots.length === 0) {
       throw new Error(`workspacePath is outside the allowed workspace roots: ${resolved}`);
     }
-    return resolved;
+    const workspaceInfo = await lstat(resolved).catch(() => null);
+    if (!workspaceInfo?.isDirectory() || workspaceInfo.isSymbolicLink()) {
+      throw new Error(`workspacePath is not a safe directory: ${resolved}`);
+    }
+    const canonicalWorkspace = await realpath(resolved);
+    for (const root of candidateRoots) {
+      const canonicalRoot = await realpath(root).catch(() => "");
+      if (!canonicalRoot) {
+        continue;
+      }
+      const rootInfo = await lstat(canonicalRoot).catch(() => null);
+      if (rootInfo?.isDirectory() && isWithinRoot(canonicalWorkspace, canonicalRoot)) {
+        return canonicalWorkspace;
+      }
+    }
+    throw new Error(`workspacePath is outside the allowed workspace roots after realpath resolution: ${canonicalWorkspace}`);
   }
 }
 
@@ -548,6 +755,34 @@ function requireRpc(record: CodexAgentRunRecord): JsonRpcLineClient {
     throw new Error("Codex app-server RPC client is unavailable.");
   }
   return record.rpc;
+}
+
+function waitForProcessClose(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (closed: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      child.off("close", onClose);
+      child.off("error", onError);
+      resolve(closed);
+    };
+    const onClose = () => finish(true);
+    const onError = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref();
+    child.once("close", onClose);
+    child.once("error", onError);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finish(true);
+    }
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

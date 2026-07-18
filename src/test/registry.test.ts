@@ -681,6 +681,45 @@ test("registry auto routing prefers coding models for coding prompts", async () 
   }
 });
 
+test("registry reports the resolved Kimi CLI run as K3", async () => {
+  const registry = await ProviderRegistry.create([
+    {
+      id: "kimi-code-cli",
+      type: "cli",
+      models: [
+        {
+          id: "k3",
+          providerModel: "k3",
+        },
+      ],
+      responseCommand: {
+        executable: process.execPath,
+        args: [
+          "-e",
+          "process.stdout.write(JSON.stringify({ output_text: process.argv[1], finish_reason: 'stop' }))",
+          "--",
+          "{{provider_model}}",
+        ],
+        input: "request_json_stdin",
+        output: "json_contract",
+        timeoutMs: 1000,
+      },
+    },
+  ]);
+
+  const result = await registry.runModel("k3", {
+    requestId: "req_kimi_cli_k3",
+    messages: [{ role: "user", content: "Build the requested site." }],
+    tools: [],
+    requestKind: "chat_completions",
+  });
+
+  assert.equal(result.outputText, "k3");
+  assert.equal(result.resolvedModel, "k3");
+  assert.equal(registry.getModelStatsById("k3")?.providerId, "kimi-code-cli");
+  assert.equal(registry.getModelStatsById("k3")?.providerModel, "k3");
+});
+
 test("registry auto routing maps GPT-5.6 variants to efficient, balanced, and frontier workloads", async () => {
   const registry = await ProviderRegistry.create([
     cliProvider("codex-cli", [

@@ -20,7 +20,7 @@ ENV PORT=8080
 ENV HOME=/var/lib/gateway-home
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates tini curl gnupg util-linux \
+  && apt-get install -y --no-install-recommends ca-certificates tini curl gnupg util-linux openssh-client \
   && mkdir -p /etc/apt/keyrings \
   && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
     | gpg --dearmor -o /etc/apt/keyrings/google-cloud-cli.gpg \

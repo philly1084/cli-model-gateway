@@ -316,7 +316,8 @@ Response:
       }
     }
   },
-  "streamUrl": "/admin/remote-agent-tasks/ragent_.../stream?token=..."
+  "streamUrl": "/admin/remote-agent-tasks/ragent_.../stream?token=...",
+  "resultFilesUrl": "/admin/remote-agent-tasks/ragent_.../result-files"
 }
 ```
 
@@ -373,9 +374,68 @@ Lifecycle endpoints:
 
 - `GET /api/codex-agent/runs/:runId`
 - `GET /api/codex-agent/runs/:runId/events`
+- `GET /api/codex-agent/runs/:runId/result-files`
 - `POST /api/codex-agent/runs/:runId/cancel`
 
 The event stream is SSE and emits `session_started`, `output`, and one terminal event: `turn_completed`, `turn_failed`, `turn_cancelled`, or `turn_input_required`. Approval and user-input requests are denied and converted into `turn_input_required` so frontend jobs do not wait forever.
+
+### Remote agent artifact handoff
+
+Both `POST /api/codex-agent/run` and `POST /admin/remote-agent-tasks` accept an optional `RemoteAgentHandoff/v1` object. It is the secure execution-boundary bridge for KimiBuilt sandbox, document, XML, SVG, image, source, and binary artifacts.
+
+- Paths must exactly match `.kimibuilt/agent-runs/<operationId>/input` and `.kimibuilt/agent-runs/<operationId>/output`; callers cannot select a global or arbitrary workspace directory.
+- The gateway validates strict base64, declared sizes, SHA-256 checksums, duplicate/reserved names, and the 12-file / 4-MiB-per-file / 6-MiB-total v1 limits before launching an agent.
+- Codex inputs are staged in its local checked-out workspace. Kimi/Grok/provider-agent inputs are staged on the configured target through `ssh -o BatchMode=yes -o StrictHostKeyChecking=yes`.
+- Start responses acknowledge `{ accepted, version, operationId, inputManifestPath, resultManifestPath? }`. Callers must require this acknowledgment before believing staging occurred.
+- Agents may copy returnable files only into the isolated `output/files/` directory and list them in `output/manifest.json` using `RemoteAgentResultFiles/v1`.
+- The authenticated `result-files` endpoints are available only after terminal status. They reject traversal, symlinks, non-regular files, malformed manifests, oversize payloads, and checksum failures, then return gateway-computed `sizeBytes`, `sha256`, and `contentBase64`.
+- The result endpoint cleans the isolated run directory after successful collection and caches the verified response in the in-memory run/task record. The caller should persist files immediately; these records are not durable across a gateway restart.
+- No handoff directory is created for ordinary read-only/no-file calls. The legacy MCP `remote_code_*` transport intentionally does not implement this file contract.
+
+The default 10 MiB request-body limit is deliberate: the 6 MiB decoded handoff ceiling remains below it after base64 expansion. Do not increase the file caps without changing and testing the gateway body limit or moving larger files to short-lived checksum-bound object-store URLs.
+
+If the live ConfigMap still has only `kimi-for-coding`, run `npm run reconcile:kimi-k3` first. `scripts/reconcile-kimi-k3-configmap.mjs` defaults to a server-side dry run and reads the complete ConfigMap as JSON with a non-shell `kubectl` process. It preserves every other ConfigMap field, provider, model, comment, and unrelated YAML byte while adding or repairing only the no-fallback `k3` model and the two session model-selection fields. The JSON Patch atomically tests both `metadata.resourceVersion` and the exact old `data.providers.yaml` before replacement; stdout contains only the before and after SHA-256 values.
+
+Applying the reconciliation is an explicit production operation:
+
+```bash
+ALLOW_PROD_WRITE=yes HUMAN_APPROVED=yes CHANGE_TICKET=CHG-1234 \
+  node scripts/reconcile-kimi-k3-configmap.mjs --apply
+```
+
+```powershell
+$env:ALLOW_PROD_WRITE = "yes"
+$env:HUMAN_APPROVED = "yes"
+$env:CHANGE_TICKET = "CHG-1234"
+npm run reconcile:kimi-k3 -- --apply
+```
+
+`--apply` first repeats the server-side dry run, then writes the exact prior `providers.yaml` with owner-only permissions under `router-config-rollbacks/` (override with `--backup-dir` or `ROUTER_CONFIG_ROLLBACK_DIR`). It applies the same resource-version/content-guarded patch, rereads the ConfigMap, requires the exact expected SHA-256, and runs the Kimi K3 provider gate again. Its change-ticket syntax is the same strict 2–128 character ASCII contract as router promotion. It does not restart or roll out the Deployment.
+
+For the first production promotion, use `bash scripts/promote-remote-agent-handoff.sh ghcr.io/philly1084/cli-model-gateway@sha256:<64-hex-digest>` to preview the narrow release. Commit-derived tags are rejected because registry tags can be reassigned. The build workflow signs image provenance and writes `promotion_image=...@sha256:...` only for trusted `push` events on the canonical `main` branch; an arbitrary `workflow_dispatch` ref cannot emit a promotion reference or attestation. Promotion requires `gh attestation verify` to validate that exact digest against `philly1084/cli-model-gateway` and its `build.yml`, a GitHub-hosted runner, and source ref `refs/heads/main` before any Kubernetes request. The legacy `philly1084/n8n-openai-cli-gateway` Git remote redirects to that canonical repository but is not used as the provenance authority.
+
+Both dry-run and apply modes then take a stable resource-version-bounded snapshot of the current `providers.yaml` from `n8n-openai-cli-gateway-config` and require exactly one `kimi-code-cli` provider whose no-fallback `k3` model maps to provider model `k3` through the bounded Kimi session bridge with `supportsModelSelection: true` and `modelFlag: --model`. They also read the Deployment as one JSON object and require the exact `providers-config` mount plus the exact ConfigMap-backed `remote-cli-tail-hotfix` name, `/app/dist/jobs/remote-cli-tool-manager.js` path, `remote-cli-tool-manager.js` subPath, `readOnly: true`, ConfigMap source, non-optional semantics, and Kubernetes-default `0644` mode. The bootstrap set must be exactly `gemini-bootstrap`, `kimi-bootstrap`, and `gemini-auth-bootstrap`, with one shared expected router image before promotion. The strategic patch deletes the volumeMount by its Kubernetes merge key (`mountPath`) and the volume by its merge key (`name`), then pins the gateway and all three bootstrap init containers to the same attested digest. Any unexpected `/app/dist` mount, bootstrap container, divergent bootstrap image, shared volume reference, or source mismatch fails before rollout; post-rollout verification requires all four container images to equal the requested digest.
+
+Kubernetes cannot atomically mutate a Deployment and an independently mutable ConfigMap. To close that pod-launch race for ordinary config changes, promotion builds a unique content-addressed ConfigMap name from the exact `providers.yaml` bytes and image digest, creates or verifies that ConfigMap with `immutable: true`, and repoints `providers-config` to it before a new pod can launch. The source ConfigMap and hotfix ConfigMap remain intact for `kubectl rollout undo`; an unused immutable snapshot may remain if the resource-version-guarded Deployment patch later loses a race. Apply rechecks the source bytes and Deployment immediately before that guarded patch, then verifies the deployed image, snapshot bytes, provider mount, and overlay absence after rollout. A cluster actor allowed to delete and recreate immutable ConfigMaps can still race this process: Kubernetes offers no cross-resource transaction or name-to-UID volume pin, so RBAC/admission controls that privileged boundary. Apply also requires `ALLOW_PROD_WRITE=yes`, `HUMAN_APPROVED=yes`, and a valid `CHANGE_TICKET`. The ticket must be 2–128 characters, start with an ASCII letter or digit, and contain only ASCII letters, digits, `.`, `_`, `:`, `/`, or `-`; whitespace is rejected. Router health plus Codex/Kimi/Grok artifact canaries are still required before promoting KimiBuilt.
+
+#### Codex/Kimi/Grok artifact canary
+
+`scripts/canary-remote-agent-handoff.mjs` exercises the live handoff contract without deploying or changing cluster resources. Before starting any selected agent, it POSTs an empty, schema-invalid `{}` body to both mutation start endpoints (`/api/codex-agent/run` and `/admin/remote-agent-tasks`) with no credential and with a deliberately invalid credential and requires HTTP 401. It repeats both probes with the configured credential and requires the request to reach schema validation as HTTP 400. Because the body cannot start either manager, the auth proof creates no run or task; any open route aborts the canary before a real start request. The canary then creates harmless XML and SVG inputs, requires the selected agent to return byte-identical copies, polls the authenticated status plus events/transcript endpoints with a bounded timeout, and verifies the gateway-computed result checksums. Nothing reaches the network unless `--run` is explicitly present; `--dry-run` prints request summaries with file bytes and authentication redacted.
+
+Set the gateway address and exactly one authentication value through the environment only:
+
+```powershell
+$env:GATEWAY_BASE_URL = "https://gateway.example.com"
+$env:GATEWAY_API_KEY = "<admin-or-frontend-key>"
+$env:CANARY_CODEX_WORKSPACE = "/an/allowed/local/workspace"
+$env:CANARY_REMOTE_TARGET_ID = "k3s-prod"
+$env:CANARY_REMOTE_CWD = "/opt/kimibuilt"
+
+node scripts/canary-remote-agent-handoff.mjs --dry-run --mode all
+node scripts/canary-remote-agent-handoff.mjs --run --mode all
+```
+
+Use `GATEWAY_BEARER_TOKEN` instead of `GATEWAY_API_KEY` when bearer authentication is required; never set both. Run a single lane with `--mode codex`, `--mode kimi`, or `--mode grok`. Kimi is release-pinned to provider ID `kimi-code-cli`; `CANARY_KIMI_PROVIDER_ID` may be omitted or set only to that exact value. Grok defaults to `grok-build-cli` and may be overridden with `CANARY_GROK_PROVIDER_ID`. The Kimi lane is also pinned to `k3`, sends `model: "k3"`, and fails unless every returned provider-task summary attests `task.model: "k3"`; `CANARY_KIMI_MODEL` may therefore be omitted or set only to exact `k3`. Optional selectors for the other lanes are `CANARY_CODEX_MODEL` and `CANARY_GROK_MODEL`. The defaults are a 240-second per-agent timeout, 2-second polling, and 15-second HTTP timeout; bound them with `CANARY_TIMEOUT_MS`, `CANARY_POLL_INTERVAL_MS`, and `CANARY_REQUEST_TIMEOUT_MS`.
 
 Agents SDK server-side usage:
 
