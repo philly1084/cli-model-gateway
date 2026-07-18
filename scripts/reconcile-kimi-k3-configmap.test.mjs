@@ -365,6 +365,12 @@ test('--apply fails closed before kubectl unless every production gate is presen
     { name: 'no human approval', env: { ALLOW_PROD_WRITE: 'yes', CHANGE_TICKET: 'CHG-1' } },
     { name: 'no write gate', env: { HUMAN_APPROVED: 'yes', CHANGE_TICKET: 'CHG-1' } },
     { name: 'no ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes' } },
+    { name: 'whitespace ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes', CHANGE_TICKET: '  ' } },
+    { name: 'one-character ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes', CHANGE_TICKET: 'A' } },
+    { name: 'leading punctuation ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes', CHANGE_TICKET: '-CHG-1' } },
+    { name: 'internal whitespace ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes', CHANGE_TICKET: 'CHG 1' } },
+    { name: 'non-ASCII ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes', CHANGE_TICKET: 'CHG-é' } },
+    { name: 'overlong ticket', env: { ALLOW_PROD_WRITE: 'yes', HUMAN_APPROVED: 'yes', CHANGE_TICKET: `C${'1'.repeat(128)}` } },
   ];
   for (const entry of cases) {
     await t.test(entry.name, async () => {

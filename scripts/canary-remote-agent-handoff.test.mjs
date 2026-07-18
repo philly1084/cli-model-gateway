@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import test from 'node:test';
 import {
   assertProviderTaskModel,
   createPlan,
   loadConfig,
   parseArgs,
+  runLiveCanary,
+  verifyLiveAuthFailClosed,
 } from './canary-remote-agent-handoff.mjs';
 
 const ENV_KEYS = [
@@ -75,3 +79,114 @@ test('Kimi canary accepts a returned provider task only when task.model is k3', 
 test('non-Kimi lanes do not claim a Kimi model attestation', () => {
   assert.doesNotThrow(() => assertProviderTaskModel({}, { mode: 'grok', body: {} }));
 });
+
+test('live auth preflight proves missing and invalid credentials fail closed before accepting the configured key', async () => {
+  const requests = [];
+  await withHttpServer(async (request, response) => {
+    const body = await readJsonBody(request);
+    requests.push({
+      method: request.method,
+      path: request.url,
+      credential: request.headers['x-api-key'] ?? '',
+      body,
+    });
+    const accepted = request.headers['x-api-key'] === 'valid-canary-key';
+    sendJson(response, accepted ? 400 : 401, accepted
+      ? { error: 'Invalid request body.' }
+      : { error: 'Unauthorized' });
+  }, async (baseUrl) => {
+    const result = await verifyLiveAuthFailClosed({
+      baseUrl,
+      authHeaders: { 'x-api-key': 'valid-canary-key' },
+      authConfigured: true,
+      modes: ['codex', 'kimi', 'grok'],
+      requestTimeoutMs: 2_000,
+    });
+
+    assert.deepEqual(result, {
+      failClosed: true,
+      protectedMutationRoutes: 2,
+      probes: 6,
+    });
+  });
+
+  assert.equal(requests.length, 6);
+  assert.equal(requests.every((entry) => entry.method === 'POST'), true);
+  assert.equal(requests.every((entry) => JSON.stringify(entry.body) === '{}'), true);
+  assert.equal(requests.filter((entry) => !entry.credential).length, 2);
+  assert.equal(requests.filter((entry) => entry.credential === 'invalid-remote-agent-canary-credential').length, 2);
+  assert.equal(requests.filter((entry) => entry.credential === 'valid-canary-key').length, 2);
+  assert.deepEqual(
+    [...new Set(requests.map((entry) => entry.path))].sort(),
+    ['/admin/remote-agent-tasks', '/api/codex-agent/run'],
+  );
+});
+
+test('a live auth failure aborts before any agent start request', async () => {
+  let agentStartRequests = 0;
+  await withHttpServer(async (request, response) => {
+    if (request.url === '/healthz') {
+      sendJson(response, 200, {
+        ok: true,
+        contracts: { remoteAgentHandoff: 'RemoteAgentHandoff/v1' },
+      });
+      return;
+    }
+    const body = await readJsonBody(request);
+    if (body?.prompt || body?.task) {
+      agentStartRequests += 1;
+    }
+    // Simulate a dangerously open mutation route: validation ran before auth.
+    sendJson(response, 400, { error: 'Invalid request body.' });
+  }, async (baseUrl) => {
+    const config = {
+      baseUrl,
+      authHeaders: { 'x-api-key': 'valid-canary-key' },
+      authConfigured: true,
+      modes: ['codex'],
+      requestTimeoutMs: 2_000,
+      timeoutMs: 15_000,
+      pollIntervalMs: 250,
+      codexWorkspace: '/tmp/canary-workspace',
+      codexModel: '',
+    };
+    const plan = createPlan('codex', config);
+    await assert.rejects(
+      runLiveCanary(config, [plan]),
+      /auth preflight expected HTTP 401.*received 400/,
+    );
+  });
+
+  assert.equal(agentStartRequests, 0);
+});
+
+async function withHttpServer(handler, callback) {
+  const server = createServer(handler);
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  try {
+    await callback(new URL(`http://127.0.0.1:${address.port}/`));
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+function sendJson(response, statusCode, body) {
+  response.writeHead(statusCode, { 'content-type': 'application/json' });
+  response.end(JSON.stringify(body));
+}
+
+async function readJsonBody(request) {
+  const chunks = [];
+  for await (const chunk of request) {
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) {
+    return undefined;
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}

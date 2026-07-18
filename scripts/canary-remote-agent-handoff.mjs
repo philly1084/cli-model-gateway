@@ -382,6 +382,9 @@ function createHttpClient(config) {
     } finally {
       clearTimeout(timer);
     }
+    if (responseType === 'status') {
+      return response.status;
+    }
     if (!response.ok) {
       throw new Error(`Gateway returned HTTP ${response.status} for ${method} ${url.pathname}: ${safeErrorText(text)}`);
     }
@@ -398,6 +401,7 @@ function createHttpClient(config) {
   return {
     json: (path, options) => request(path, { ...options, responseType: 'json' }),
     text: (path, options) => request(path, { ...options, responseType: 'text' }),
+    status: (path, options) => request(path, { ...options, responseType: 'status' }),
     exactResultPath(returnedPath, expectedPath) {
       if (typeof returnedPath !== 'string' || !returnedPath) {
         throw new Error('Start response did not include resultFilesUrl.');
@@ -611,6 +615,59 @@ async function verifyHealth(client) {
   }
 }
 
+const AUTH_MUTATION_PROBES = Object.freeze([
+  Object.freeze({ path: '/api/codex-agent/run', body: Object.freeze({}) }),
+  Object.freeze({ path: '/admin/remote-agent-tasks', body: Object.freeze({}) }),
+]);
+
+export async function verifyLiveAuthFailClosed(config) {
+  if (!config?.authConfigured || !config?.authHeaders || Object.keys(config.authHeaders).length !== 1) {
+    throw new Error('Live auth preflight requires exactly one configured gateway credential.');
+  }
+  const usesBearer = Object.prototype.hasOwnProperty.call(config.authHeaders, 'authorization');
+  const probes = [
+    {
+      label: 'missing credential',
+      expectedStatus: 401,
+      client: createHttpClient({ ...config, authHeaders: {} }),
+    },
+    {
+      label: 'invalid credential',
+      expectedStatus: 401,
+      client: createHttpClient({
+        ...config,
+        authHeaders: usesBearer
+          ? { authorization: 'Bearer invalid-remote-agent-canary-credential' }
+          : { 'x-api-key': 'invalid-remote-agent-canary-credential' },
+      }),
+    },
+    {
+      label: 'configured credential',
+      expectedStatus: 400,
+      client: createHttpClient(config),
+    },
+  ];
+
+  for (const probe of probes) {
+    for (const mutation of AUTH_MUTATION_PROBES) {
+      const status = await probe.client.status(mutation.path, {
+        method: 'POST',
+        body: mutation.body,
+      });
+      if (status !== probe.expectedStatus) {
+        throw new Error(
+          `Gateway auth preflight expected HTTP ${probe.expectedStatus} for ${probe.label} at ${mutation.path}; received ${status}.`,
+        );
+      }
+    }
+  }
+  return {
+    failClosed: true,
+    protectedMutationRoutes: AUTH_MUTATION_PROBES.length,
+    probes: AUTH_MUTATION_PROBES.length * probes.length,
+  };
+}
+
 async function bestEffortCancel(client, mode, id) {
   const path = mode === 'codex'
     ? `/api/codex-agent/runs/${encodeURIComponent(id)}/cancel`
@@ -669,6 +726,22 @@ async function executePlan(client, plan, config) {
   }
 }
 
+export async function runLiveCanary(config, plans) {
+  const client = createHttpClient(config);
+  await verifyHealth(client);
+  const authPreflight = await verifyLiveAuthFailClosed(config);
+  const results = [];
+  for (const plan of plans) {
+    results.push(await executePlan(client, plan, config));
+  }
+  return {
+    ok: true,
+    contract: HANDOFF_VERSION,
+    authPreflight,
+    results,
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
@@ -686,13 +759,7 @@ async function main() {
     return;
   }
 
-  const client = createHttpClient(config);
-  await verifyHealth(client);
-  const results = [];
-  for (const plan of plans) {
-    results.push(await executePlan(client, plan, config));
-  }
-  console.log(JSON.stringify({ ok: true, contract: HANDOFF_VERSION, results }, null, 2));
+  console.log(JSON.stringify(await runLiveCanary(config, plans), null, 2));
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';

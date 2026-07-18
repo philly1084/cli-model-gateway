@@ -21,6 +21,32 @@ const SESSION_SCRIPT = [
   "});",
 ].join(" ");
 
+test("remote-agent auth canary body reaches validation without starting a task", async () => {
+  const server = createRemoteAgentTestServer();
+
+  try {
+    for (const probe of [
+      { headers: {}, expectedStatus: 401 },
+      { headers: { authorization: "Bearer invalid-key" }, expectedStatus: 401 },
+      { headers: { authorization: "Bearer frontend-key" }, expectedStatus: 400 },
+    ]) {
+      const response = await server.app.inject({
+        method: "POST",
+        url: "/admin/remote-agent-tasks",
+        headers: probe.headers,
+        payload: {},
+      });
+
+      assert.equal(response.statusCode, probe.expectedStatus);
+      if (probe.expectedStatus === 400) {
+        assert.match(response.payload, /providerId|targetId|task/);
+      }
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("remote agent task starts a provider session and emits reasoning context", async () => {
   const server = createRemoteAgentTestServer();
 

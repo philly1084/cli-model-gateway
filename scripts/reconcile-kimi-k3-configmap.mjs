@@ -31,6 +31,7 @@ const KIMI_SESSION_ARGS = [
 const DEFAULT_NAMESPACE = 'n8n-openai-gateway';
 const DEFAULT_CONFIGMAP = 'n8n-openai-cli-gateway-config';
 const DEFAULT_KUBECTL_TIMEOUT_MS = 30_000;
+const CHANGE_TICKET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{1,127}$/;
 
 class CliError extends Error {
   constructor(message, exitCode = 1) {
@@ -51,9 +52,11 @@ Options:
   --dry-run            Server-side JSON Patch dry run (default)
   --apply              Apply only with all production-write gates
 
---apply requires ALLOW_PROD_WRITE=yes, HUMAN_APPROVED=yes, and a non-empty
-CHANGE_TICKET. Configuration content is never printed; stdout contains only the
-before and after SHA-256 values.`;
+--apply requires ALLOW_PROD_WRITE=yes, HUMAN_APPROVED=yes, and a CHANGE_TICKET
+that is 2-128 ASCII characters, starts with a letter or digit, and otherwise
+contains only letters, digits, periods, underscores, colons, slashes, or
+hyphens. Configuration content is never printed; stdout contains only the before
+and after SHA-256 values.`;
 }
 
 function requireName(value, label) {
@@ -124,9 +127,9 @@ export function parseArgs(args, env = process.env) {
 function requireApplyGates(env) {
   if (env.ALLOW_PROD_WRITE !== 'yes'
     || env.HUMAN_APPROVED !== 'yes'
-    || !env.CHANGE_TICKET?.trim()) {
+    || !CHANGE_TICKET_PATTERN.test(env.CHANGE_TICKET ?? '')) {
     throw new CliError(
-      'Production apply requires ALLOW_PROD_WRITE=yes, HUMAN_APPROVED=yes, and CHANGE_TICKET.',
+      'Production apply requires ALLOW_PROD_WRITE=yes, HUMAN_APPROVED=yes, and a valid 2-128 character CHANGE_TICKET.',
       3,
     );
   }

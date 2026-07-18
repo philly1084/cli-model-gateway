@@ -62,6 +62,32 @@ test("codex agent endpoints require frontend or admin auth", async () => {
   }
 });
 
+test("codex auth canary body reaches validation without starting a run", async () => {
+  const server = createCodexAgentTestServer();
+
+  try {
+    for (const probe of [
+      { headers: {}, expectedStatus: 401 },
+      { headers: { authorization: "Bearer invalid-key" }, expectedStatus: 401 },
+      { headers: { authorization: "Bearer frontend-key" }, expectedStatus: 400 },
+    ]) {
+      const response = await server.app.inject({
+        method: "POST",
+        url: "/api/codex-agent/run",
+        headers: probe.headers,
+        payload: {},
+      });
+
+      assert.equal(response.statusCode, probe.expectedStatus);
+      if (probe.expectedStatus === 400) {
+        assert.match(response.payload, /workspacePath|prompt/);
+      }
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("health advertises the RemoteAgentHandoff contract", async () => {
   const server = createCodexAgentTestServer();
 
