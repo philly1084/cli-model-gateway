@@ -163,6 +163,39 @@ export const providerSessionSignalRequestSchema = z.object({
   signal: z.enum(["SIGINT", "SIGTERM", "SIGKILL"]).default("SIGINT"),
 }).passthrough();
 
+const remoteAgentHandoffFileSchema = z.object({
+  filename: z.string().min(1).max(160),
+  mimeType: z.string().min(1).max(256),
+  sizeBytes: z.number().int().positive().max(4 * 1024 * 1024),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  contentBase64: z.string().min(4),
+  source: z.string().max(64).optional(),
+  sourceUrl: z.string().max(2048).optional(),
+  artifactId: z.string().max(256).optional(),
+  description: z.string().max(2000).optional(),
+}).strict();
+
+export const remoteAgentHandoffSchema = z.object({
+  version: z.literal("RemoteAgentHandoff/v1"),
+  operationId: z.string().regex(/^[a-z0-9][a-z0-9-]{7,79}$/i),
+  runDirectory: z.string().min(1),
+  contextDirectory: z.string().min(1),
+  manifestPath: z.string().min(1),
+  sourceArtifactIds: z.array(z.string().min(1).max(256)).max(12),
+  files: z.array(remoteAgentHandoffFileSchema).max(12),
+  output: z.object({
+    version: z.literal("RemoteAgentResultFiles/v1"),
+    enabled: z.boolean(),
+    directory: z.string().min(1),
+    filesDirectory: z.string().min(1),
+    manifestPath: z.string().min(1),
+    requestedGlobs: z.array(z.string().min(1).max(512)).max(12),
+    maxFiles: z.literal(12),
+    maxFileBytes: z.literal(4 * 1024 * 1024),
+    maxTotalBytes: z.literal(6 * 1024 * 1024),
+  }).strict(),
+}).strict();
+
 export const remoteAgentTaskCreateRequestSchema = z.object({
   providerId: z.string().min(1, "providerId is required"),
   targetId: z.string().min(1, "targetId is required"),
@@ -172,6 +205,7 @@ export const remoteAgentTaskCreateRequestSchema = z.object({
   model: z.string().min(1).optional(),
   cols: z.number().int().min(20).max(400).default(120),
   rows: z.number().int().min(5).max(200).default(40),
+  handoff: remoteAgentHandoffSchema.optional(),
 }).passthrough();
 
 export const codexAgentRunRequestSchema = z.object({
@@ -197,6 +231,7 @@ export const codexAgentRunRequestSchema = z.object({
     model: z.string().min(1).optional(),
     reasoningEffort: z.string().min(1).optional(),
   }).passthrough().optional(),
+  handoff: remoteAgentHandoffSchema.optional(),
 }).passthrough();
 
 export type ChatCompletionsRequest = z.infer<typeof chatCompletionsRequestSchema>;
@@ -212,3 +247,4 @@ export type ProviderSessionResizeRequest = z.infer<typeof providerSessionResizeR
 export type ProviderSessionSignalRequest = z.infer<typeof providerSessionSignalRequestSchema>;
 export type RemoteAgentTaskCreateRequest = z.infer<typeof remoteAgentTaskCreateRequestSchema>;
 export type CodexAgentRunRequest = z.infer<typeof codexAgentRunRequestSchema>;
+export type RemoteAgentHandoff = z.infer<typeof remoteAgentHandoffSchema>;

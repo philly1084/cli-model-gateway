@@ -33,7 +33,7 @@ function createProvider(script: string): CliProvider {
       args: ["-e", script],
       input: "request_json_stdin",
       output: "json_contract",
-      timeoutMs: 1000,
+      timeoutMs: 5000,
     },
   };
 

@@ -78,12 +78,21 @@ export const remoteAgentRoutes: FastifyPluginAsync<RemoteAgentRoutesOptions> = a
         cols: validationResult.data.cols ?? 120,
         rows: validationResult.data.rows ?? 40,
         allowAnyProviderCwd: scope === "admin",
+        handoff: validationResult.data.handoff,
       });
 
+      const handoff = options.manager.getHandoffAcknowledgement(task.id);
+
       return {
-        task,
+        task: {
+          ...task,
+          ...(handoff ? { handoff } : {}),
+        },
         streamUrl: `/admin/remote-agent-tasks/${task.id}/stream?token=${encodeURIComponent(task.streamToken)}`,
         providerSessionUrl: `/admin/provider-sessions/${task.sessionId}`,
+        ...(handoff?.resultManifestPath
+          ? { resultFilesUrl: `/admin/remote-agent-tasks/${task.id}/result-files` }
+          : {}),
       };
     } catch (error) {
       return reply.status(400).send({
@@ -120,10 +129,32 @@ export const remoteAgentRoutes: FastifyPluginAsync<RemoteAgentRoutesOptions> = a
     const taskId = params.taskId?.trim() || "";
     try {
       return {
-        task: options.manager.cancelTask(taskId),
+        task: await options.manager.cancelTask(taskId),
       };
     } catch (error) {
       return handleMutationError(reply, error);
+    }
+  });
+
+  app.get("/remote-agent-tasks/:taskId/result-files", async (request, reply) => {
+    const params = request.params as { taskId?: string };
+    const taskId = params.taskId?.trim() || "";
+    const task = options.manager.getTask(taskId);
+    if (!task) {
+      return reply.status(404).send({ error: `Unknown remote agent task: ${taskId}` });
+    }
+    if (!isFinalStatus(task.status)) {
+      return reply.status(409).send({ error: `Remote agent task is not terminal: ${taskId}` });
+    }
+    if (!options.manager.getHandoffAcknowledgement(taskId)?.resultManifestPath) {
+      return reply.status(404).send({ error: `Remote agent task did not request result files: ${taskId}` });
+    }
+    try {
+      return await options.manager.getResultFiles(taskId);
+    } catch (error) {
+      return reply.status(422).send({
+        error: error instanceof Error ? error.message : "Unable to collect remote agent result files.",
+      });
     }
   });
 
@@ -215,7 +246,9 @@ function isStreamTokenAuthorized(
   request: FastifyRequest,
   manager: RemoteAgentManager,
 ): boolean {
-  if (!request.url.includes("/remote-agent-tasks/") || !request.url.includes("/stream")) {
+  const routeUrl = request.routeOptions?.url ?? "";
+  if (request.method !== "GET"
+    || routeUrl !== "/admin/remote-agent-tasks/:taskId/stream") {
     return false;
   }
   const params = request.params as { taskId?: string } | undefined;

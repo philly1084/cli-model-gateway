@@ -62,6 +62,51 @@ test("codex agent endpoints require frontend or admin auth", async () => {
   }
 });
 
+test("health advertises the RemoteAgentHandoff contract", async () => {
+  const server = createCodexAgentTestServer();
+
+  try {
+    const response = await server.app.inject({
+      method: "GET",
+      url: "/healthz",
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(
+      (response.json() as { contracts?: { remoteAgentHandoff?: string } }).contracts?.remoteAgentHandoff,
+      "RemoteAgentHandoff/v1",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("codex agent rejects an invalid handoff before launching Codex", async () => {
+  const server = createCodexAgentTestServer();
+
+  try {
+    const response = await server.app.inject({
+      method: "POST",
+      url: "/api/codex-agent/run",
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+      payload: {
+        workspacePath: "C:\\tmp\\symphony_workspaces\\KIMI-123",
+        prompt: "Use the selected design.",
+        handoff: {
+          version: "RemoteAgentHandoff/v0",
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.payload, /handoff\.version/);
+  } finally {
+    await server.close();
+  }
+});
+
 function createCodexAgentTestServer() {
   const registry = {
     listModels: () => [],

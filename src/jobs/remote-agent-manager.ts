@@ -4,11 +4,32 @@ import type {
   RemoteCliTargetConfig,
 } from "../types";
 import type { Provider } from "../providers/provider";
+import type { RemoteAgentHandoff } from "../validation";
 import { makeId } from "../utils/ids";
 import { ProviderSessionManager } from "./provider-session-manager";
+import {
+  AgentHandoffStore,
+  buildHandoffPrompt,
+  redactAgentHandoff,
+  type AgentHandoffAcknowledgement,
+  type GatewayVerifiedResultFiles,
+} from "./agent-handoff-store";
+
+const DEFAULT_HANDOFF_CLAIM_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_RESULT_CACHE_TTL_MS = 2 * 60 * 1000;
+const DEFAULT_TASK_LIFETIME_TTL_MS = 4 * 60 * 60 * 1000;
 
 interface RemoteAgentTaskRecord {
   summary: RemoteAgentTaskSummary;
+  target: RemoteCliTargetConfig;
+  handoff?: RemoteAgentHandoff;
+  handoffAcknowledgement?: AgentHandoffAcknowledgement;
+  resultFiles?: GatewayVerifiedResultFiles;
+  resultCollection?: Promise<GatewayVerifiedResultFiles>;
+  hardExpiryTimer?: ReturnType<typeof setTimeout>;
+  retentionTimer?: ReturnType<typeof setTimeout>;
+  unsubscribeSession?: () => void;
+  terminalObserved?: boolean;
 }
 
 export interface CreateRemoteAgentTaskOptions {
@@ -21,21 +42,37 @@ export interface CreateRemoteAgentTaskOptions {
   cols: number;
   rows: number;
   allowAnyProviderCwd?: boolean;
+  handoff?: RemoteAgentHandoff;
 }
 
 export class RemoteAgentManager {
   private readonly targets = new Map<string, RemoteCliTargetConfig>();
   private readonly tasks = new Map<string, RemoteAgentTaskRecord>();
   private readonly sessionManager: ProviderSessionManager;
+  private readonly handoffStore: AgentHandoffStore;
+  private readonly handoffClaimTtlMs: number;
+  private readonly resultCacheTtlMs: number;
+  private readonly taskLifetimeTtlMs: number;
+  private closed = false;
 
   constructor(
     sessionManager: ProviderSessionManager,
     targets: RemoteCliTargetConfig[] = [],
+    options: {
+      handoffStore?: AgentHandoffStore;
+      handoffClaimTtlMs?: number;
+      resultCacheTtlMs?: number;
+      taskLifetimeTtlMs?: number;
+    } = {},
   ) {
     for (const target of targets) {
       this.targets.set(target.targetId, target);
     }
     this.sessionManager = sessionManager;
+    this.handoffStore = options.handoffStore ?? new AgentHandoffStore();
+    this.handoffClaimTtlMs = positiveNumber(options.handoffClaimTtlMs) ?? DEFAULT_HANDOFF_CLAIM_TTL_MS;
+    this.resultCacheTtlMs = positiveNumber(options.resultCacheTtlMs) ?? DEFAULT_RESULT_CACHE_TTL_MS;
+    this.taskLifetimeTtlMs = positiveNumber(options.taskLifetimeTtlMs) ?? DEFAULT_TASK_LIFETIME_TTL_MS;
   }
 
   listTargets(): RemoteCliTargetConfig[] {
@@ -64,6 +101,56 @@ export class RemoteAgentManager {
     return this.sessionManager.getTranscript(record.summary.sessionId, afterCursor);
   }
 
+  getHandoffAcknowledgement(taskId: string): AgentHandoffAcknowledgement | undefined {
+    const acknowledgement = this.tasks.get(taskId)?.handoffAcknowledgement;
+    return acknowledgement ? { ...acknowledgement } : undefined;
+  }
+
+  async getResultFiles(taskId: string): Promise<GatewayVerifiedResultFiles> {
+    const record = this.requireTask(taskId);
+    const summary = this.refreshSummary(record);
+    if (!isFinalStatus(summary.status)) {
+      throw new Error(`Remote agent task is not terminal: ${taskId}`);
+    }
+    this.observeTerminal(record);
+    if (!record.resultFiles && !record.handoff?.output.enabled) {
+      throw new Error(`Remote agent task did not request result files: ${taskId}`);
+    }
+    if (!record.resultFiles) {
+      const handoff = record.handoff;
+      if (!handoff) {
+        throw new Error(`Remote agent task did not request result files: ${taskId}`);
+      }
+      this.clearRetentionTimer(record);
+      if (!record.resultCollection) {
+        record.resultCollection = this.handoffStore.collectRemote(
+          record.target,
+          record.summary.cwd,
+          handoff,
+        ).then((result) => {
+          if (this.tasks.get(taskId) === record) {
+            record.resultFiles = result;
+          }
+          return result;
+        }).finally(() => {
+          record.handoff = undefined;
+          record.resultCollection = undefined;
+          if (this.tasks.get(taskId) === record) {
+            this.armResultCacheEviction(record);
+          }
+        });
+      }
+      await record.resultCollection;
+    }
+    if (!record.resultFiles) {
+      throw new Error(`Remote agent result files are no longer retained: ${taskId}`);
+    }
+    return {
+      ...record.resultFiles,
+      files: record.resultFiles.files.map((file) => ({ ...file })),
+    };
+  }
+
   subscribe(
     taskId: string,
     listener: (event: ProviderSessionEvent) => void,
@@ -77,6 +164,9 @@ export class RemoteAgentManager {
   }
 
   async createTask(options: CreateRemoteAgentTaskOptions): Promise<RemoteAgentTaskSummary> {
+    if (this.closed) {
+      throw new Error("Remote agent manager is closed.");
+    }
     const target = this.requireTarget(options.targetId);
     if (!options.task.trim()) {
       throw new Error("task is required.");
@@ -84,51 +174,234 @@ export class RemoteAgentManager {
 
     const cwd = resolveRemoteCwd(options.cwd ?? target.defaultCwd, target);
     const reasoning = buildRemoteAgentReasoning(options.provider, target, cwd);
-    const session = await this.sessionManager.createSession({
-      provider: options.provider,
-      mode: "interactive",
-      model: options.model,
-      continuationSessionId: options.sessionId,
-      cols: options.cols,
-      rows: options.rows,
-      allowAnyCwd: options.allowAnyProviderCwd === true,
-    });
+    let handoffStaged = false;
+    let handoffAcknowledgement: AgentHandoffAcknowledgement | undefined;
+    let session: Awaited<ReturnType<ProviderSessionManager["createSession"]>> | undefined;
+    let taskId = "";
+    let record: RemoteAgentTaskRecord | undefined;
+    try {
+      if (options.handoff) {
+        handoffAcknowledgement = await this.handoffStore.stageRemote(target, cwd, options.handoff);
+        handoffStaged = true;
+      }
+      session = await this.sessionManager.createSession({
+        provider: options.provider,
+        mode: "interactive",
+        model: options.model,
+        continuationSessionId: options.sessionId,
+        cols: options.cols,
+        rows: options.rows,
+        allowAnyCwd: options.allowAnyProviderCwd === true,
+      });
+      const now = new Date().toISOString();
+      const summary: RemoteAgentTaskSummary = {
+        id: makeId("ragent"),
+        providerId: options.provider.id,
+        providerDescription: options.provider.description,
+        targetId: target.targetId,
+        targetDescription: target.description,
+        host: target.host,
+        user: target.user,
+        port: target.port,
+        cwd,
+        model: options.model,
+        task: options.task,
+        status: session.status,
+        createdAt: now,
+        updatedAt: now,
+        sessionId: session.id,
+        streamToken: session.streamToken,
+        reasoning,
+      };
 
-    const now = new Date().toISOString();
-    const summary: RemoteAgentTaskSummary = {
-      id: makeId("ragent"),
-      providerId: options.provider.id,
-      providerDescription: options.provider.description,
-      targetId: target.targetId,
-      targetDescription: target.description,
-      host: target.host,
-      user: target.user,
-      port: target.port,
-      cwd,
-      model: options.model,
-      task: options.task,
-      status: session.status,
-      createdAt: now,
-      updatedAt: now,
-      sessionId: session.id,
-      streamToken: session.streamToken,
-      reasoning,
-    };
-
-    const record: RemoteAgentTaskRecord = { summary };
-    this.tasks.set(summary.id, record);
-    this.sessionManager.emitReasoning(session.id, reasoning.summary, {
-      ...reasoning.data,
-      taskId: summary.id,
-    });
-    this.sessionManager.writeInput(session.id, buildBootstrapPrompt(summary));
-    return this.refreshSummary(record);
+      record = {
+        summary,
+        target,
+        handoff: options.handoff,
+        handoffAcknowledgement,
+      };
+      taskId = summary.id;
+      this.tasks.set(taskId, record);
+      this.armHardExpiry(record);
+      const createdRecord = record;
+      record.unsubscribeSession = this.sessionManager.subscribe(
+        session.id,
+        (event) => this.observeSessionEvent(createdRecord, event),
+        { afterCursor: 0, follow: true },
+      ) ?? undefined;
+      this.sessionManager.emitReasoning(session.id, reasoning.summary, {
+        ...reasoning.data,
+        taskId,
+      });
+      this.sessionManager.writeInput(session.id, buildBootstrapPrompt(summary, options.handoff));
+      if (record.handoff) {
+        record.handoff = redactAgentHandoff(record.handoff);
+      }
+      return this.refreshSummary(record);
+    } catch (error) {
+      if (record) {
+        this.clearRecordTimers(record);
+        record.unsubscribeSession?.();
+        record.unsubscribeSession = undefined;
+      }
+      if (taskId) {
+        this.tasks.delete(taskId);
+      }
+      if (session) {
+        try {
+          this.sessionManager.terminateSession(session.id);
+        } catch {
+          // The session may already have exited while the bootstrap prompt was being written.
+        }
+      }
+      if (handoffStaged && options.handoff) {
+        await this.handoffStore.cleanupRemote(target, cwd, options.handoff).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
-  cancelTask(taskId: string): RemoteAgentTaskSummary {
+  async cancelTask(taskId: string): Promise<RemoteAgentTaskSummary> {
     const record = this.requireTask(taskId);
     this.sessionManager.terminateSession(record.summary.sessionId);
-    return this.refreshSummary(record);
+    if (record.handoff) {
+      try {
+        await this.handoffStore.cleanupRemote(record.target, record.summary.cwd, record.handoff);
+      } finally {
+        record.handoff = undefined;
+      }
+    }
+    const summary = this.refreshSummary(record);
+    this.observeTerminal(record);
+    return summary;
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    for (const record of this.tasks.values()) {
+      this.clearRecordTimers(record);
+      record.unsubscribeSession?.();
+      record.unsubscribeSession = undefined;
+      try {
+        this.sessionManager.terminateSession(record.summary.sessionId);
+      } catch {
+        // The provider session may already be terminal.
+      }
+      if (record.handoff && !record.resultFiles) {
+        await this.handoffStore.cleanupRemote(record.target, record.summary.cwd, record.handoff).catch(() => undefined);
+        record.handoff = undefined;
+      }
+      record.resultFiles = undefined;
+      record.resultCollection = undefined;
+    }
+    this.tasks.clear();
+  }
+
+  private observeSessionEvent(record: RemoteAgentTaskRecord, event: ProviderSessionEvent): void {
+    if (this.tasks.get(record.summary.id) !== record) {
+      return;
+    }
+    const summary = this.refreshSummary(record);
+    if (event.type === "status" && isFinalStatus(event.status)) {
+      record.summary.status = event.status;
+      record.summary.updatedAt = event.ts;
+      this.observeTerminal(record);
+      return;
+    }
+    if (event.type === "exit") {
+      if (!isFinalStatus(summary.status)) {
+        record.summary.status = event.exitCode === 0 ? "completed" : "failed";
+        record.summary.updatedAt = event.ts;
+      }
+      this.observeTerminal(record);
+    }
+  }
+
+  private observeTerminal(record: RemoteAgentTaskRecord): void {
+    if (record.terminalObserved || !isFinalStatus(record.summary.status)) {
+      return;
+    }
+    record.terminalObserved = true;
+    this.clearHardExpiryTimer(record);
+    record.unsubscribeSession?.();
+    record.unsubscribeSession = undefined;
+    this.armTerminalEviction(record);
+  }
+
+  private armHardExpiry(record: RemoteAgentTaskRecord): void {
+    this.clearHardExpiryTimer(record);
+    record.hardExpiryTimer = setTimeout(() => {
+      if (this.tasks.get(record.summary.id) !== record || record.terminalObserved) {
+        return;
+      }
+      try {
+        const session = this.sessionManager.terminateSession(record.summary.sessionId);
+        record.summary.status = isFinalStatus(session.status) ? session.status : "timed_out";
+        record.summary.updatedAt = session.lastActivityAt;
+      } catch {
+        record.summary.status = "timed_out";
+        record.summary.updatedAt = new Date().toISOString();
+      }
+      this.observeTerminal(record);
+    }, this.taskLifetimeTtlMs);
+    record.hardExpiryTimer.unref();
+  }
+
+  private armTerminalEviction(record: RemoteAgentTaskRecord): void {
+    this.armRetentionTimer(record, this.handoffClaimTtlMs);
+  }
+
+  private armResultCacheEviction(record: RemoteAgentTaskRecord): void {
+    this.armRetentionTimer(record, this.resultCacheTtlMs);
+  }
+
+  private armRetentionTimer(record: RemoteAgentTaskRecord, ttlMs: number): void {
+    if (this.closed || this.tasks.get(record.summary.id) !== record) {
+      return;
+    }
+    this.clearRetentionTimer(record);
+    record.retentionTimer = setTimeout(() => {
+      void this.evictTask(record);
+    }, ttlMs);
+    record.retentionTimer.unref();
+  }
+
+  private clearHardExpiryTimer(record: RemoteAgentTaskRecord): void {
+    if (record.hardExpiryTimer) {
+      clearTimeout(record.hardExpiryTimer);
+      record.hardExpiryTimer = undefined;
+    }
+  }
+
+  private clearRetentionTimer(record: RemoteAgentTaskRecord): void {
+    if (record.retentionTimer) {
+      clearTimeout(record.retentionTimer);
+      record.retentionTimer = undefined;
+    }
+  }
+
+  private clearRecordTimers(record: RemoteAgentTaskRecord): void {
+    this.clearHardExpiryTimer(record);
+    this.clearRetentionTimer(record);
+  }
+
+  private async evictTask(record: RemoteAgentTaskRecord): Promise<void> {
+    if (this.tasks.get(record.summary.id) !== record) {
+      return;
+    }
+    this.clearRecordTimers(record);
+    record.unsubscribeSession?.();
+    record.unsubscribeSession = undefined;
+    if (record.resultCollection) {
+      this.armResultCacheEviction(record);
+      return;
+    }
+    if (record.handoff && !record.resultFiles) {
+      await this.handoffStore.cleanupRemote(record.target, record.summary.cwd, record.handoff).catch(() => undefined);
+      record.handoff = undefined;
+    }
+    record.resultFiles = undefined;
+    this.tasks.delete(record.summary.id);
   }
 
   private requireTarget(targetId: string): RemoteCliTargetConfig {
@@ -152,6 +425,9 @@ export class RemoteAgentManager {
     if (session) {
       record.summary.status = session.status;
       record.summary.updatedAt = session.lastActivityAt;
+    }
+    if (isFinalStatus(record.summary.status)) {
+      this.observeTerminal(record);
     }
     return {
       ...record.summary,
@@ -193,7 +469,7 @@ function buildRemoteAgentReasoning(
   };
 }
 
-function buildBootstrapPrompt(summary: RemoteAgentTaskSummary): string {
+function buildBootstrapPrompt(summary: RemoteAgentTaskSummary, handoff?: RemoteAgentHandoff): string {
   const destination = summary.user ? `${summary.user}@${summary.host}` : summary.host;
   const sshCommand = summary.port
     ? `ssh -p ${summary.port} ${destination}`
@@ -219,6 +495,7 @@ function buildBootstrapPrompt(summary: RemoteAgentTaskSummary): string {
     "  REMOTE_AGENT_PLAN: <one sentence>",
     "  REMOTE_AGENT_PROGRESS: <one sentence>",
     "  REMOTE_AGENT_RESULT: <success|failed> <one sentence>",
+    handoff ? buildHandoffPrompt(handoff) : "",
     "",
     "Task:",
     summary.task.trim(),
@@ -259,4 +536,12 @@ function normalizeRemotePath(value: string): string {
 
 function isWithinRemoteRoot(cwd: string, root: string): boolean {
   return cwd === root || cwd.startsWith(`${root}/`);
+}
+
+function isFinalStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "terminated" || status === "timed_out";
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }

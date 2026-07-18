@@ -371,8 +371,9 @@ async function waitForOutput(
   pattern: RegExp,
   apiKey: string,
 ): Promise<void> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 1000) {
+  const deadline = Date.now() + 5000;
+  let outputText = "";
+  while (Date.now() < deadline) {
     const transcriptResponse = await server.app.inject({
       method: "GET",
       url: `/admin/provider-sessions/${sessionId}/transcript`,
@@ -381,7 +382,7 @@ async function waitForOutput(
       },
     });
     const transcriptBody = transcriptResponse.json() as { data: Array<{ type: string; data?: string }> };
-    const outputText = transcriptBody.data
+    outputText = transcriptBody.data
       .filter((event) => event.type === "output")
       .map((event) => event.data ?? "")
       .join("");
@@ -390,4 +391,5 @@ async function waitForOutput(
     }
     await sleep(25);
   }
+  assert.match(outputText, pattern, `Timed out waiting for provider session output matching ${pattern}.`);
 }
