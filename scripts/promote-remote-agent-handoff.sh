@@ -95,6 +95,8 @@ snapshot_manifest_file="${preflight_dir}/provider-snapshot.manifest.json"
 snapshot_observed_file="${preflight_dir}/provider-snapshot.observed.json"
 snapshot_resource_version=""
 snapshot_image=""
+snapshot_provider_configmap=""
+snapshot_overlay=""
 
 read_configmap_snapshot() {
   local destination="$1"
@@ -149,9 +151,29 @@ read_deployment_snapshot() {
     echo "Refusing promotion: ${label} Deployment mount/volume contract differs from the expected release shape." >&2
     return 1
   fi
-  IFS=$'\t' read -r snapshot_resource_version snapshot_image <<<"${validation}"
-  if [[ -z "${snapshot_resource_version}" || -z "${snapshot_image}" ]]; then
-    echo "Unable to resolve the ${label} Deployment resourceVersion or image." >&2
+  IFS=$'\t' read -r snapshot_resource_version snapshot_image snapshot_provider_configmap snapshot_overlay <<<"${validation}"
+  if [[ -z "${snapshot_resource_version}" || -z "${snapshot_image}" \
+    || -z "${snapshot_provider_configmap}" || -z "${snapshot_overlay}" ]]; then
+    echo "Unable to resolve the ${label} Deployment resourceVersion, image, provider ConfigMap, or overlay state." >&2
+    return 1
+  fi
+}
+
+verify_current_provider_snapshot() {
+  local provider_configmap="$1"
+  local current_image="$2"
+  local destination="${preflight_dir}/provider-snapshot-current.json"
+
+  if [[ "${provider_configmap}" == "${configmap}" ]]; then
+    return 0
+  fi
+  if ! "${kubectl_bin}" get configmap "${provider_configmap}" -n "${namespace}" -o json >"${destination}"; then
+    echo "Unable to read currently mounted provider snapshot ${provider_configmap}." >&2
+    return 1
+  fi
+  if ! "${node_bin}" "${script_dir}/remote-agent-promotion-config-snapshot.mjs" verify-current \
+    "${destination}" "${current_image}" "${namespace}" "${configmap}" >/dev/null; then
+    echo "Refusing promotion: currently mounted provider ConfigMap is neither the source ConfigMap nor a verified immutable promotion snapshot." >&2
     return 1
   fi
 }
@@ -217,11 +239,16 @@ if ! preflight_provider_snapshot; then
   exit 1
 fi
 
-if ! read_deployment_snapshot "initial" "before" "${configmap}"; then
+if ! read_deployment_snapshot "initial" "before" "@current"; then
   exit 1
 fi
 deployment_resource_version="${snapshot_resource_version}"
 current_image="${snapshot_image}"
+current_provider_configmap="${snapshot_provider_configmap}"
+current_overlay="${snapshot_overlay}"
+if ! verify_current_provider_snapshot "${current_provider_configmap}" "${current_image}"; then
+  exit 1
+fi
 deployment_resource_version_json="$(json_string "${deployment_resource_version}")"
 image_json="$(json_string "${image}")"
 provider_snapshot_json="$(json_string "${provider_snapshot}")"
@@ -261,6 +288,8 @@ echo "provider_snapshot=${provider_snapshot}"
 echo "verified_kimi_model=k3"
 echo "verified_source_ref=${verified_source_ref}"
 echo "current_image=${current_image}"
+echo "current_provider_configmap=${current_provider_configmap}"
+echo "current_overlay=${current_overlay}"
 echo "requested_image=${image}"
 echo "rollback=kubectl rollout undo deployment/${deployment} -n ${namespace}"
 echo "note=source ConfigMap and ${overlay} are retained; promoted pods mount the immutable content-addressed provider snapshot"
@@ -292,7 +321,7 @@ if [[ "${snapshot_resource_version}" != "${initial_config_resource_version}" ]] 
   exit 1
 fi
 
-if ! read_deployment_snapshot "pre-apply" "before" "${configmap}"; then
+if ! read_deployment_snapshot "pre-apply" "before" "${current_provider_configmap}"; then
   exit 1
 fi
 if [[ "${snapshot_resource_version}" != "${deployment_resource_version}" \
@@ -315,7 +344,7 @@ if [[ "${snapshot_resource_version}" != "${initial_config_resource_version}" ]] 
   exit 1
 fi
 
-if ! read_deployment_snapshot "pre-patch" "before" "${configmap}"; then
+if ! read_deployment_snapshot "pre-patch" "before" "${current_provider_configmap}"; then
   exit 1
 fi
 if [[ "${snapshot_resource_version}" != "${deployment_resource_version}" \

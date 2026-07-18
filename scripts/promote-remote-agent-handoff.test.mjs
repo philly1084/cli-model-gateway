@@ -133,6 +133,12 @@ async function createHarness(providersSource, options = {}) {
     namespace,
     sourceConfigMap,
   });
+  const previousSnapshot = buildPromotionConfigSnapshot({
+    providersSource,
+    image: currentImage,
+    namespace,
+    sourceConfigMap,
+  });
   const providersFile = path.join(directory, 'providers.yaml');
   const driftProvidersFile = path.join(directory, 'providers-drifted.yaml');
   const deploymentBeforeFile = path.join(directory, 'deployment-before.json');
@@ -145,10 +151,16 @@ async function createHarness(providersSource, options = {}) {
   const applyState = path.join(directory, 'applied.state');
   const dryRunState = path.join(directory, 'dry-run.state');
   const snapshotState = path.join(directory, 'snapshot.json');
+  const previousSnapshotState = path.join(directory, 'snapshot-previous.json');
   const kubectl = path.join(directory, 'fake-kubectl.sh');
   const gh = path.join(directory, 'fake-gh.sh');
 
-  const deploymentBefore = deploymentFixture();
+  const deploymentBefore = options.repeatPromotion
+    ? deploymentFixture({
+      providerConfigMap: previousSnapshot.name,
+      overlay: false,
+    })
+    : deploymentFixture();
   options.deploymentMutator?.(deploymentBefore);
   const deploymentAfter = deploymentFixture({
     resourceVersion: '101',
@@ -177,6 +189,11 @@ async function createHarness(providersSource, options = {}) {
     writeFile(ghLog, '', 'utf8'),
     writeFile(patchLog, '', 'utf8'),
   ]);
+  if (options.repeatPromotion) {
+    const previous = structuredClone(previousSnapshot.manifest);
+    options.previousSnapshotMutator?.(previous);
+    await writeFile(previousSnapshotState, JSON.stringify(previous), 'utf8');
+  }
   if (options.existingSnapshotMutator) {
     const existing = structuredClone(snapshot.manifest);
     options.existingSnapshotMutator(existing);
@@ -224,6 +241,10 @@ if [[ "$1" == "get" && "$2" == "configmap" ]]; then
       exit 0
     fi
     exit 45
+  fi
+  if [[ "$name" == "\${FAKE_PREVIOUS_SNAPSHOT_NAME}" && -f "\${FAKE_PREVIOUS_SNAPSHOT_STATE}" ]]; then
+    cat "\${FAKE_PREVIOUS_SNAPSHOT_STATE}"
+    exit 0
   fi
   if [[ "$name" != "\${FAKE_SNAPSHOT_NAME}" ]]; then
     exit 46
@@ -330,6 +351,8 @@ exit 51
       FAKE_APPLY_STATE: portablePath(applyState),
       FAKE_DRY_RUN_STATE: portablePath(dryRunState),
       FAKE_SNAPSHOT_STATE: portablePath(snapshotState),
+      FAKE_PREVIOUS_SNAPSHOT_STATE: portablePath(previousSnapshotState),
+      FAKE_PREVIOUS_SNAPSHOT_NAME: previousSnapshot.name,
       FAKE_SNAPSHOT_NAME: snapshot.name,
       FAKE_SOURCE_CONFIGMAP: sourceConfigMap,
       FAKE_REQUESTED_IMAGE: fixtureImage,
@@ -345,6 +368,7 @@ exit 51
     mutated: existsSync(applyState),
     snapshotCreated: existsSync(snapshotState),
     snapshotName: snapshot.name,
+    previousSnapshotName: previousSnapshot.name,
   };
 }
 
@@ -426,7 +450,7 @@ test('promotion exact-guards overlay mount, volume, and ConfigMap source before 
   for (const deploymentMutator of mutations) {
     const result = await createHarness(validProvidersSource(), { deploymentMutator });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Deployment promotion contract failed/);
+    assert.match(result.stderr, /Deployment promotion contract failed|Unable to read currently mounted provider snapshot/);
     assert.doesNotMatch(result.log, /^patch deployment /m);
     assert.equal(result.mutated, false);
   }
@@ -480,6 +504,30 @@ test('promotion dry-run validates an immutable content-addressed snapshot and us
   assert.match(result.patches, /volumeMounts:\n\s+- mountPath: \/app\/dist\/jobs\/remote-cli-tool-manager\.js\n\s+\$patch: delete/);
   assert.doesNotMatch(result.patches, /volumeMounts:\n\s+- name: remote-cli-tail-hotfix/);
   assert.equal((result.patches.match(/\$patch: delete/g) ?? []).length, 2);
+});
+
+test('promotion dry-run advances from a verified prior immutable snapshot with no overlay', async () => {
+  const result = await createHarness(validProvidersSource(), { repeatPromotion: true });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`current_provider_configmap=${result.previousSnapshotName}`));
+  assert.match(result.stdout, /current_overlay=absent/);
+  assert.match(result.log, new RegExp(`get configmap ${result.previousSnapshotName}`));
+  assert.match(result.log, /patch deployment .*--dry-run=server/);
+  assert.equal(result.mutated, false);
+});
+
+test('promotion rejects a tampered prior immutable snapshot before any patch', async () => {
+  const result = await createHarness(validProvidersSource(), {
+    repeatPromotion: true,
+    previousSnapshotMutator(snapshot) {
+      snapshot.metadata.annotations['kimibuilt.dev/providers-sha256'] = '0'.repeat(64);
+    },
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /neither the source ConfigMap nor a verified immutable promotion snapshot/);
+  assert.doesNotMatch(result.log, /patch deployment/);
 });
 
 test('promotion refuses a pre-existing immutable snapshot whose bytes differ', async () => {
