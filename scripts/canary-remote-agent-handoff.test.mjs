@@ -46,6 +46,8 @@ test('Kimi dry-run defaults to an explicit k3 task model', () => withCleanEnv(()
   assert.equal(config.kimiModel, 'k3');
   assert.equal(plan.providerId, 'kimi-code-cli');
   assert.equal(plan.body.model, 'k3');
+  assert.match(plan.body.task, /Use only the configured SSH target/);
+  assert.doesNotMatch(plan.body.task, /already placed this Codex process/);
 }));
 
 test('Codex canary uses the host-side provider lane and configured remote target', () => withCleanEnv(() => {
@@ -56,6 +58,9 @@ test('Codex canary uses the host-side provider lane and configured remote target
   assert.equal(plan.providerId, 'codex-cli');
   assert.equal(plan.body.model, 'gpt-5.6-sol');
   assert.equal(plan.body.targetId, '[required:CANARY_REMOTE_TARGET_ID]');
+  assert.match(plan.body.task, /already placed this Codex process on the configured target/);
+  assert.match(plan.body.task, /do not run SSH/);
+  assert.doesNotMatch(plan.body.task, /Use only the configured SSH target/);
 }));
 
 test('Kimi canary refuses every requested model except exact k3', () => withCleanEnv(() => {

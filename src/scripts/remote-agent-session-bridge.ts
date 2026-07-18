@@ -58,6 +58,7 @@ export function buildRemoteAgentCliCommand(
   }
   if (provider === "codex") {
     const target = parseRemoteCodexTarget(prompt);
+    const remotePrompt = buildRemoteCodexPrompt(prompt, target);
     const destination = target.user ? `${target.user}@${target.host}` : target.host;
     const remoteArgs = [
       shellEscape(target.executable),
@@ -68,7 +69,7 @@ export function buildRemoteAgentCliCommand(
       "workspace-write",
       ...(model ? ["--model", shellEscape(model)] : []),
       ...(sessionId ? ["--session", shellEscape(sessionId)] : []),
-      shellEscape(prompt),
+      shellEscape(remotePrompt),
     ];
     return {
       executable: "ssh",
@@ -84,6 +85,31 @@ export function buildRemoteAgentCliCommand(
     };
   }
   throw new Error(`Unsupported remote-agent CLI provider: ${provider || "missing"}`);
+}
+
+export function buildRemoteCodexPrompt(prompt: string, target: RemoteCodexTarget): string {
+  const taskBoundary = prompt.indexOf("\nTask:\n");
+  if (taskBoundary < 0) {
+    throw new Error("Codex remote-agent bootstrap must contain a Task boundary.");
+  }
+  const bootstrapLines = prompt.slice(0, taskBoundary).split(/\r?\n/);
+  const remoteBootstrap = bootstrapLines
+    .filter((line) => !line.startsWith(REMOTE_TARGET_MARKER) && !line.startsWith("- ssh:"))
+    .map((line) => {
+      if (line === "Use the configured remote target for this task:") {
+        return "The gateway has already connected this Codex process to the configured remote target:";
+      }
+      if (line === "- Work through SSH on the configured target; do not request secrets from the user.") {
+        return "- Work locally in the current remote workspace; do not run SSH to reach the configured target or request secrets from the user.";
+      }
+      return line;
+    });
+  remoteBootstrap.splice(
+    1,
+    0,
+    `You are already on ${target.host} in ${target.cwd}; use local paths and commands in this process.`,
+  );
+  return `${remoteBootstrap.join("\n")}${prompt.slice(taskBoundary)}`;
 }
 
 export function resolveKimiCliModel(model: string): string {

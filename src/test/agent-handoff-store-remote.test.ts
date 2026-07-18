@@ -125,6 +125,19 @@ test("remote handoff stages exact bytes and collects a verified result before cl
   assert.match(preflight.remoteCommand, /if root_0=.*'\/srv\/missing' 2>\/dev\/null/);
   assert.match(preflight.remoteCommand, /if root_1=.*'\/srv\/apps' 2>\/dev\/null/);
 
+  const setup = calls.find((call) =>
+    call.remoteCommand.includes(`mkdir -- '${handoff.runDirectory}'`));
+  assert.ok(setup, "remote handoff directories should be created before transfer");
+  assert.match(setup.remoteCommand, /chmod 711 -- '\.kimibuilt' '\.kimibuilt\/agent-runs'/);
+  assert.match(
+    setup.remoteCommand,
+    /chmod 700 -- '\.kimibuilt\/agent-runs\/12345678-1234-4234-8234-123456789abc'/,
+  );
+  assert.ok(
+    setup.remoteCommand.indexOf("chmod 711") < setup.remoteCommand.indexOf("chmod 700"),
+    "shared parents must be traversable before the private operation directory is used",
+  );
+
   const inputWrite = calls.find((call) =>
     call.remoteCommand.includes(`${handoff.contextDirectory}/design.xml.tmp-`));
   assert.ok(inputWrite, "input file should be transferred through ssh stdin");

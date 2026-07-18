@@ -251,7 +251,7 @@ function assertValidHandoff(handoff) {
   }
 }
 
-function createAgentPrompt(handoff) {
+function createAgentPrompt(mode, handoff) {
   const entries = handoff.files.map((file) => ({
     path: `${handoff.output.filesDirectory}/${file.filename}`,
     role: 'canary',
@@ -268,14 +268,16 @@ function createAgentPrompt(handoff) {
     JSON.stringify({ version: RESULT_VERSION, files: entries }),
     `Finish with RESULT_FILES_MANIFEST=${handoff.output.manifestPath}.`,
     'Do not edit project files, use git, install packages, deploy anything, call kubectl, or change cluster state.',
-    'For provider-agent mode, use only the configured SSH target; do not contact any other network service.',
+    mode === 'codex'
+      ? 'The gateway has already placed this Codex process on the configured target. Use local paths in the current workspace and do not run SSH.'
+      : 'Use only the configured SSH target; do not contact any other network service.',
     'Report REMOTE_AGENT_RESULT: success only after the copies and manifest are complete.',
   ].join('\n');
 }
 
 export function createPlan(mode, config) {
   const { handoff, expectedFiles } = createHandoff(mode);
-  const prompt = createAgentPrompt(handoff);
+  const prompt = createAgentPrompt(mode, handoff);
   const providerId = mode === 'codex'
     ? config.codexProviderId
     : mode === 'kimi'
