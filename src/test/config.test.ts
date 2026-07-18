@@ -58,6 +58,21 @@ remoteCliTargets:
   assert.throws(() => loadProvidersFile(providersPath), /remoteCliTargets/);
 });
 
+test("example Kimi CLI provider exposes K3 with safe session-level model selection", () => {
+  const parsed = loadProvidersFile(path.resolve(process.cwd(), "config/providers.example.yaml"));
+  const provider = parsed.providers.find((entry) => entry.id === "kimi-code-cli");
+
+  assert.equal(provider?.type, "cli");
+  if (!provider || provider.type !== "cli") {
+    assert.fail("kimi-code-cli provider was not found");
+  }
+  const k3 = provider.models.find((model) => model.id === "k3");
+  assert.equal(k3?.providerModel, "k3");
+  assert.equal(k3?.fallbackModels, undefined);
+  assert.equal(provider.sessionCommand?.supportsModelSelection, true);
+  assert.equal(provider.sessionCommand?.modelFlag, "--model");
+});
+
 test("loadRemoteCliTargetsFile keeps target inventory separate from providers", () => {
   const targetsPath = writeTempProvidersFile(`
 remoteCliTargets:

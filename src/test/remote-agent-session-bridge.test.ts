@@ -35,8 +35,15 @@ test("resumes a Grok Build session and extracts its structured session id", () =
   );
 });
 
-test("builds non-interactive Kimi remote-agent command", () => {
-  const command = buildRemoteAgentCliCommand("kimi", "Inspect the remote target.");
+test("forwards Kimi K3 selection to the installed non-interactive CLI command", () => {
+  const command = buildRemoteAgentCliCommand("kimi", "Inspect the remote target.", "k3");
   assert.equal(command.executable, "kimi");
-  assert.deepEqual(command.args, ["--quiet", "--afk", "--prompt", "Inspect the remote target."]);
+  assert.deepEqual(command.args, [
+    "--quiet",
+    "--afk",
+    "--model",
+    "k3",
+    "--prompt",
+    "Inspect the remote target.",
+  ]);
 });

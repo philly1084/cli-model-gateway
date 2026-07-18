@@ -31,6 +31,10 @@ const SESSION_SCRIPT = [
   "});",
 ].join(" ");
 
+const MODEL_SESSION_SCRIPT = [
+  "process.stdout.write(`args:${JSON.stringify(process.argv.slice(1))}\\n`);",
+].join(" ");
+
 test("provider capabilities expose session support separately from non-session providers", async () => {
   const server = createProviderSessionTestServer();
 
@@ -46,11 +50,40 @@ test("provider capabilities expose session support separately from non-session p
     assert.equal(response.statusCode, 200);
     const body = response.json() as { data: Array<Record<string, unknown>> };
     const gemini = body.data.find((entry) => entry.providerId === "gemini-cli");
+    const kimi = body.data.find((entry) => entry.providerId === "kimi-code-cli");
     const deepseek = body.data.find((entry) => entry.providerId === "deepseek-api");
     assert.equal(gemini?.supportsSessions, true);
     assert.equal(gemini?.supportsWorkingDirectory, true);
     assert.equal(gemini?.supportsModelSelection, false);
+    assert.equal(kimi?.supportsSessions, true);
+    assert.equal(kimi?.supportsModelSelection, true);
     assert.equal(deepseek?.supportsSessions, false);
+  } finally {
+    await server.close();
+  }
+});
+
+test("Kimi provider sessions pass the K3 provider model through the configured safe model flag", async () => {
+  const server = createProviderSessionTestServer();
+
+  try {
+    const response = await server.app.inject({
+      method: "POST",
+      url: "/admin/provider-sessions",
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+      payload: {
+        providerId: "kimi-code-cli",
+        model: "k3",
+        cwd: process.cwd(),
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as { session: { id: string; model?: string } };
+    assert.equal(body.session.model, "k3");
+    await waitForOutput(server, body.session.id, /args:\["--model","k3"\]/, "frontend-key");
   } finally {
     await server.close();
   }
@@ -254,6 +287,39 @@ function createProviderSessionTestServer() {
     },
   };
 
+  const kimiConfig: CliProviderConfig = {
+    ...cliConfig,
+    id: "kimi-code-cli",
+    description: "Kimi CLI test provider",
+    models: [
+      {
+        id: "k3",
+        providerModel: "k3",
+      },
+      {
+        id: "kimi-for-coding",
+        providerModel: "kimi-for-coding",
+      },
+    ],
+    sessionCommand: {
+      executable: process.execPath,
+      args: ["-e", MODEL_SESSION_SCRIPT, "--"],
+      supportsModelSelection: true,
+      modelFlag: "--model",
+      supportsWorkingDirectory: true,
+      idleTimeoutMs: 5000,
+      maxLifetimeMs: 30000,
+      ptyMode: "pipe",
+    },
+  };
+  const kimiProvider: Provider = {
+    ...cliProvider,
+    id: kimiConfig.id,
+    description: kimiConfig.description,
+    config: kimiConfig,
+    models: kimiConfig.models,
+  };
+
   const deepseekProvider: Provider = {
     id: "deepseek-api",
     description: "DeepSeek API",
@@ -306,6 +372,7 @@ function createProviderSessionTestServer() {
 
   const providers = new Map([
     [cliProvider.id, cliProvider],
+    [kimiProvider.id, kimiProvider],
     [deepseekProvider.id, deepseekProvider],
   ]);
   const registry = {
@@ -314,6 +381,12 @@ function createProviderSessionTestServer() {
         id: "gemini-test",
         providerId: cliProvider.id,
         providerModel: "gemini-test",
+        fallbackModels: [],
+      },
+      {
+        id: "k3",
+        providerId: kimiProvider.id,
+        providerModel: "k3",
         fallbackModels: [],
       },
     ],

@@ -256,6 +256,9 @@ data:
         type: cli
         description: Kimi Code ACP bridge adapter
         models:
+          - id: k3
+            providerModel: k3
+            description: Kimi K3 flagship reasoning model via the authenticated Kimi CLI
           - id: kimi-for-coding
             providerModel: kimi-for-coding
             fallbackModels:
@@ -278,6 +281,8 @@ data:
             - dist/scripts/remote-agent-session-bridge.js
             - --provider
             - kimi
+          supportsModelSelection: true
+          modelFlag: --model
           env:
             TERM: xterm-256color
           supportsWorkingDirectory: true
