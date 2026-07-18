@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   buildRemoteAgentCliCommand,
   parseGrokStreamingLine,
+  parseRemoteCodexTarget,
+  resolveKimiCliModel,
 } from "../scripts/remote-agent-session-bridge";
 
 test("builds bounded headless Grok Build remote-agent command", () => {
@@ -42,8 +44,50 @@ test("forwards Kimi K3 selection to the installed non-interactive CLI command", 
     "--quiet",
     "--afk",
     "--model",
-    "k3",
+    "kimi-code/k3",
     "--prompt",
     "Inspect the remote target.",
   ]);
+  assert.equal(resolveKimiCliModel("kimi-code/k3"), "kimi-code/k3");
+  assert.throws(() => resolveKimiCliModel("unknown/model"), /Unsupported Kimi CLI model selector/);
+});
+
+test("builds a strict host-side Codex remote-agent launch from the trusted bootstrap marker", () => {
+  const target = {
+    host: "168.119.176.121",
+    user: "root",
+    port: 22,
+    cwd: "/opt/kimibuilt",
+    executable: "/usr/local/bin/codex-remote-run",
+  };
+  const prompt = [
+    "You are being run by the gateway.",
+    `REMOTE_AGENT_TARGET_JSON=${JSON.stringify(target)}`,
+    "",
+    "Task:",
+    "Copy the staged files exactly.",
+  ].join("\n");
+  assert.deepEqual(parseRemoteCodexTarget(prompt), target);
+  const command = buildRemoteAgentCliCommand("codex", prompt, "gpt-5.6-sol");
+  assert.equal(command.executable, "ssh");
+  assert.deepEqual(command.args.slice(0, 6), [
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "StrictHostKeyChecking=yes",
+    "-p",
+    "22",
+  ]);
+  assert.equal(command.args[6], "root@168.119.176.121");
+  const remoteCommand = command.args[7];
+  assert.ok(remoteCommand);
+  assert.match(remoteCommand, /codex-remote-run.*--sandbox workspace-write.*--model 'gpt-5\.6-sol'/);
+  const duplicatePrompt = prompt.replace(
+    "\nTask:\n",
+    `\nREMOTE_AGENT_TARGET_JSON=${JSON.stringify(target)}\nTask:\n`,
+  );
+  assert.throws(
+    () => parseRemoteCodexTarget(duplicatePrompt),
+    /exactly one trusted target marker/,
+  );
 });

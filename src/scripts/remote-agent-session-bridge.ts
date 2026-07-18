@@ -1,9 +1,20 @@
 import { spawn } from "node:child_process";
+import { shellEscape } from "../utils/shell";
 
 export interface RemoteAgentCliCommand {
   executable: string;
   args: string[];
 }
+
+interface RemoteCodexTarget {
+  host: string;
+  user?: string;
+  port?: number;
+  cwd: string;
+  executable: string;
+}
+
+const REMOTE_TARGET_MARKER = "REMOTE_AGENT_TARGET_JSON=";
 
 export function buildRemoteAgentCliCommand(
   provider: string,
@@ -33,18 +44,109 @@ export function buildRemoteAgentCliCommand(
     };
   }
   if (provider === "kimi") {
+    const resolvedModel = resolveKimiCliModel(model);
     return {
       executable: "kimi",
       args: [
         "--quiet",
         "--afk",
-        ...(model ? ["--model", model] : []),
+        ...(resolvedModel ? ["--model", resolvedModel] : []),
         "--prompt",
         prompt,
       ],
     };
   }
+  if (provider === "codex") {
+    const target = parseRemoteCodexTarget(prompt);
+    const destination = target.user ? `${target.user}@${target.host}` : target.host;
+    const remoteArgs = [
+      shellEscape(target.executable),
+      "run",
+      "--format",
+      "json",
+      "--sandbox",
+      "workspace-write",
+      ...(model ? ["--model", shellEscape(model)] : []),
+      ...(sessionId ? ["--session", shellEscape(sessionId)] : []),
+      shellEscape(prompt),
+    ];
+    return {
+      executable: "ssh",
+      args: [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        ...(target.port ? ["-p", String(target.port)] : []),
+        destination,
+        `cd ${shellEscape(target.cwd)} && ${remoteArgs.join(" ")}`,
+      ],
+    };
+  }
   throw new Error(`Unsupported remote-agent CLI provider: ${provider || "missing"}`);
+}
+
+export function resolveKimiCliModel(model: string): string {
+  const value = model.trim();
+  if (!value) {
+    return "";
+  }
+  if (value === "k3" || value === "kimi-for-coding" || value === "kimi-for-coding-highspeed") {
+    return `kimi-code/${value}`;
+  }
+  if (/^kimi-code\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
+    return value;
+  }
+  throw new Error(`Unsupported Kimi CLI model selector: ${value}`);
+}
+
+export function parseRemoteCodexTarget(prompt: string): RemoteCodexTarget {
+  const taskBoundary = prompt.indexOf("\nTask:\n");
+  const bootstrap = taskBoundary >= 0 ? prompt.slice(0, taskBoundary) : prompt;
+  const targetLines = bootstrap
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith(REMOTE_TARGET_MARKER));
+  if (targetLines.length !== 1) {
+    throw new Error("Codex remote-agent bootstrap must contain exactly one trusted target marker.");
+  }
+  const targetLine = targetLines[0];
+  if (!targetLine) {
+    throw new Error("Codex remote-agent bootstrap is missing its trusted target marker.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(targetLine.slice(REMOTE_TARGET_MARKER.length));
+  } catch {
+    throw new Error("Codex remote-agent target marker is not valid JSON.");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Codex remote-agent target marker must be an object.");
+  }
+  const target = value as Record<string, unknown>;
+  if (typeof target.host !== "string" || !/^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(target.host)) {
+    throw new Error("Codex remote-agent target host is invalid.");
+  }
+  if (target.user !== undefined
+    && (typeof target.user !== "string" || !/^[A-Za-z_][A-Za-z0-9_-]{0,31}$/.test(target.user))) {
+    throw new Error("Codex remote-agent target user is invalid.");
+  }
+  if (target.port !== undefined
+    && (typeof target.port !== "number" || !Number.isInteger(target.port) || target.port < 1 || target.port > 65535)) {
+    throw new Error("Codex remote-agent target port is invalid.");
+  }
+  if (typeof target.cwd !== "string" || !/^\/(?:[^\0\r\n/]+\/?)*$/.test(target.cwd)) {
+    throw new Error("Codex remote-agent target cwd is invalid.");
+  }
+  if (typeof target.executable !== "string" || !/^\/(?:[^\0\r\n/]+\/?)*$/.test(target.executable)) {
+    throw new Error("Codex remote-agent executable must be an absolute POSIX path.");
+  }
+  return {
+    host: target.host,
+    user: target.user as string | undefined,
+    port: target.port as number | undefined,
+    cwd: target.cwd,
+    executable: target.executable,
+  };
 }
 
 export async function readPromptFromStdin(maxBytes = 512 * 1024): Promise<string> {

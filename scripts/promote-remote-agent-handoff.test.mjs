@@ -27,18 +27,43 @@ function portablePath(value) {
 
 function validProvidersSource() {
   return stringify({
-    providers: [{
-      id: 'kimi-code-cli',
-      type: 'cli',
-      models: [{ id: 'k3', providerModel: 'k3' }],
-      responseCommand: { executable: 'node', args: [] },
-      sessionCommand: {
-        executable: 'node',
-        args: ['dist/scripts/remote-agent-session-bridge.js', '--provider', 'kimi'],
-        supportsModelSelection: true,
-        modelFlag: '--model',
+    providers: [
+      {
+        id: 'codex-cli',
+        type: 'cli',
+        models: [{ id: 'gpt-5.6-sol', providerModel: 'gpt-5.6-sol' }],
+        responseCommand: { executable: 'node', args: [] },
+        sessionCommand: {
+          executable: 'node',
+          args: [
+            'dist/scripts/remote-agent-session-bridge.js',
+            '--provider',
+            'codex',
+            '--session',
+            '{{session_id}}',
+          ],
+          supportsModelSelection: true,
+          modelFlag: '--model',
+          supportsWorkingDirectory: true,
+          closeInputAfterWrite: true,
+          idleTimeoutMs: 1_800_000,
+          maxLifetimeMs: 14_400_000,
+          ptyMode: 'pipe',
+        },
       },
-    }],
+      {
+        id: 'kimi-code-cli',
+        type: 'cli',
+        models: [{ id: 'k3', providerModel: 'k3' }],
+        responseCommand: { executable: 'node', args: [] },
+        sessionCommand: {
+          executable: 'node',
+          args: ['dist/scripts/remote-agent-session-bridge.js', '--provider', 'kimi'],
+          supportsModelSelection: true,
+          modelFlag: '--model',
+        },
+      },
+    ],
   });
 }
 
@@ -333,7 +358,7 @@ test('promotion refuses an invalid live K3 config before reading or patching the
   });
   const result = await createHarness(invalid);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /does not satisfy the Kimi K3 CLI gate/);
+  assert.match(result.stderr, /does not satisfy the Codex\/Kimi remote-agent gate/);
   assert.match(result.log, /^get configmap /);
   assert.doesNotMatch(result.log, /get deployment|patch deployment/);
 });

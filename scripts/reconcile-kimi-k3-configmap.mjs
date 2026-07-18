@@ -17,6 +17,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { checkKimiK3ProviderConfig } from './check-kimi-k3-provider-config.mjs';
+import { checkRemoteAgentProviderConfig } from './check-remote-agent-provider-config.mjs';
 
 const MAX_CONFIGMAP_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_PROVIDERS_CONFIG_BYTES = 2 * 1024 * 1024;
@@ -28,6 +29,7 @@ const KIMI_SESSION_ARGS = [
   '--provider',
   'kimi',
 ];
+const CODEX_PROVIDER_ID = 'codex-cli';
 const DEFAULT_NAMESPACE = 'n8n-openai-gateway';
 const DEFAULT_CONFIGMAP = 'n8n-openai-cli-gateway-config';
 const DEFAULT_KUBECTL_TIMEOUT_MS = 30_000;
@@ -403,6 +405,68 @@ export function reconcileKimiK3ProviderConfig(source) {
   return reconciled;
 }
 
+export function reconcileRemoteAgentProviderConfig(source) {
+  const kimiReconciled = reconcileKimiK3ProviderConfig(source);
+  const document = parseDocument(kimiReconciled, {
+    keepSourceTokens: true,
+    maxAliasCount: 100,
+    prettyErrors: false,
+    uniqueKeys: true,
+  });
+  if (document.errors.length > 0) {
+    throw new Error('providers.yaml is invalid YAML after Kimi reconciliation.');
+  }
+  const providers = document.get('providers', true);
+  if (!isSeq(providers)) {
+    throw new Error('Top-level providers must be a YAML sequence.');
+  }
+  const matches = providers.items.filter(
+    (provider) => isMap(provider) && provider.get('id') === CODEX_PROVIDER_ID,
+  );
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one ${CODEX_PROVIDER_ID} provider; found ${matches.length}.`);
+  }
+  const provider = matches[0];
+  if (provider.get('type') !== 'cli') {
+    throw new Error(`${CODEX_PROVIDER_ID} must already be a CLI provider.`);
+  }
+  const existing = provider.get('sessionCommand', true);
+  if (existing) {
+    checkRemoteAgentProviderConfig(kimiReconciled, { sourceName: 'reconciled providers.yaml' });
+    return kimiReconciled;
+  }
+  const responseCommandPair = pairByKey(provider, 'responseCommand');
+  if (!responseCommandPair) {
+    throw new Error(`${CODEX_PROVIDER_ID} has no responseCommand insertion anchor.`);
+  }
+  const edit = insertionAfterPair(
+    kimiReconciled,
+    provider,
+    responseCommandPair,
+    [
+      'sessionCommand:',
+      '  executable: node',
+      '  args:',
+      '    - dist/scripts/remote-agent-session-bridge.js',
+      '    - --provider',
+      '    - codex',
+      '    - --session',
+      '    - "{{session_id}}"',
+      '  supportsModelSelection: true',
+      '  modelFlag: --model',
+      '  supportsWorkingDirectory: true',
+      '  closeInputAfterWrite: true',
+      '  idleTimeoutMs: 1800000',
+      '  maxLifetimeMs: 14400000',
+      '  ptyMode: pipe',
+    ],
+    `${CODEX_PROVIDER_ID}.responseCommand`,
+  );
+  const reconciled = applyPreservingEdits(kimiReconciled, [edit]);
+  checkRemoteAgentProviderConfig(reconciled, { sourceName: 'reconciled providers.yaml' });
+  return reconciled;
+}
+
 export function sha256(value) {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -599,7 +663,7 @@ export async function reconcileConfigMap(options, env = process.env) {
   }
 
   const current = readConfigMap(options, env);
-  const reconciled = reconcileKimiK3ProviderConfig(current.providersSource);
+  const reconciled = reconcileRemoteAgentProviderConfig(current.providersSource);
   const beforeHash = sha256(current.providersSource);
   const afterHash = sha256(reconciled);
   console.log(`before_sha256=${beforeHash}`);

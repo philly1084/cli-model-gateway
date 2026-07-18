@@ -12,6 +12,8 @@ import {
 } from './canary-remote-agent-handoff.mjs';
 
 const ENV_KEYS = [
+  'CANARY_CODEX_MODEL',
+  'CANARY_CODEX_PROVIDER_ID',
   'CANARY_KIMI_MODEL',
   'CANARY_KIMI_PROVIDER_ID',
   'GATEWAY_API_KEY',
@@ -44,6 +46,16 @@ test('Kimi dry-run defaults to an explicit k3 task model', () => withCleanEnv(()
   assert.equal(config.kimiModel, 'k3');
   assert.equal(plan.providerId, 'kimi-code-cli');
   assert.equal(plan.body.model, 'k3');
+}));
+
+test('Codex canary uses the host-side provider lane and configured remote target', () => withCleanEnv(() => {
+  const options = parseArgs(['--dry-run', '--mode', 'codex']);
+  const config = loadConfig({ dryRun: true, modes: options.modes });
+  const plan = createPlan('codex', config);
+  assert.equal(plan.startPath, '/admin/remote-agent-tasks');
+  assert.equal(plan.providerId, 'codex-cli');
+  assert.equal(plan.body.model, 'gpt-5.6-sol');
+  assert.equal(plan.body.targetId, '[required:CANARY_REMOTE_TARGET_ID]');
 }));
 
 test('Kimi canary refuses every requested model except exact k3', () => withCleanEnv(() => {
@@ -147,8 +159,10 @@ test('a live auth failure aborts before any agent start request', async () => {
       requestTimeoutMs: 2_000,
       timeoutMs: 15_000,
       pollIntervalMs: 250,
-      codexWorkspace: '/tmp/canary-workspace',
-      codexModel: '',
+      codexProviderId: 'codex-cli',
+      codexModel: 'gpt-5.6-sol',
+      remoteTargetId: '/required-target',
+      remoteCwd: '/tmp/canary-workspace',
     };
     const plan = createPlan('codex', config);
     await assert.rejects(

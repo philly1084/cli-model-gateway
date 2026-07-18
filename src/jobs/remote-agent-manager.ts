@@ -460,6 +460,7 @@ function buildRemoteAgentReasoning(
       cwd,
       sshCommand,
       allowedCwds: [...target.allowedCwds],
+      remoteExecutable: target.opencodeExecutable,
       progressMarkers: [
         "REMOTE_AGENT_PLAN",
         "REMOTE_AGENT_PROGRESS",
@@ -477,6 +478,16 @@ function buildBootstrapPrompt(summary: RemoteAgentTaskSummary, handoff?: RemoteA
   const allowedCwds = Array.isArray(summary.reasoning.data.allowedCwds)
     ? summary.reasoning.data.allowedCwds.join(", ")
     : summary.cwd;
+  const remoteExecutable = typeof summary.reasoning.data.remoteExecutable === "string"
+    ? summary.reasoning.data.remoteExecutable
+    : "opencode";
+  const targetMarker = JSON.stringify({
+    host: summary.host,
+    user: summary.user,
+    port: summary.port,
+    cwd: summary.cwd,
+    executable: remoteExecutable,
+  });
 
   return [
     "You are being run by the n8n OpenAI CLI Gateway remote-agent service.",
@@ -486,6 +497,7 @@ function buildBootstrapPrompt(summary: RemoteAgentTaskSummary, handoff?: RemoteA
     `- ssh: ${sshCommand}`,
     `- remote cwd: ${summary.cwd}`,
     `- allowed remote roots: ${allowedCwds}`,
+    `REMOTE_AGENT_TARGET_JSON=${targetMarker}`,
     "",
     "Operational rules:",
     "- Work through SSH on the configured target; do not request secrets from the user.",

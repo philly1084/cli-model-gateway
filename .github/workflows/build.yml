@@ -44,7 +44,7 @@ jobs:
           npm run build
           npm test
 
-      - name: Verify Kimi K3 reconciliation, promotion, and canary gates
+      - name: Verify Codex and Kimi provider reconciliation, promotion, and canary gates
         run: |
           npm run preflight:kimi-k3
           npm run canary:remote-agent-handoff:dry-run
