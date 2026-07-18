@@ -51,7 +51,10 @@ function exactMountAtPath(mounts, mountPath, label) {
 }
 
 function assertConfigMapVolume(volume, expectedName, label) {
-  if (!isRecord(volume.configMap) || volume.configMap.name !== expectedName) {
+  if (!isRecord(volume.configMap)
+    || typeof volume.configMap.name !== 'string'
+    || !volume.configMap.name.trim()
+    || (expectedName !== '@current' && volume.configMap.name !== expectedName)) {
     fail(`${label} must source ConfigMap ${expectedName}.`);
   }
   const unexpectedSources = Object.keys(volume).filter((key) => key !== 'name' && key !== 'configMap');
@@ -205,7 +208,8 @@ export function checkPromotionDeployment(deployment, options) {
     (entry) => entry?.name === PROMOTION_DEPLOYMENT_CONTRACT.overlayVolume,
   );
 
-  if (phase === 'before') {
+  let overlayPresent = false;
+  if (phase === 'before' && (overlayNamedMounts.length > 0 || overlayVolumes.length > 0 || distMounts.length > 0)) {
     const overlayMount = exactMountAtPath(
       mounts,
       PROMOTION_DEPLOYMENT_CONTRACT.overlayMountPath,
@@ -232,6 +236,7 @@ export function checkPromotionDeployment(deployment, options) {
       PROMOTION_DEPLOYMENT_CONTRACT.overlayVolume,
       'overlay volume',
     );
+    overlayPresent = true;
   } else if (overlayNamedMounts.length !== 0 || overlayVolumes.length !== 0 || distMounts.length !== 0) {
     fail('code-shadow overlay or another /app/dist mount remains after promotion.');
   }
@@ -239,8 +244,8 @@ export function checkPromotionDeployment(deployment, options) {
   return {
     resourceVersion,
     image: gateway.image,
-    providerConfigMap,
-    overlayPresent: phase === 'before',
+    providerConfigMap: providerVolume.configMap.name,
+    overlayPresent,
     initContainerImages: Object.fromEntries(
       initContainers.map((entry) => [entry.name, entry.image]),
     ),
@@ -264,7 +269,7 @@ function main(args) {
     phase,
     expectedImage,
   });
-  process.stdout.write(`${result.resourceVersion}\t${result.image}\n`);
+  process.stdout.write(`${result.resourceVersion}\t${result.image}\t${result.providerConfigMap}\t${result.overlayPresent ? 'present' : 'absent'}\n`);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';

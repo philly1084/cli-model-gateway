@@ -103,11 +103,29 @@ export function checkPromotionConfigSnapshot(snapshot, expected) {
   };
 }
 
+export function checkCurrentPromotionConfigSnapshot(snapshot, {
+  image,
+  namespace,
+  sourceConfigMap,
+}) {
+  const providersSource = snapshot?.data?.['providers.yaml'];
+  if (typeof providersSource !== 'string' || providersSource.length === 0) {
+    fail('current snapshot must contain non-empty providers.yaml data.');
+  }
+  return checkPromotionConfigSnapshot(snapshot, {
+    providersSource,
+    image,
+    namespace,
+    sourceConfigMap,
+  });
+}
+
 function usage() {
   return [
     'Usage:',
     '  node scripts/remote-agent-promotion-config-snapshot.mjs build <providers.yaml> <image> <namespace> <source-configmap> <manifest.json>',
     '  node scripts/remote-agent-promotion-config-snapshot.mjs verify <snapshot.json> <providers.yaml> <image> <namespace> <source-configmap>',
+    '  node scripts/remote-agent-promotion-config-snapshot.mjs verify-current <snapshot.json> <image> <namespace> <source-configmap>',
   ].join('\n');
 }
 
@@ -136,6 +154,15 @@ function main(args) {
     const expected = readExpected(providersOrImage, imageOrNamespace, namespaceOrSource, sourceOrOutput);
     const snapshot = JSON.parse(readFileSync(path.resolve(firstFile), 'utf8'));
     process.stdout.write(`${checkPromotionConfigSnapshot(snapshot, expected).name}\n`);
+    return;
+  }
+  if (command === 'verify-current' && args.length === 5) {
+    const snapshot = JSON.parse(readFileSync(path.resolve(firstFile), 'utf8'));
+    process.stdout.write(`${checkCurrentPromotionConfigSnapshot(snapshot, {
+      image: providersOrImage,
+      namespace: imageOrNamespace,
+      sourceConfigMap: namespaceOrSource,
+    }).name}\n`);
     return;
   }
   void outputFile;
