@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildRemoteAgentCliCommand,
+  buildRemoteCodexPrompt,
   parseGrokStreamingLine,
   parseRemoteCodexTarget,
   resolveKimiCliModel,
@@ -61,13 +62,29 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
     executable: "/usr/local/bin/codex-remote-run",
   };
   const prompt = [
-    "You are being run by the gateway.",
+    "You are being run by the n8n OpenAI CLI Gateway remote-agent service.",
+    "",
+    "Use the configured remote target for this task:",
+    "- targetId: k3s-prod",
+    "- ssh: ssh -p 22 root@168.119.176.121",
+    "- remote cwd: /opt/kimibuilt",
     `REMOTE_AGENT_TARGET_JSON=${JSON.stringify(target)}`,
+    "",
+    "Operational rules:",
+    "- Work through SSH on the configured target; do not request secrets from the user.",
+    "- Verify changes before reporting completion.",
     "",
     "Task:",
     "Copy the staged files exactly.",
   ].join("\n");
   assert.deepEqual(parseRemoteCodexTarget(prompt), target);
+  const remotePrompt = buildRemoteCodexPrompt(prompt, target);
+  assert.match(remotePrompt, /already on 168\.119\.176\.121 in \/opt\/kimibuilt/);
+  assert.match(remotePrompt, /Work locally in the current remote workspace; do not run SSH/);
+  assert.doesNotMatch(remotePrompt, /REMOTE_AGENT_TARGET_JSON=/);
+  assert.doesNotMatch(remotePrompt, /- ssh:/);
+  assert.doesNotMatch(remotePrompt, /Work through SSH/);
+  assert.match(remotePrompt, /Task:\nCopy the staged files exactly\./);
   const command = buildRemoteAgentCliCommand("codex", prompt, "gpt-5.6-sol");
   assert.equal(command.executable, "ssh");
   assert.deepEqual(command.args.slice(0, 6), [
@@ -82,6 +99,9 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
   const remoteCommand = command.args[7];
   assert.ok(remoteCommand);
   assert.match(remoteCommand, /codex-remote-run.*--sandbox workspace-write.*--model 'gpt-5\.6-sol'/);
+  assert.match(remoteCommand, /already on 168\.119\.176\.121 in \/opt\/kimibuilt/);
+  assert.doesNotMatch(remoteCommand, /REMOTE_AGENT_TARGET_JSON=/);
+  assert.doesNotMatch(remoteCommand, /Work through SSH/);
   const duplicatePrompt = prompt.replace(
     "\nTask:\n",
     `\nREMOTE_AGENT_TARGET_JSON=${JSON.stringify(target)}\nTask:\n`,
@@ -89,5 +109,9 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
   assert.throws(
     () => parseRemoteCodexTarget(duplicatePrompt),
     /exactly one trusted target marker/,
+  );
+  assert.throws(
+    () => buildRemoteCodexPrompt(prompt.replace("\nTask:\n", "\nWork:\n"), target),
+    /must contain a Task boundary/,
   );
 });

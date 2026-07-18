@@ -219,6 +219,7 @@ export class AgentHandoffStore {
       `mkdir -p -- ${shellEscape(".kimibuilt")}`,
       `test ! -L ${shellEscape(parent)}`,
       `mkdir -p -- ${shellEscape(parent)}`,
+      `chmod 711 -- ${shellEscape(".kimibuilt")} ${shellEscape(parent)}`,
       `test ! -e ${shellEscape(handoff.runDirectory)}`,
       `mkdir -- ${shellEscape(handoff.runDirectory)}`,
       `mkdir -p -- ${shellEscape(handoff.contextDirectory)} ${shellEscape(handoff.output.filesDirectory)}`,
