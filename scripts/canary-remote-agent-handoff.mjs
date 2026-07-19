@@ -11,7 +11,7 @@ const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 6 * 1024 * 1024;
 const TERMINAL_CODEX = new Set(['completed', 'failed', 'cancelled', 'input_required']);
 const TERMINAL_PROVIDER = new Set(['completed', 'failed', 'terminated', 'timed_out']);
-const SUPPORTED_MODES = ['codex', 'kimi', 'grok'];
+const SUPPORTED_MODES = ['codex', 'kimi'];
 
 class CanaryTimeoutError extends Error {}
 
@@ -19,8 +19,8 @@ function usage() {
   return `RemoteAgentHandoff/v1 live canary
 
 Usage:
-  node scripts/canary-remote-agent-handoff.mjs --dry-run [--mode codex|kimi|grok|all]
-  node scripts/canary-remote-agent-handoff.mjs --run --mode codex|kimi|grok|all
+  node scripts/canary-remote-agent-handoff.mjs --dry-run [--mode codex|kimi|all]
+  node scripts/canary-remote-agent-handoff.mjs --run --mode codex|kimi|all
 
 Network access is disabled unless --run is present. Base URL and authentication
 are accepted only through GATEWAY_BASE_URL plus GATEWAY_API_KEY or
@@ -115,9 +115,7 @@ export function loadConfig({ dryRun, modes }) {
     remoteTargetId: process.env.CANARY_REMOTE_TARGET_ID?.trim() || '[required:CANARY_REMOTE_TARGET_ID]',
     remoteCwd: process.env.CANARY_REMOTE_CWD?.trim() || '[required:CANARY_REMOTE_CWD]',
     kimiProviderId: process.env.CANARY_KIMI_PROVIDER_ID?.trim() || 'kimi-code-cli',
-    grokProviderId: process.env.CANARY_GROK_PROVIDER_ID?.trim() || 'grok-build-cli',
     kimiModel: process.env.CANARY_KIMI_MODEL?.trim() || 'k3',
-    grokModel: process.env.CANARY_GROK_MODEL?.trim() || '',
     timeoutMs: boundedInteger(process.env.CANARY_TIMEOUT_MS, 240_000, 'CANARY_TIMEOUT_MS', 15_000, 900_000),
     pollIntervalMs: boundedInteger(process.env.CANARY_POLL_INTERVAL_MS, 2_000, 'CANARY_POLL_INTERVAL_MS', 250, 10_000),
     requestTimeoutMs: boundedInteger(process.env.CANARY_REQUEST_TIMEOUT_MS, 15_000, 'CANARY_REQUEST_TIMEOUT_MS', 1_000, 60_000),
@@ -274,18 +272,17 @@ function createAgentPrompt(handoff) {
 }
 
 export function createPlan(mode, config) {
+  if (!SUPPORTED_MODES.includes(mode)) {
+    throw new Error(`Unsupported artifact delivery canary mode: ${mode}`);
+  }
   const { handoff, expectedFiles } = createHandoff(mode);
   const prompt = createAgentPrompt(handoff);
   const providerId = mode === 'codex'
     ? config.codexProviderId
-    : mode === 'kimi'
-      ? config.kimiProviderId
-      : config.grokProviderId;
+    : config.kimiProviderId;
   const model = mode === 'codex'
     ? config.codexModel
-    : mode === 'kimi'
-      ? config.kimiModel
-      : config.grokModel;
+    : config.kimiModel;
   return {
     mode,
     operationId: handoff.operationId,
