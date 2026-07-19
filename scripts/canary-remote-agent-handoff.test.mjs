@@ -93,9 +93,22 @@ test('Kimi canary accepts a returned provider task only when task.model is k3', 
   );
 }));
 
-test('non-Kimi lanes do not claim a Kimi model attestation', () => {
-  assert.doesNotThrow(() => assertProviderTaskModel({}, { mode: 'grok', body: {} }));
+test('Codex does not claim a Kimi model attestation', () => {
+  assert.doesNotThrow(() => assertProviderTaskModel({}, { mode: 'codex', body: {} }));
 });
+
+test('artifact delivery modes exclude Grok', () => withCleanEnv(() => {
+  assert.deepEqual(parseArgs(['--dry-run', '--mode', 'all']).modes, ['codex', 'kimi']);
+  assert.throws(
+    () => parseArgs(['--dry-run', '--mode', 'grok']),
+    /--mode must be one of codex, kimi, or all/,
+  );
+  const config = loadConfig({ dryRun: true, modes: ['codex', 'kimi'] });
+  assert.throws(
+    () => createPlan('grok', config),
+    /Unsupported artifact delivery canary mode: grok/,
+  );
+}));
 
 test('live auth preflight proves missing and invalid credentials fail closed before accepting the configured key', async () => {
   const requests = [];
@@ -116,7 +129,7 @@ test('live auth preflight proves missing and invalid credentials fail closed bef
       baseUrl,
       authHeaders: { 'x-api-key': 'valid-canary-key' },
       authConfigured: true,
-      modes: ['codex', 'kimi', 'grok'],
+      modes: ['codex', 'kimi'],
       requestTimeoutMs: 2_000,
     });
 
