@@ -40,6 +40,7 @@ jobs:
         run: |
           bash -n scripts/promote-remote-agent-handoff.sh
           npm run preflight:k8s
+          npm run preflight:remote-targets
           npm run check
           npm run build
           npm test

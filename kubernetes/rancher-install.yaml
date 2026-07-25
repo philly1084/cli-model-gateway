@@ -617,8 +617,34 @@ metadata:
 data:
   targets.yaml: |
     remoteCliTargets:
+      - targetId: k3s-primary
+        description: Primary KimiBuilt k3s host via Codex wrapper
+        host: 168.119.176.121
+        user: root
+        port: 22
+        allowedCwds:
+          - /srv/apps
+          - /opt/agent-apps
+          - /opt/kimibuilt
+          - /srv/gitlab
+        defaultCwd: /opt/kimibuilt
+        opencodeExecutable: /usr/local/bin/codex-remote-run
+        timeoutMs: 1800000
+      - targetId: k3s-secondary
+        description: Secondary demoserver2 k3s host via Codex wrapper
+        host: 162.55.163.199
+        user: root
+        port: 22
+        allowedCwds:
+          - /srv/apps
+          - /opt/agent-apps
+          - /opt/kimibuilt
+          - /srv/gitlab
+        defaultCwd: /opt/kimibuilt
+        opencodeExecutable: /usr/local/bin/codex-remote-run
+        timeoutMs: 1800000
       - targetId: k3s-prod
-        description: Main k3s production host on demoserver2 via Codex wrapper
+        description: Legacy alias for the primary KimiBuilt k3s host
         host: 168.119.176.121
         user: root
         port: 22
@@ -631,7 +657,7 @@ data:
         opencodeExecutable: /usr/local/bin/codex-remote-run
         timeoutMs: 1800000
       - targetId: prod
-        description: Legacy alias for main k3s production host via Codex wrapper
+        description: Legacy alias for the primary KimiBuilt k3s host
         host: 168.119.176.121
         user: root
         port: 22

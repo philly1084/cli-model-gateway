@@ -271,6 +271,11 @@ remoteCliTargets:
     timeoutMs: 1800000
 ```
 
+Use stable target IDs for multi-server installations. Do not move one target ID
+between hosts during a rollout; keep aliases pinned and give each server its own
+identity, for example `k3s-primary` and `k3s-secondary`. This lets provider-agent
+sessions and Web Chat continuations preserve the intended deployment server.
+
 Available MCP tools:
 
 - `remote_code_run({ targetId, cwd?, task, model?, sessionId?, waitMs? })`
