@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildKimiProgressHeartbeat,
   buildRemoteAgentCliCommand,
   buildRemoteCodexPrompt,
   parseGrokStreamingLine,
+  parseKimiStreamingLine,
   parseRemoteCodexTarget,
   resolveKimiCliModel,
 } from "../scripts/remote-agent-session-bridge";
@@ -42,7 +44,9 @@ test("forwards Kimi K3 selection to the installed non-interactive CLI command", 
   const command = buildRemoteAgentCliCommand("kimi", "Inspect the remote target.", "k3");
   assert.equal(command.executable, "kimi");
   assert.deepEqual(command.args, [
-    "--quiet",
+    "--print",
+    "--output-format",
+    "stream-json",
     "--afk",
     "--model",
     "kimi-code/k3",
@@ -51,6 +55,31 @@ test("forwards Kimi K3 selection to the installed non-interactive CLI command", 
   ]);
   assert.equal(resolveKimiCliModel("kimi-code/k3"), "kimi-code/k3");
   assert.throws(() => resolveKimiCliModel("unknown/model"), /Unsupported Kimi CLI model selector/);
+});
+
+test("extracts safe progress and final text from Kimi stream-json output", () => {
+  assert.deepEqual(
+    parseKimiStreamingLine(JSON.stringify({
+      role: "assistant",
+      content: [{ type: "think", think: "private reasoning" }],
+    })),
+    { progress: "Kimi CLI completed a reasoning step." },
+  );
+  assert.deepEqual(
+    parseKimiStreamingLine(JSON.stringify({
+      role: "assistant",
+      content: [{ type: "text", text: "REMOTE_AGENT_RESULT: success done" }],
+    })),
+    { text: "REMOTE_AGENT_RESULT: success done" },
+  );
+  assert.deepEqual(
+    parseKimiStreamingLine("To resume this session: kimi -r 3d448265-8f9b-4a14-b929-bf21506cea67"),
+    { sessionId: "3d448265-8f9b-4a14-b929-bf21506cea67" },
+  );
+  assert.equal(
+    buildKimiProgressHeartbeat(90500),
+    "\nREMOTE_AGENT_PROGRESS=Kimi CLI is still working (90s elapsed).\n",
+  );
 });
 
 test("builds a strict host-side Codex remote-agent launch from the trusted bootstrap marker", () => {

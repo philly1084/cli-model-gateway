@@ -48,7 +48,9 @@ export function buildRemoteAgentCliCommand(
     return {
       executable: "kimi",
       args: [
-        "--quiet",
+        "--print",
+        "--output-format",
+        "stream-json",
         "--afk",
         ...(resolvedModel ? ["--model", resolvedModel] : []),
         "--prompt",
@@ -206,6 +208,13 @@ async function run(): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
   forwardOutput(child, options.provider);
+  const startedAt = Date.now();
+  const heartbeat = options.provider === "kimi"
+    ? setInterval(() => {
+      process.stdout.write(buildKimiProgressHeartbeat(Date.now() - startedAt));
+    }, 30000)
+    : null;
+  heartbeat?.unref();
   const forwardSignal = (signal: NodeJS.Signals) => {
     if (!child.killed) {
       child.kill(signal);
@@ -213,11 +222,17 @@ async function run(): Promise<void> {
   };
   process.once("SIGINT", () => forwardSignal("SIGINT"));
   process.once("SIGTERM", () => forwardSignal("SIGTERM"));
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) => resolve(code ?? 1));
-  });
-  process.exitCode = exitCode;
+  try {
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) => resolve(code ?? 1));
+    });
+    process.exitCode = exitCode;
+  } finally {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+    }
+  }
 }
 
 function forwardOutput(
@@ -226,10 +241,61 @@ function forwardOutput(
 ): void {
   if (provider === "grok") {
     forwardGrokStreamingOutput(child.stdout);
+  } else if (provider === "kimi") {
+    forwardKimiStreamingOutput(child.stdout);
   } else {
     child.stdout.on("data", (chunk) => process.stdout.write(chunk));
   }
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+}
+
+interface KimiStreamingEvent {
+  text?: string;
+  progress?: string;
+  sessionId?: string;
+}
+
+export function parseKimiStreamingLine(line: string): KimiStreamingEvent {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return {};
+  }
+  const resumeMatch = trimmed.match(/^To resume this session:\s+kimi\s+-r\s+([0-9a-f-]{36})$/i);
+  if (resumeMatch?.[1]) {
+    return { sessionId: resumeMatch[1] };
+  }
+  try {
+    const event = JSON.parse(trimmed) as Record<string, unknown>;
+    const content = Array.isArray(event.content)
+      ? event.content.filter((item): item is Record<string, unknown> => (
+        Boolean(item) && typeof item === "object" && !Array.isArray(item)
+      ))
+      : [];
+    const text = content
+      .filter((item) => item.type === "text" && typeof item.text === "string")
+      .map((item) => String(item.text))
+      .join("");
+    if (text) {
+      return { text };
+    }
+    if (content.some((item) => item.type === "tool_call" || item.type === "tool_use")) {
+      return { progress: "Kimi CLI started a remote tool step." };
+    }
+    if (event.role === "tool") {
+      return { progress: "Kimi CLI completed a remote tool step." };
+    }
+    if (content.some((item) => item.type === "think")) {
+      return { progress: "Kimi CLI completed a reasoning step." };
+    }
+  } catch {
+    return { text: line };
+  }
+  return {};
+}
+
+export function buildKimiProgressHeartbeat(elapsedMs: number): string {
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  return `\nREMOTE_AGENT_PROGRESS=Kimi CLI is still working (${elapsedSeconds}s elapsed).\n`;
 }
 
 export function parseGrokStreamingLine(line: string): { text?: string; sessionId?: string } {
@@ -249,6 +315,37 @@ export function parseGrokStreamingLine(line: string): { text?: string; sessionId
     return { text: line };
   }
   return {};
+}
+
+function forwardKimiStreamingOutput(stdout: NodeJS.ReadableStream): void {
+  stdout.setEncoding("utf8");
+  let buffer = "";
+  const flushLine = (line: string) => {
+    const event = parseKimiStreamingLine(line);
+    if (event.text) {
+      process.stdout.write(event.text.endsWith("\n") ? event.text : `${event.text}\n`);
+    }
+    if (event.progress) {
+      process.stdout.write(`REMOTE_AGENT_PROGRESS=${event.progress}\n`);
+    }
+    if (event.sessionId) {
+      process.stdout.write(`REMOTE_CLI_SESSION_ID=${event.sessionId}\n`);
+    }
+  };
+  stdout.on("data", (chunk: string) => {
+    buffer += chunk;
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      flushLine(buffer.slice(0, newlineIndex));
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf("\n");
+    }
+  });
+  stdout.on("end", () => {
+    if (buffer) {
+      flushLine(buffer);
+    }
+  });
 }
 
 function forwardGrokStreamingOutput(stdout: NodeJS.ReadableStream): void {
