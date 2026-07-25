@@ -24,7 +24,7 @@ spec:
         fsGroup: 10001
       initContainers:
         - name: gemini-bootstrap
-          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
+          image: ghcr.io/philly1084/cli-model-gateway:sha-1867919b2539240337b1ba9ae2caefe0d3e9c343
           imagePullPolicy: Always
           command:
             - sh
@@ -49,7 +49,7 @@ spec:
             - name: provider-home
               mountPath: /var/lib/gateway-home
         - name: grok-bootstrap
-          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
+          image: ghcr.io/philly1084/cli-model-gateway:sha-1867919b2539240337b1ba9ae2caefe0d3e9c343
           imagePullPolicy: Always
           command:
             - sh
@@ -74,7 +74,7 @@ spec:
             - name: provider-home
               mountPath: /var/lib/gateway-home
         - name: gemini-auth-bootstrap
-          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
+          image: ghcr.io/philly1084/cli-model-gateway:sha-1867919b2539240337b1ba9ae2caefe0d3e9c343
           imagePullPolicy: Always
           command:
             - sh
@@ -111,7 +111,7 @@ spec:
               readOnly: true
       containers:
         - name: gateway
-          image: ghcr.io/philly1084/cli-model-gateway:sha-8e3a9ec493df50bbf631b0cdcd09f30b00446186
+          image: ghcr.io/philly1084/cli-model-gateway:sha-1867919b2539240337b1ba9ae2caefe0d3e9c343
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
