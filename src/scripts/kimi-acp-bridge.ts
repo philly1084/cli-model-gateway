@@ -984,7 +984,7 @@ function looksLikeToolPayload(value: Record<string, unknown>): boolean {
 function collectAgentText(update: Record<string, unknown>): string {
   const candidates: string[] = [];
   const push = (value: unknown): void => {
-    const text = typeof value === "string" ? value.trim() : "";
+    const text = typeof value === "string" ? value : "";
     if (!text) {
       return;
     }
@@ -1015,18 +1015,15 @@ function collectAgentText(update: Record<string, unknown>): string {
   return candidates.join("\n");
 }
 
-function appendUniqueTextPart(textParts: string[], candidate: string): void {
-  const trimmed = candidate.trim();
-  if (!trimmed) {
-    return;
+export function extractKimiAgentTextChunk(update: unknown): string {
+  if (!isRecord(update) || update.sessionUpdate !== "agent_message_chunk") {
+    return "";
   }
+  return collectAgentText(update);
+}
 
-  const previous = textParts[textParts.length - 1];
-  if (typeof previous === "string" && previous.trim() === trimmed) {
-    return;
-  }
-
-  textParts.push(trimmed);
+export function mergeKimiAgentTextChunks(chunks: string[]): string {
+  return chunks.join("").trim();
 }
 
 function startKimiAcpProcess(
@@ -1272,11 +1269,11 @@ async function run(): Promise<void> {
           continue;
         }
 
-        if (
-          typeof update.sessionUpdate === "string" &&
-          update.sessionUpdate.includes("agent_message")
-        ) {
-          appendUniqueTextPart(textParts, collectAgentText(update));
+        if (update.sessionUpdate === "agent_message_chunk") {
+          const chunk = extractKimiAgentTextChunk(update);
+          if (chunk) {
+            textParts.push(chunk);
+          }
           continue;
         }
 
@@ -1294,7 +1291,7 @@ async function run(): Promise<void> {
       throw promptError;
     }
 
-    let outputText = textParts.join("\n").trim();
+    let outputText = mergeKimiAgentTextChunks(textParts);
     let finishReason: FinishReason = "stop";
 
     const parsedContract = parseJsonContractFromText(outputText);

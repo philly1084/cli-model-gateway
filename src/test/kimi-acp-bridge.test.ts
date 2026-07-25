@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildPrompt,
+  extractKimiAgentTextChunk,
   findSafeModeValue,
+  mergeKimiAgentTextChunks,
   normalizeToolCallsFromContract,
   parseJsonContractFromText,
 } from "../scripts/kimi-acp-bridge.js";
@@ -111,4 +113,25 @@ test("Kimi bridge prefers chat mode over ask mode when both are available", () =
     id: "mode",
     value: "chat",
   });
+});
+
+test("Kimi bridge concatenates ACP message chunks without inserting line breaks", () => {
+  const updates = [
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "K" } },
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "3" } },
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "_CLI" } },
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: " " } },
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OK" } },
+  ];
+
+  const chunks = updates.map(extractKimiAgentTextChunk);
+
+  assert.equal(mergeKimiAgentTextChunks(chunks), "K3_CLI OK");
+  assert.equal(
+    extractKimiAgentTextChunk({
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "internal reasoning" },
+    }),
+    "",
+  );
 });
