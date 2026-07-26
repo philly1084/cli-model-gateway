@@ -12,6 +12,7 @@ interface RemoteCodexTarget {
   port?: number;
   cwd: string;
   executable: string;
+  adminMode?: boolean;
 }
 
 const REMOTE_TARGET_MARKER = "REMOTE_AGENT_TARGET_JSON=";
@@ -62,13 +63,14 @@ export function buildRemoteAgentCliCommand(
     const target = parseRemoteCodexTarget(prompt);
     const remotePrompt = buildRemoteCodexPrompt(prompt, target);
     const destination = target.user ? `${target.user}@${target.host}` : target.host;
+    const sandbox = target.adminMode ? "danger-full-access" : "workspace-write";
     const remoteArgs = [
       shellEscape(target.executable),
       "run",
       "--format",
       "json",
       "--sandbox",
-      "workspace-write",
+      sandbox,
       ...(model ? ["--model", shellEscape(model)] : []),
       ...(sessionId ? ["--session", shellEscape(sessionId)] : []),
       shellEscape(remotePrompt),
@@ -168,12 +170,18 @@ export function parseRemoteCodexTarget(prompt: string): RemoteCodexTarget {
   if (typeof target.executable !== "string" || !/^\/(?:[^\0\r\n/]+\/?)*$/.test(target.executable)) {
     throw new Error("Codex remote-agent executable must be an absolute POSIX path.");
   }
+  if (target.adminMode !== undefined && typeof target.adminMode !== "boolean") {
+    throw new Error("Codex remote-agent adminMode must be a boolean.");
+  }
   return {
     host: target.host,
     user: target.user as string | undefined,
     port: target.port as number | undefined,
     cwd: target.cwd,
     executable: target.executable,
+    ...(target.adminMode !== undefined
+      ? { adminMode: target.adminMode as boolean }
+      : {}),
   };
 }
 

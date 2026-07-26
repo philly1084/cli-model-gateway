@@ -39,6 +39,7 @@ export interface CreateRemoteAgentTaskOptions {
   sessionId?: string;
   cwd?: string;
   model?: string;
+  adminMode?: boolean;
   cols: number;
   rows: number;
   allowAnyProviderCwd?: boolean;
@@ -173,7 +174,8 @@ export class RemoteAgentManager {
     }
 
     const cwd = resolveRemoteCwd(options.cwd ?? target.defaultCwd, target);
-    const reasoning = buildRemoteAgentReasoning(options.provider, target, cwd);
+    const adminMode = options.adminMode === true;
+    const reasoning = buildRemoteAgentReasoning(options.provider, target, cwd, adminMode);
     let handoffStaged = false;
     let handoffAcknowledgement: AgentHandoffAcknowledgement | undefined;
     let session: Awaited<ReturnType<ProviderSessionManager["createSession"]>> | undefined;
@@ -205,6 +207,7 @@ export class RemoteAgentManager {
         port: target.port,
         cwd,
         model: options.model,
+        adminMode,
         task: options.task,
         status: session.status,
         createdAt: now,
@@ -443,6 +446,7 @@ function buildRemoteAgentReasoning(
   provider: Provider,
   target: RemoteCliTargetConfig,
   cwd: string,
+  adminMode: boolean,
 ): RemoteAgentTaskSummary["reasoning"] {
   const destination = target.user ? `${target.user}@${target.host}` : target.host;
   const sshCommand = target.port
@@ -458,6 +462,7 @@ function buildRemoteAgentReasoning(
       user: target.user,
       port: target.port,
       cwd,
+      adminMode,
       sshCommand,
       allowedCwds: [...target.allowedCwds],
       remoteExecutable: target.opencodeExecutable,
@@ -487,6 +492,7 @@ function buildBootstrapPrompt(summary: RemoteAgentTaskSummary, handoff?: RemoteA
     port: summary.port,
     cwd: summary.cwd,
     executable: remoteExecutable,
+    adminMode: summary.adminMode === true,
   });
 
   return [
@@ -500,6 +506,9 @@ function buildBootstrapPrompt(summary: RemoteAgentTaskSummary, handoff?: RemoteA
     `REMOTE_AGENT_TARGET_JSON=${targetMarker}`,
     "",
     "Operational rules:",
+    summary.adminMode
+      ? "- Admin runner mode is enabled for this scoped task; use elevated execution only where the requested work requires it."
+      : "",
     "- Work through SSH on the configured target; do not request secrets from the user.",
     "- Keep remote file and Kubernetes changes scoped to the requested task.",
     "- Verify changes before reporting completion.",

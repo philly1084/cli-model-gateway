@@ -481,6 +481,7 @@ export interface RemoteAgentTaskSummary {
   port?: number;
   cwd: string;
   model?: string;
+  adminMode?: boolean;
   task: string;
   status: RemoteAgentTaskStatus;
   createdAt: string;

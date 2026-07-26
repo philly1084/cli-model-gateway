@@ -62,18 +62,21 @@ test("remote agent task starts a provider session and emits reasoning context", 
         targetId: "k3s-prod",
         cwd: "/srv/apps/music-board",
         task: "Update the music board and verify the rollout.",
+        adminMode: true,
       },
     });
 
     assert.equal(response.statusCode, 200);
     const body = response.json() as {
-      task: { id: string; sessionId: string; streamToken: string; reasoning: { data: Record<string, unknown> } };
+      task: { id: string; sessionId: string; streamToken: string; adminMode?: boolean; reasoning: { data: Record<string, unknown> } };
       streamUrl: string;
     };
     assert.match(body.streamUrl, /\/admin\/remote-agent-tasks\/.+\/stream\?token=/);
     assert.equal(body.task.reasoning.data.providerId, "gemini-cli");
     assert.equal(body.task.reasoning.data.targetId, "k3s-prod");
     assert.equal(body.task.reasoning.data.cwd, "/srv/apps/music-board");
+    assert.equal(body.task.adminMode, true);
+    assert.equal(body.task.reasoning.data.adminMode, true);
 
     const transcriptBody = await waitForTranscriptOutput(
       server,
@@ -87,6 +90,8 @@ test("remote agent task starts a provider session and emits reasoning context", 
       .join("");
     assert.match(outputText, /ssh -p 22 deploy@example.com/);
     assert.match(outputText, /REMOTE_AGENT_PROGRESS/);
+    assert.match(outputText, /"adminMode":true/);
+    assert.match(outputText, /Admin runner mode is enabled/);
     assert.match(outputText, /Update the music board and verify the rollout/);
 
     const streamResponse = await server.app.inject({
