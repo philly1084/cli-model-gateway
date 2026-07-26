@@ -203,6 +203,7 @@ export const remoteAgentTaskCreateRequestSchema = z.object({
   sessionId: z.string().min(1).max(256).optional(),
   cwd: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  adminMode: z.boolean().optional(),
   cols: z.number().int().min(20).max(400).default(120),
   rows: z.number().int().min(5).max(200).default(40),
   handoff: remoteAgentHandoffSchema.optional(),

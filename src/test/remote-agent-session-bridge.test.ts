@@ -144,3 +144,28 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
     /must contain a Task boundary/,
   );
 });
+
+test("uses danger-full-access only for a trusted admin remote-agent target", () => {
+  const target = {
+    host: "162.55.163.199",
+    user: "root",
+    port: 22,
+    cwd: "/opt/kimibuilt",
+    executable: "/usr/local/bin/codex-remote-run",
+    adminMode: true,
+  };
+  const prompt = [
+    "You are being run by the n8n OpenAI CLI Gateway remote-agent service.",
+    `REMOTE_AGENT_TARGET_JSON=${JSON.stringify(target)}`,
+    "Task:",
+    "Verify the live site and Chromium screenshot.",
+  ].join("\n");
+
+  assert.deepEqual(parseRemoteCodexTarget(prompt), target);
+  const command = buildRemoteAgentCliCommand("codex", prompt, "gpt-5.6-sol");
+  assert.match(command.args.at(-1) || "", /--sandbox danger-full-access/);
+  assert.throws(
+    () => parseRemoteCodexTarget(prompt.replace('"adminMode":true', '"adminMode":"true"')),
+    /adminMode must be a boolean/,
+  );
+});

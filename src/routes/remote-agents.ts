@@ -75,6 +75,7 @@ export const remoteAgentRoutes: FastifyPluginAsync<RemoteAgentRoutesOptions> = a
         sessionId: validationResult.data.sessionId,
         cwd: validationResult.data.cwd,
         model: validationResult.data.model,
+        adminMode: validationResult.data.adminMode,
         cols: validationResult.data.cols ?? 120,
         rows: validationResult.data.rows ?? 40,
         allowAnyProviderCwd: scope === "admin",
