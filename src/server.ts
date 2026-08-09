@@ -11,6 +11,7 @@ import { ProviderSessionManager } from "./jobs/provider-session-manager";
 import { RemoteAgentManager } from "./jobs/remote-agent-manager";
 import { CodexAgentManager } from "./jobs/codex-agent-manager";
 import { RemoteCliToolManager } from "./jobs/remote-cli-tool-manager";
+import { REMOTE_AGENT_HANDOFF_VERSION } from "./jobs/agent-handoff-store";
 import { ProviderRegistry } from "./providers/registry";
 import { LruMap } from "./utils/lru-map";
 import { makeId } from "./utils/ids";
@@ -164,6 +165,9 @@ export function buildServer(
     ok: true,
     ts: new Date().toISOString(),
     requestId: request.headers["x-request-id"],
+    contracts: {
+      remoteAgentHandoff: REMOTE_AGENT_HANDOFF_VERSION,
+    },
   }));
 
   // Prometheus metrics endpoint (admin only)
@@ -280,6 +284,7 @@ export function buildServer(
 
       // Clear the rate limit cleanup interval
       clearInterval(rateLimitCleanupInterval);
+      await remoteAgentManager.close();
       await providerSessionManager.close();
       await remoteCliToolManager.close();
       await codexAgentManager.close();

@@ -49,20 +49,11 @@ test("remote agent task starts a provider session and emits reasoning context", 
     assert.equal(body.task.reasoning.data.targetId, "k3s-prod");
     assert.equal(body.task.reasoning.data.cwd, "/srv/apps/music-board");
 
-    await sleep(100);
-
-    const transcriptResponse = await server.app.inject({
-      method: "GET",
-      url: `/admin/remote-agent-tasks/${body.task.id}/transcript`,
-      headers: {
-        authorization: "Bearer frontend-key",
-      },
-    });
-
-    assert.equal(transcriptResponse.statusCode, 200);
-    const transcriptBody = transcriptResponse.json() as {
-      data: Array<{ type: string; summary?: string; data?: string }>;
-    };
+    const transcriptBody = await waitForTranscriptOutput(
+      server,
+      body.task.id,
+      /Update the music board and verify the rollout/,
+    );
     assert.equal(transcriptBody.data.some((event) => event.type === "reasoning"), true);
     const outputText = transcriptBody.data
       .filter((event) => event.type === "output")
@@ -109,6 +100,91 @@ test("remote agent task rejects remote cwd outside target roots", async () => {
   }
 });
 
+test("remote agent stream tokens authorize only the exact GET stream route", async () => {
+  const server = createRemoteAgentTestServer();
+
+  try {
+    const createResponse = await server.app.inject({
+      method: "POST",
+      url: "/admin/remote-agent-tasks",
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+      payload: {
+        providerId: "gemini-cli",
+        targetId: "k3s-prod",
+        cwd: "/srv/apps/music-board",
+        task: "Verify stream-token endpoint isolation.",
+      },
+    });
+    assert.equal(createResponse.statusCode, 200);
+    const body = createResponse.json() as {
+      task: { id: string; streamToken: string };
+    };
+    const smuggledQuery = `x=${encodeURIComponent("/stream")}&token=${encodeURIComponent(body.task.streamToken)}`;
+
+    const taskResponse = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${body.task.id}?${smuggledQuery}`,
+    });
+    assert.equal(taskResponse.statusCode, 401);
+
+    const transcriptResponse = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${body.task.id}/transcript?${smuggledQuery}`,
+    });
+    assert.equal(transcriptResponse.statusCode, 401);
+
+    const resultFilesResponse = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${body.task.id}/result-files?${smuggledQuery}`,
+    });
+    assert.equal(resultFilesResponse.statusCode, 401);
+
+    const cancelResponse = await server.app.inject({
+      method: "POST",
+      url: `/admin/remote-agent-tasks/${body.task.id}/cancel?${smuggledQuery}`,
+    });
+    assert.equal(cancelResponse.statusCode, 401);
+
+    const streamResponse = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${body.task.id}/stream?follow=false&token=${encodeURIComponent(body.task.streamToken)}`,
+    });
+    assert.equal(streamResponse.statusCode, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test("remote agent task rejects an invalid handoff before starting a provider session", async () => {
+  const server = createRemoteAgentTestServer();
+
+  try {
+    const response = await server.app.inject({
+      method: "POST",
+      url: "/admin/remote-agent-tasks",
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+      payload: {
+        providerId: "gemini-cli",
+        targetId: "k3s-prod",
+        cwd: "/srv/apps/music-board",
+        task: "Use the selected design.",
+        handoff: {
+          version: "RemoteAgentHandoff/v0",
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.payload, /handoff\.version/);
+  } finally {
+    await server.close();
+  }
+});
+
 test("remote agent task passes a continuation session id into the provider command", async () => {
   const server = createRemoteAgentTestServer();
   const sessionId = "019f6357-10a2-7f61-9bf8-541fa830de18";
@@ -131,15 +207,11 @@ test("remote agent task passes a continuation session id into the provider comma
 
     assert.equal(response.statusCode, 200);
     const body = response.json() as { task: { id: string } };
-    await sleep(100);
-    const transcriptResponse = await server.app.inject({
-      method: "GET",
-      url: `/admin/remote-agent-tasks/${body.task.id}/transcript`,
-      headers: {
-        authorization: "Bearer frontend-key",
-      },
-    });
-    const transcript = transcriptResponse.json() as { data: Array<{ type: string; data?: string }> };
+    const transcript = await waitForTranscriptOutput(
+      server,
+      body.task.id,
+      new RegExp(`continuation:${sessionId}`),
+    );
     const outputText = transcript.data
       .filter((event) => event.type === "output")
       .map((event) => event.data ?? "")
@@ -285,4 +357,33 @@ function createRemoteAgentTestServer() {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTranscriptOutput(
+  server: ReturnType<typeof createRemoteAgentTestServer>,
+  taskId: string,
+  expected: RegExp,
+): Promise<{ data: Array<{ type: string; summary?: string; data?: string }> }> {
+  const deadline = Date.now() + 3000;
+  let transcript = { data: [] as Array<{ type: string; summary?: string; data?: string }> };
+  while (Date.now() < deadline) {
+    const response = await server.app.inject({
+      method: "GET",
+      url: `/admin/remote-agent-tasks/${taskId}/transcript`,
+      headers: {
+        authorization: "Bearer frontend-key",
+      },
+    });
+    assert.equal(response.statusCode, 200);
+    transcript = response.json() as typeof transcript;
+    const outputText = transcript.data
+      .filter((event) => event.type === "output")
+      .map((event) => event.data ?? "")
+      .join("");
+    if (expected.test(outputText)) {
+      return transcript;
+    }
+    await sleep(25);
+  }
+  return transcript;
 }
