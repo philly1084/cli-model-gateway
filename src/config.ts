@@ -34,6 +34,7 @@ const providerModelSchema = z.object({
   description: z.string().optional(),
   fallbackModels: z.array(z.string().min(1)).optional(),
   capabilities: z.array(modelCapabilitySchema).optional(),
+  autoEligible: z.boolean().optional(),
 });
 
 const discoverySchema = z.object({

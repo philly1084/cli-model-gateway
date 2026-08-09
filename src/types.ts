@@ -144,6 +144,7 @@ export interface ProviderModelConfig {
   description?: string;
   fallbackModels?: string[];
   capabilities?: ModelCapability[];
+  autoEligible?: boolean;
 }
 
 export type ModelCapability =

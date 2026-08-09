@@ -393,6 +393,10 @@ providers:
           - nvidia/nemotron-3-super-120b-a12b:free
           - openai/gpt-oss-120b:free
           - meta-llama/llama-3.3-70b-instruct:free
+      - id: openrouter/pareto-code
+        providerModel: openrouter/pareto-code
+        description: OpenRouter coding router that selects the lowest-cost model meeting its quality tier
+        autoEligible: false
       - id: qwen/qwen3-coder:free
         providerModel: qwen/qwen3-coder:free
         description: Free OpenRouter coding model with long-context tool support
