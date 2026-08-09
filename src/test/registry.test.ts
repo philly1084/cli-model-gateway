@@ -681,6 +681,81 @@ test("registry auto routing prefers coding models for coding prompts", async () 
   }
 });
 
+test("registry keeps auto-ineligible models directly callable and out of benchmarks", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REGISTRY_AUTO_API_KEY;
+  const requestedProviderModels: string[] = [];
+  process.env.TEST_REGISTRY_AUTO_API_KEY = "test-key";
+
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+    requestedProviderModels.push(body.model ?? "");
+    return new Response(JSON.stringify({
+      model: body.model,
+      choices: [{ message: { content: "pareto ok" }, finish_reason: "stop" }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const registry = await ProviderRegistry.create([
+      {
+        id: "openrouter",
+        type: "openai",
+        baseUrl: "https://openrouter.example.test/v1",
+        apiKeyEnv: "TEST_REGISTRY_AUTO_API_KEY",
+        models: [{
+          id: "openrouter/pareto-code",
+          providerModel: "openrouter/pareto-code",
+          autoEligible: false,
+        }],
+      },
+      cliProvider("local-cli", [{ id: "local-coder", providerModel: "local-coder" }]),
+    ]);
+
+    const decision = registry.explainAutoRouting({
+      messages: [{ role: "user", content: "Fix this TypeScript function." }],
+      tools: [],
+      requestKind: "chat_completions",
+    });
+    assert.equal(decision.selectedModelId, "local-coder");
+    assert.equal(
+      decision.candidates.some((candidate) => candidate.modelId === "openrouter/pareto-code"),
+      false,
+    );
+
+    const direct = await registry.runModel("openrouter/pareto-code", {
+      requestId: "req_pareto_direct",
+      messages: [{ role: "user", content: "Fix this TypeScript function." }],
+      tools: [],
+      requestKind: "chat_completions",
+    });
+    assert.equal(direct.outputText, "pareto ok");
+    assert.deepEqual(requestedProviderModels, ["openrouter/pareto-code"]);
+
+    const benchmarks = await registry.runStartupBenchmarks({
+      timeoutMs: 1000,
+      maxModels: 0,
+      concurrency: 1,
+      evaluateQuality: false,
+    });
+    assert.equal(
+      benchmarks.find((item) => item.modelId === "openrouter/pareto-code")?.status,
+      "skipped",
+    );
+    assert.equal(requestedProviderModels.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REGISTRY_AUTO_API_KEY;
+    } else {
+      process.env.TEST_REGISTRY_AUTO_API_KEY = originalApiKey;
+    }
+  }
+});
+
 test("registry reports the resolved Kimi CLI run as K3", async () => {
   const registry = await ProviderRegistry.create([
     {

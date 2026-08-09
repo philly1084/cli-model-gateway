@@ -77,6 +77,7 @@ interface ModelBinding {
   description?: string;
   fallbackModelIds: string[];
   capabilities: ModelCapability[];
+  autoEligible: boolean;
 }
 
 interface RegistryLogger {
@@ -157,6 +158,7 @@ export class ProviderRegistry {
           description: model.description,
           fallbackModelIds: model.fallbackModels || [],
           capabilities: normalizeModelCapabilitiesForBinding(provider, model),
+          autoEligible: model.autoEligible !== false,
         });
         registry.modelStats.registerModel({
           modelId: model.id,
@@ -169,7 +171,7 @@ export class ProviderRegistry {
           modelId: model.id,
           providerId: provider.id,
           providerModel: model.providerModel || model.id,
-          status: "pending",
+          status: model.autoEligible === false ? "skipped" : "pending",
           score: 0,
         });
       }
@@ -361,6 +363,9 @@ export class ProviderRegistry {
 
   private selectBenchmarkCandidates(maxModels: number): ModelBinding[] {
     const candidates = [...this.models.values()].filter((binding) => {
+      if (!binding.autoEligible) {
+        return false;
+      }
       if (bindingSupportsImageGeneration(binding) && binding.capabilities.length === 1) {
         return false;
       }
@@ -1020,6 +1025,9 @@ export class ProviderRegistry {
     const candidates: AutoRankedCandidate[] = [];
 
     for (const [index, binding] of [...this.models.values()].entries()) {
+      if (!binding.autoEligible) {
+        continue;
+      }
       if (!this.modelSupportsRequest(binding.modelId, request)) {
         continue;
       }

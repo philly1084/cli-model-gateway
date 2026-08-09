@@ -73,6 +73,20 @@ test("example Kimi CLI provider exposes K3 with safe session-level model selecti
   assert.equal(provider.sessionCommand?.modelFlag, "--model");
 });
 
+test("example OpenRouter provider keeps Pareto Code opt-in", () => {
+  const parsed = loadProvidersFile(path.resolve(process.cwd(), "config/providers.example.yaml"));
+  const provider = parsed.providers.find((entry) => entry.id === "openrouter-free");
+
+  assert.equal(provider?.type, "openai");
+  if (!provider || provider.type !== "openai") {
+    assert.fail("openrouter-free provider was not found");
+  }
+  const pareto = provider.models?.find((model) => model.id === "openrouter/pareto-code");
+  assert.equal(pareto?.providerModel, "openrouter/pareto-code");
+  assert.equal(pareto?.autoEligible, false);
+  assert.equal(pareto?.fallbackModels, undefined);
+});
+
 test("loadRemoteCliTargetsFile keeps target inventory separate from providers", () => {
   const targetsPath = writeTempProvidersFile(`
 remoteCliTargets:
