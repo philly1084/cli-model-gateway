@@ -32,7 +32,7 @@ const toolDefinitionSchema = z.object({
   parameters: z.unknown().optional(),
 }).passthrough();
 
-const reasoningEffortSchema = z.enum(REASONING_EFFORT_VALUES);
+const reasoningEffortSchema = z.enum([...REASONING_EFFORT_VALUES, "max"] as const);
 
 const reasoningConfigSchema = z.object({
   effort: reasoningEffortSchema.optional(),

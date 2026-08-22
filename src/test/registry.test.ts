@@ -584,7 +584,7 @@ test("registry exposes auto as a virtual gateway model", async () => {
   assert.equal(models[0]?.providerId, "gateway");
 });
 
-test("registry keeps tools capability for DeepSeek flash and removes it from DeepSeek pro", async () => {
+test("registry keeps tools capability for DeepSeek flash and pro", async () => {
   const registry = await ProviderRegistry.create([
     {
       id: "deepseek-api",
@@ -608,7 +608,7 @@ test("registry keeps tools capability for DeepSeek flash and removes it from Dee
   assert.equal(models.find((model) => model.id === "deepseek-chat")?.capabilities.includes("tools"), true);
   assert.equal(
     models.find((model) => model.id === "deepseek-reasoner")?.capabilities.includes("tools"),
-    false,
+    true,
   );
 });
 

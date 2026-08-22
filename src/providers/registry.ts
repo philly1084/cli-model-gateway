@@ -157,7 +157,7 @@ export class ProviderRegistry {
           provider,
           description: model.description,
           fallbackModelIds: model.fallbackModels || [],
-          capabilities: normalizeModelCapabilitiesForBinding(provider, model),
+          capabilities: normalizeModelCapabilities(model.capabilities),
           autoEligible: model.autoEligible !== false,
         });
         registry.modelStats.registerModel({
@@ -1549,27 +1549,6 @@ function normalizeModelCapabilities(
   }
 
   return ["chat", "responses", "tools", "reasoning", "structured_outputs"];
-}
-
-function normalizeModelCapabilitiesForBinding(
-  provider: Provider,
-  model: ProviderModelConfig,
-): ModelCapability[] {
-  const capabilities = normalizeModelCapabilities(model.capabilities);
-  if (!isDeepSeekThinkingBinding(provider, model.providerModel || model.id)) {
-    return capabilities;
-  }
-
-  return capabilities.filter((capability) => capability !== "tools");
-}
-
-function isDeepSeekThinkingBinding(provider: Provider, providerModel: string): boolean {
-  if (provider.config.type !== "openai" || !/api\.deepseek\.com/i.test(provider.config.baseUrl)) {
-    return false;
-  }
-
-  const normalized = providerModel.trim();
-  return /^deepseek-(?:reasoner|r\d)/i.test(normalized) || /^deepseek-v\d.*-pro$/i.test(normalized);
 }
 
 function requiredCapabilityForRequest(

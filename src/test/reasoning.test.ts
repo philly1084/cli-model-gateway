@@ -8,6 +8,7 @@ describe("reasoning normalization", () => {
     assert.strictEqual(parseReasoningEffort("Minimal"), "minimal");
     assert.strictEqual(parseReasoningEffort(" HIGH "), "high");
     assert.strictEqual(parseReasoningEffort("xhigh"), "xhigh");
+    assert.strictEqual(parseReasoningEffort("max"), "xhigh");
   });
 
   it("prefers snake_case over camelCase and nested reasoning", () => {

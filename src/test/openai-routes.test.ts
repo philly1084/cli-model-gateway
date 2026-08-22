@@ -69,6 +69,30 @@ test("getSessionSignature stays stable across short approval turns when nested t
   assert.equal(originalSig, approvalSig);
 });
 
+test("normalizeChatMessages preserves reasoning_content beside assistant tool calls", () => {
+  const messages = normalizeChatMessages([
+    {
+      role: "assistant",
+      content: "",
+      reasoning_content: "I need to inspect the service first.",
+      tool_calls: [
+        {
+          id: "call_status",
+          type: "function",
+          function: {
+            name: "check_status",
+            arguments: "{\"service\":\"api\"}",
+          },
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(messages[0]?.reasoningContent, "I need to inspect the service first.");
+  assert.match(messages[0]?.content ?? "", /TOOL_CALLS:/);
+  assert.match(messages[0]?.content ?? "", /check_status/);
+});
+
 test("normalizeResponsesInput infers assistant role for output_text messages without role", () => {
   const messages = normalizeResponsesInput({
     type: "message",
@@ -401,6 +425,7 @@ test("chat completions stream emits incremental Codex chunks", async () => {
     assert.match(response.payload, /: stream-open/);
     assert.match(response.payload, /"role":"assistant"/);
     assert.match(response.payload, /"reasoning":"Think 1\. "/);
+    assert.match(response.payload, /"reasoning_content":"Think 1\. "/);
     assert.match(response.payload, /"content":"Hello"/);
     assert.match(response.payload, /"content":" world"/);
     assert.match(response.payload, /"finish_reason":"stop"/);
@@ -446,6 +471,50 @@ test("chat completions stream includes indexed tool call chunks", async () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.payload, /"tool_calls":\[\{"index":0,"id":"call_1"/);
+    assert.match(response.payload, /"finish_reason":"tool_calls"/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("chat completions synthetic stream preserves reasoning_content and tool indexes", async () => {
+  const server = createTestServer(async () => ({
+    outputText: "",
+    reasoningText: "Inspect both services first.",
+    reasoningContent: "Inspect both services first.",
+    toolCalls: [
+      {
+        id: "call_api",
+        name: "check_status",
+        arguments: '{"service":"api"}',
+      },
+      {
+        id: "call_worker",
+        name: "check_status",
+        arguments: '{"service":"worker"}',
+      },
+    ],
+    finishReason: "tool_calls",
+  }));
+
+  try {
+    const response = await server.app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: {
+        authorization: "Bearer test-key",
+      },
+      payload: {
+        model: "demo-model",
+        stream: true,
+        messages: [{ role: "user", content: "Check both services" }],
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.payload, /"reasoning_content":"Inspect both services first\."/);
+    assert.match(response.payload, /"index":0,"id":"call_api"/);
+    assert.match(response.payload, /"index":1,"id":"call_worker"/);
     assert.match(response.payload, /"finish_reason":"tool_calls"/);
   } finally {
     await server.close();
@@ -530,6 +599,7 @@ test("chat completions stream can flush final snapshots from done events", async
 
     assert.equal(response.statusCode, 200);
     assert.match(response.payload, /"reasoning":"Planned first\."/);
+    assert.match(response.payload, /"reasoning_content":"Planned first\."/);
     assert.match(response.payload, /"content":"Hello world"/);
     assert.match(response.payload, /"finish_reason":"stop"/);
   } finally {

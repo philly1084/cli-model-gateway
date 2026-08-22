@@ -120,16 +120,19 @@ export class OpenAiCompatibleProvider implements Provider {
         `Model ${providerModel} does not reliably support gateway-managed tool calling. Retry with a fallback model.`,
       );
     }
-    if (shouldRejectDeepSeekThinkingToolTurn(this.config.baseUrl, providerModel, request)) {
+    if (shouldRejectMalformedDeepSeekToolContinuation(this.config.baseUrl, request)) {
       throw new Error(
-        `Model ${providerModel} requires reasoning_content round-tripping for thinking-mode tool calls. Retry with a fallback model.`,
+        `Model ${providerModel} requires reasoning_content on assistant tool-call messages while thinking mode is enabled.`,
       );
     }
+    const deepSeekProvider = isDeepSeekBaseUrl(this.config.baseUrl);
     const body: Record<string, unknown> = {
       model: providerModel,
       messages: buildApiMessages(request.messages, {
         suppressLocalToolCalling: suppressGroqLocalToolCalling,
-        preserveReasoningContent: isKimiK2ProviderModel(this.config.baseUrl, providerModel),
+        preserveReasoningContent:
+          deepSeekProvider || isKimiK2ProviderModel(this.config.baseUrl, providerModel),
+        requireAssistantContent: deepSeekProvider,
       }),
       stream: false,
     };
@@ -164,6 +167,15 @@ export class OpenAiCompatibleProvider implements Provider {
       body.reasoning_effort = groqReasoningEffort;
     }
 
+    const deepSeekReasoningEffort = normalizeDeepSeekReasoningEffort(
+      this.config.baseUrl,
+      readMetadataValue(metadata, "thinking"),
+      request.reasoningEffort,
+    );
+    if (deepSeekReasoningEffort) {
+      body.reasoning_effort = deepSeekReasoningEffort;
+    }
+
     const toolChoice = metadata && "tool_choice" in metadata ? metadata.tool_choice : undefined;
     if (request.tools.length > 0 && !suppressGroqLocalToolCalling) {
       body.tools = request.tools;
@@ -171,6 +183,7 @@ export class OpenAiCompatibleProvider implements Provider {
         toolChoice,
         this.config.baseUrl,
         providerModel,
+        readMetadataValue(metadata, "thinking"),
       );
       if (providerToolChoice !== undefined) {
         body.tool_choice = providerToolChoice;
@@ -446,9 +459,14 @@ function extractModelList(payload: unknown): Array<{ id?: unknown; active?: unkn
 
 function buildApiMessages(
   messages: UnifiedRequest["messages"],
-  options?: { preserveReasoningContent?: boolean; suppressLocalToolCalling?: boolean },
+  options?: {
+    preserveReasoningContent?: boolean;
+    requireAssistantContent?: boolean;
+    suppressLocalToolCalling?: boolean;
+  },
 ): ApiMessage[] {
   const preserveReasoningContent = Boolean(options?.preserveReasoningContent);
+  const requireAssistantContent = Boolean(options?.requireAssistantContent);
   const suppressLocalToolCalling = Boolean(options?.suppressLocalToolCalling);
   return messages.flatMap((message) => {
     if (message.role === "assistant") {
@@ -456,7 +474,7 @@ function buildApiMessages(
       if (!suppressLocalToolCalling && parsed.toolCalls.length > 0) {
         const apiMessage: ApiMessage = {
           role: "assistant",
-          content: parsed.content || null,
+          content: parsed.content || (requireAssistantContent ? "" : null),
           tool_calls: parsed.toolCalls.map((call) => ({
             id: call.id,
             type: "function",
@@ -474,7 +492,7 @@ function buildApiMessages(
 
       const apiMessage: ApiMessage = {
         role: "assistant",
-        content: parsed.content || message.content || null,
+        content: parsed.content || message.content || (requireAssistantContent ? "" : null),
       };
       if (preserveReasoningContent && message.reasoningContent !== undefined) {
         apiMessage.reasoning_content = message.reasoningContent;
@@ -621,21 +639,44 @@ function isDeepSeekBaseUrl(baseUrl: string): boolean {
   return /api\.deepseek\.com/i.test(baseUrl);
 }
 
-function isDeepSeekThinkingModel(providerModel: string): boolean {
-  const normalized = providerModel.trim();
-  return /^deepseek-(?:reasoner|r\d)/i.test(normalized) || /^deepseek-v\d.*-pro$/i.test(normalized);
-}
-
-function shouldRejectDeepSeekThinkingToolTurn(
+function shouldRejectMalformedDeepSeekToolContinuation(
   baseUrl: string,
-  providerModel: string,
   request: UnifiedRequest,
 ): boolean {
-  return (
-    request.tools.length > 0 &&
-    isDeepSeekBaseUrl(baseUrl) &&
-    isDeepSeekThinkingModel(providerModel)
+  if (
+    request.tools.length === 0 ||
+    !isDeepSeekBaseUrl(baseUrl) ||
+    normalizeThinkingMetadata(readMetadataValue(request.metadata, "thinking"))?.type === "disabled"
+  ) {
+    return false;
+  }
+
+  return request.messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      splitAssistantToolContext(message.content).toolCalls.length > 0 &&
+      (typeof message.reasoningContent !== "string" || !message.reasoningContent.trim()),
   );
+}
+
+function normalizeDeepSeekReasoningEffort(
+  baseUrl: string,
+  thinkingMetadata: unknown,
+  reasoningEffort: UnifiedRequest["reasoningEffort"],
+): "high" | "max" | undefined {
+  if (
+    !isDeepSeekBaseUrl(baseUrl) ||
+    normalizeThinkingMetadata(thinkingMetadata)?.type === "disabled"
+  ) {
+    return undefined;
+  }
+  if (reasoningEffort === "xhigh") {
+    return "max";
+  }
+  if (reasoningEffort === "low" || reasoningEffort === "medium" || reasoningEffort === "high") {
+    return "high";
+  }
+  return undefined;
 }
 
 function isKimiBaseUrl(baseUrl: string): boolean {
@@ -1143,7 +1184,7 @@ function copyKimiK2Metadata(
     return;
   }
 
-  const thinking = normalizeKimiThinkingMetadata(
+  const thinking = normalizeThinkingMetadata(
     firstDefined(
       readMetadataValue(metadata, "thinking"),
       readMetadataValue(metadata, "kimi_thinking"),
@@ -1155,7 +1196,7 @@ function copyKimiK2Metadata(
   }
 }
 
-function normalizeKimiThinkingMetadata(value: unknown): { type: "enabled" | "disabled" } | undefined {
+function normalizeThinkingMetadata(value: unknown): { type: "enabled" | "disabled" } | undefined {
   if (typeof value === "boolean") {
     return { type: value ? "enabled" : "disabled" };
   }
@@ -1193,9 +1234,15 @@ function normalizeToolChoiceForProvider(
   toolChoice: unknown,
   baseUrl: string,
   providerModel: string,
+  thinkingMetadata?: unknown,
 ): unknown {
   if (toolChoice === undefined) {
     return undefined;
+  }
+
+  if (isDeepSeekBaseUrl(baseUrl)) {
+    const thinking = normalizeThinkingMetadata(thinkingMetadata);
+    return thinking?.type === "disabled" ? toolChoice : undefined;
   }
 
   if (!isKimiK2ProviderModel(baseUrl, providerModel)) {
@@ -1242,7 +1289,15 @@ function copyProviderReasoningMetadata(
   baseUrl: string,
   providerModel: string,
 ): void {
-  if (isDeepSeekBaseUrl(baseUrl) || isKimiK2ProviderModel(baseUrl, providerModel)) {
+  if (isDeepSeekBaseUrl(baseUrl)) {
+    const thinking = normalizeThinkingMetadata(readMetadataValue(metadata, "thinking"));
+    if (thinking) {
+      target.thinking = thinking;
+    }
+    return;
+  }
+
+  if (isKimiK2ProviderModel(baseUrl, providerModel)) {
     return;
   }
 

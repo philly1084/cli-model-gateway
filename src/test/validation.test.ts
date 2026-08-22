@@ -102,6 +102,16 @@ describe("request schema compatibility", () => {
     assert.strictEqual(parsed.reasoningEffort, "none");
   });
 
+  it("accepts DeepSeek max reasoning effort", () => {
+    const parsed = chatCompletionsRequestSchema.parse({
+      model: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "hi" }],
+      reasoning_effort: "max",
+    });
+
+    assert.strictEqual(parsed.reasoning_effort, "max");
+  });
+
   it("accepts nested reasoning config on responses requests", () => {
     const parsed = responsesRequestSchema.parse({
       model: "gpt-test",

@@ -121,20 +121,20 @@ test("OpenAiCompatibleProvider forwards remote session metadata and approval fla
   }
 });
 
-test("OpenAiCompatibleProvider rejects DeepSeek thinking tool turns without reasoning_content round-trip", async () => {
+test("OpenAiCompatibleProvider forwards disabled thinking for DeepSeek pro tool turns", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.TEST_REMOTE_API_KEY;
-  let providerCalled = false;
+  let capturedBody: CapturedRequestBody = {};
 
   process.env.TEST_REMOTE_API_KEY = "test-key";
-  globalThis.fetch = (async () => {
-    providerCalled = true;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBody = JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody;
     return new Response(
       JSON.stringify({
         choices: [
           {
             message: {
-              content: null,
+              content: "",
               tool_calls: [
                 {
                   id: "call_status",
@@ -168,39 +168,46 @@ test("OpenAiCompatibleProvider rejects DeepSeek thinking tool turns without reas
       models: [
         {
           id: "deepseek-reasoner",
-          providerModel: "deepseek-reasoner",
+          providerModel: "deepseek-v4-pro",
         },
       ],
     });
 
-    await assert.rejects(
-      provider.run({
-        requestId: "req_2",
-        model: "deepseek-reasoner",
-        providerModel: "deepseek-reasoner",
-        messages: [
-          {
-            role: "user",
-            content: "Use the tool if needed.",
-          },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "check_status",
-            },
-          },
-        ],
-        metadata: {
-          session_id: "session-123",
-          reasoning_format: "parsed",
-          include_reasoning: true,
+    const result = await provider.run({
+      requestId: "req_2",
+      model: "deepseek-reasoner",
+      providerModel: "deepseek-v4-pro",
+      messages: [
+        {
+          role: "user",
+          content: "Use the tool if needed.",
         },
-      }),
-      /requires reasoning_content round-tripping/i,
-    );
-    assert.equal(providerCalled, false);
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "check_status",
+          },
+        },
+      ],
+      reasoningEffort: "xhigh",
+      metadata: {
+        thinking: { type: "disabled" },
+        tool_choice: {
+          type: "function",
+          function: { name: "check_status" },
+        },
+      },
+    });
+
+    assert.deepEqual(capturedBody.thinking, { type: "disabled" });
+    assert.equal(capturedBody.reasoning_effort, undefined);
+    assert.deepEqual(capturedBody.tool_choice, {
+      type: "function",
+      function: { name: "check_status" },
+    });
+    assert.equal(result.finishReason, "tool_calls");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {
@@ -282,6 +289,7 @@ test("OpenAiCompatibleProvider forwards DeepSeek flash tool turns", async () => 
         },
       ],
       metadata: {
+        thinking: { type: "disabled" },
         tool_choice: {
           type: "function",
           function: {
@@ -293,6 +301,7 @@ test("OpenAiCompatibleProvider forwards DeepSeek flash tool turns", async () => 
 
     assert.equal(capturedBody.model, "deepseek-v4-flash");
     assert.equal(capturedBody.tools?.length, 1);
+    assert.deepEqual(capturedBody.thinking, { type: "disabled" });
     assert.deepEqual(capturedBody.tool_choice, {
       type: "function",
       function: {
@@ -301,6 +310,190 @@ test("OpenAiCompatibleProvider forwards DeepSeek flash tool turns", async () => 
     });
     assert.equal(result.finishReason, "tool_calls");
     assert.equal(result.toolCalls[0]?.name, "check_status");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider round-trips DeepSeek reasoning_content across a tool continuation", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  const capturedBodies: CapturedRequestBody[] = [];
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedBodies.push(JSON.parse(String(init?.body ?? "{}")) as CapturedRequestBody);
+    const firstCall = capturedBodies.length === 1;
+    return new Response(
+      JSON.stringify({
+        model: "deepseek-v4-pro",
+        choices: [
+          firstCall
+            ? {
+                message: {
+                  content: "",
+                  reasoning_content: "I need the status tool before answering.",
+                  tool_calls: [
+                    {
+                      id: "call_status",
+                      type: "function",
+                      function: {
+                        name: "check_status",
+                        arguments: "{\"service\":\"api\"}",
+                      },
+                    },
+                  ],
+                },
+                finish_reason: "tool_calls",
+              }
+            : {
+                message: {
+                  content: "The API is healthy.",
+                  reasoning_content: "The tool result confirms the service is healthy.",
+                },
+                finish_reason: "stop",
+              },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "deepseek-api",
+      type: "openai",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [
+        {
+          id: "deepseek-reasoner",
+          providerModel: "deepseek-v4-pro",
+        },
+      ],
+    });
+    const tools = [
+      {
+        type: "function" as const,
+        function: {
+          name: "check_status",
+        },
+      },
+    ];
+    const metadata = {
+      thinking: { type: "enabled" },
+      tool_choice: "auto",
+    };
+
+    const first = await provider.run({
+      requestId: "req_deepseek_tools_1",
+      model: "deepseek-reasoner",
+      providerModel: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "Check the API status." }],
+      tools,
+      reasoningEffort: "xhigh",
+      metadata,
+    });
+
+    assert.equal(first.finishReason, "tool_calls");
+    assert.equal(first.reasoningContent, "I need the status tool before answering.");
+
+    const second = await provider.run({
+      requestId: "req_deepseek_tools_2",
+      model: "deepseek-reasoner",
+      providerModel: "deepseek-v4-pro",
+      messages: [
+        { role: "user", content: "Check the API status." },
+        {
+          role: "assistant",
+          content: `\n\nTOOL_CALLS:\n${JSON.stringify(first.toolCalls)}`,
+          reasoningContent: first.reasoningContent,
+        },
+        { role: "tool", tool_call_id: "call_status", content: "healthy" },
+      ],
+      tools,
+      reasoningEffort: "xhigh",
+      metadata,
+    });
+
+    assert.equal(capturedBodies.length, 2);
+    assert.deepEqual(capturedBodies[0]?.thinking, { type: "enabled" });
+    assert.equal(capturedBodies[0]?.reasoning_effort, "max");
+    assert.equal(capturedBodies[0]?.tool_choice, undefined);
+    assert.deepEqual(capturedBodies[1]?.thinking, { type: "enabled" });
+    assert.equal(capturedBodies[1]?.reasoning_effort, "max");
+    assert.equal(capturedBodies[1]?.tool_choice, undefined);
+    assert.equal(capturedBodies[1]?.messages?.[1]?.content, "");
+    assert.equal(
+      capturedBodies[1]?.messages?.[1]?.reasoning_content,
+      "I need the status tool before answering.",
+    );
+    assert.equal(second.outputText, "The API is healthy.");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.TEST_REMOTE_API_KEY;
+    } else {
+      process.env.TEST_REMOTE_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("OpenAiCompatibleProvider rejects malformed DeepSeek thinking tool continuations", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.TEST_REMOTE_API_KEY;
+  let providerCalled = false;
+
+  process.env.TEST_REMOTE_API_KEY = "test-key";
+  globalThis.fetch = (async () => {
+    providerCalled = true;
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const provider = await OpenAiCompatibleProvider.create({
+      id: "deepseek-api",
+      type: "openai",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "TEST_REMOTE_API_KEY",
+      models: [{ id: "deepseek-reasoner", providerModel: "deepseek-v4-pro" }],
+    });
+
+    await assert.rejects(
+      provider.run({
+        requestId: "req_deepseek_malformed_continuation",
+        model: "deepseek-reasoner",
+        providerModel: "deepseek-v4-pro",
+        messages: [
+          { role: "user", content: "Check the API status." },
+          {
+            role: "assistant",
+            content:
+              '\n\nTOOL_CALLS:\n[{"id":"call_status","name":"check_status","arguments":"{}"}]',
+          },
+          { role: "tool", tool_call_id: "call_status", content: "healthy" },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: { name: "check_status" },
+          },
+        ],
+        metadata: { thinking: { type: "enabled" } },
+      }),
+      /requires reasoning_content/i,
+    );
+    assert.equal(providerCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) {

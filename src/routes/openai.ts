@@ -467,8 +467,12 @@ function buildStoredResponse(
   };
 }
 
-function buildChatCompletionToolCalls(result: ProviderResult): Array<Record<string, unknown>> {
-  return result.toolCalls.map((call) => ({
+function buildChatCompletionToolCalls(
+  result: ProviderResult,
+  includeStreamIndex = false,
+): Array<Record<string, unknown>> {
+  return result.toolCalls.map((call, index) => ({
+    ...(includeStreamIndex ? { index } : {}),
     id: call.id,
     type: "function",
     function: {
@@ -1627,6 +1631,7 @@ async function handleChatCompletionsRequest(
                   index: 0,
                   delta: {
                     reasoning: event.delta,
+                    reasoning_content: event.delta,
                   },
                   finish_reason: null,
                 },
@@ -1679,6 +1684,7 @@ async function handleChatCompletionsRequest(
                       index: 0,
                       delta: {
                         reasoning: delta,
+                        reasoning_content: delta,
                       },
                       finish_reason: null,
                     },
@@ -1782,7 +1788,8 @@ async function handleChatCompletionsRequest(
               role: "assistant",
               content: result.outputText || null,
               reasoning: result.reasoningText,
-              tool_calls: buildChatCompletionToolCalls(result),
+              reasoning_content: result.reasoningContent ?? result.reasoningText,
+              tool_calls: buildChatCompletionToolCalls(result, true),
             },
             finish_reason: result.toolCalls.length > 0 ? "tool_calls" : result.finishReason,
           },

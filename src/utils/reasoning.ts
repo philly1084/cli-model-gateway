@@ -15,6 +15,9 @@ export function parseReasoningEffort(value: unknown): ReasoningEffort | undefine
   }
 
   const normalized = value.trim().toLowerCase();
+  if (normalized === "max") {
+    return "xhigh";
+  }
   if (!normalized || !REASONING_EFFORT_SET.has(normalized as ReasoningEffort)) {
     return undefined;
   }
