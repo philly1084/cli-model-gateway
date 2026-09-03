@@ -10,6 +10,13 @@ export const REASONING_EFFORT_VALUES = [
 ] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORT_VALUES)[number];
 
+export interface RemoteReasoningEffortReceipt {
+  requested: ReasoningEffort;
+  status: "forwarded" | "applied";
+  applied?: ReasoningEffort;
+  appliedTo?: "cli-invocation";
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
@@ -417,6 +424,7 @@ export interface ProviderSessionCapability {
   supportsSessions: boolean;
   supportsLoginSessions: boolean;
   supportsModelSelection: boolean;
+  supportsReasoningEffort?: boolean;
   supportsWorkingDirectory: boolean;
   ptyMode?: SessionPtyMode;
   models: ProviderModelConfig[];
@@ -429,6 +437,7 @@ export interface ProviderSessionSummary {
   mode: ProviderSessionMode;
   status: ProviderSessionStatus;
   model?: string;
+  reasoningEffortReceipt?: RemoteReasoningEffortReceipt;
   cwd?: string;
   cols: number;
   rows: number;
@@ -482,9 +491,11 @@ export interface RemoteAgentTaskSummary {
   port?: number;
   cwd: string;
   model?: string;
+  reasoningEffortReceipt?: RemoteReasoningEffortReceipt;
   adminMode?: boolean;
   task: string;
   status: RemoteAgentTaskStatus;
+  exitCode?: number | null;
   createdAt: string;
   updatedAt: string;
   sessionId: string;

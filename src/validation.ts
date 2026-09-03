@@ -33,6 +33,8 @@ const toolDefinitionSchema = z.object({
 }).passthrough();
 
 const reasoningEffortSchema = z.enum([...REASONING_EFFORT_VALUES, "max"] as const);
+const remoteReasoningEffortSchema = z.enum([...REASONING_EFFORT_VALUES, "max"] as const)
+  .transform((value) => value === "max" ? "xhigh" as const : value);
 
 const reasoningConfigSchema = z.object({
   effort: reasoningEffortSchema.optional(),
@@ -145,6 +147,7 @@ export const providerSessionCreateRequestSchema = z.object({
   providerId: z.string().min(1, "providerId is required"),
   mode: z.enum(["interactive", "login"]).default("interactive"),
   model: z.string().min(1).optional(),
+  reasoningEffort: remoteReasoningEffortSchema.optional(),
   cwd: z.string().min(1).optional(),
   cols: z.number().int().min(20).max(400).default(120),
   rows: z.number().int().min(5).max(200).default(40),
@@ -203,6 +206,7 @@ export const remoteAgentTaskCreateRequestSchema = z.object({
   sessionId: z.string().min(1).max(256).optional(),
   cwd: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  reasoningEffort: remoteReasoningEffortSchema.optional(),
   adminMode: z.boolean().optional(),
   cols: z.number().int().min(20).max(400).default(120),
   rows: z.number().int().min(5).max(200).default(40),

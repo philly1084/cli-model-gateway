@@ -1,5 +1,6 @@
 import type {
   ProviderSessionEvent,
+  ReasoningEffort,
   RemoteAgentTaskSummary,
   RemoteCliTargetConfig,
 } from "../types";
@@ -39,6 +40,7 @@ export interface CreateRemoteAgentTaskOptions {
   sessionId?: string;
   cwd?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   adminMode?: boolean;
   cols: number;
   rows: number;
@@ -190,6 +192,7 @@ export class RemoteAgentManager {
         provider: options.provider,
         mode: "interactive",
         model: options.model,
+        reasoningEffort: options.reasoningEffort,
         continuationSessionId: options.sessionId,
         cols: options.cols,
         rows: options.rows,
@@ -207,6 +210,7 @@ export class RemoteAgentManager {
         port: target.port,
         cwd,
         model: options.model,
+        ...(session.reasoningEffortReceipt ? { reasoningEffortReceipt: { ...session.reasoningEffortReceipt } } : {}),
         adminMode,
         task: options.task,
         status: session.status,
@@ -427,7 +431,9 @@ export class RemoteAgentManager {
     const session = this.sessionManager.getSession(record.summary.sessionId);
     if (session) {
       record.summary.status = session.status;
+      if (session.exitCode !== undefined) record.summary.exitCode = session.exitCode;
       record.summary.updatedAt = session.lastActivityAt;
+      if (session.reasoningEffortReceipt) record.summary.reasoningEffortReceipt = { ...session.reasoningEffortReceipt };
     }
     if (isFinalStatus(record.summary.status)) {
       this.observeTerminal(record);

@@ -9,6 +9,7 @@ import type {
   ProviderSessionMode,
   ProviderSessionStatus,
   ProviderSessionSummary,
+  ReasoningEffort,
   SessionCommandConfig,
   SessionPtyMode,
 } from "../types";
@@ -17,6 +18,7 @@ import { resolveCommand } from "../utils/command";
 import { makeId } from "../utils/ids";
 import { withRuntimeTemplateVars } from "../utils/runtime-template-vars";
 import { shellEscape } from "../utils/shell";
+import { createRemoteReasoningFilter, REMOTE_REASONING_ENV, requireRemoteReasoning, supportsRemoteReasoning } from "../utils/remote-reasoning";
 
 const DEFAULT_TRANSCRIPT_MAX_BYTES = 256 * 1024;
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -43,6 +45,7 @@ export interface CreateProviderSessionOptions {
   provider: Provider;
   mode: ProviderSessionMode;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   continuationSessionId?: string;
   cwd?: string;
   cols: number;
@@ -69,6 +72,7 @@ export class ProviderSessionManager {
         supportsSessions: false,
         supportsLoginSessions: false,
         supportsModelSelection: false,
+        supportsReasoningEffort: false,
         supportsWorkingDirectory: false,
         models: provider.models,
       };
@@ -82,6 +86,7 @@ export class ProviderSessionManager {
       supportsSessions: true,
       supportsLoginSessions: true,
       supportsModelSelection: session.supportsModelSelection === true,
+      supportsReasoningEffort: supportsRemoteReasoning(session),
       supportsWorkingDirectory: session.supportsWorkingDirectory === true,
       ptyMode: session.ptyMode ?? "auto",
       models: provider.models,
@@ -146,6 +151,10 @@ export class ProviderSessionManager {
 
   async createSession(options: CreateProviderSessionOptions): Promise<ProviderSessionSummary> {
     const sessionConfig = getSessionConfig(options.provider);
+    const reasoningEffort = requireRemoteReasoning(options.reasoningEffort);
+    if (reasoningEffort && (options.mode !== "interactive" || !supportsRemoteReasoning(sessionConfig))) {
+      throw new Error(`Provider ${options.provider.id} does not support remote session reasoning effort.`);
+    }
     const resolvedLaunch = resolveSessionLaunch(
       options.provider,
       sessionConfig,
@@ -157,6 +166,7 @@ export class ProviderSessionManager {
       options.rows,
       options.allowAnyCwd === true,
       this.allowedCwds,
+      reasoningEffort,
     );
     const supportsResize = false;
     const now = new Date().toISOString();
@@ -167,6 +177,7 @@ export class ProviderSessionManager {
       mode: options.mode,
       status: "starting",
       model: resolvedLaunch.modelId,
+      ...(reasoningEffort ? { reasoningEffortReceipt: { requested: reasoningEffort, status: "forwarded" as const } } : {}),
       cwd: resolvedLaunch.cwd,
       cols: options.cols,
       rows: options.rows,
@@ -212,11 +223,18 @@ export class ProviderSessionManager {
       message: `Provider session started for ${options.provider.id}.`,
     });
 
+    const reasoningFilter = reasoningEffort ? createRemoteReasoningFilter((applied) => {
+      if (applied !== reasoningEffort) return;
+      record.summary.reasoningEffortReceipt = { requested: reasoningEffort, applied, status: "applied", appliedTo: "cli-invocation" };
+      this.emitReasoning(summary.id, "Remote reasoning effort applied to CLI invocation.", { ...record.summary.reasoningEffortReceipt });
+    }) : undefined;
     child.stdout.on("data", (chunk: string) => {
       this.markActivity(record);
+      const data = reasoningFilter ? reasoningFilter.write(chunk) : chunk;
+      if (!data) return;
       this.emitEvent(record, {
         type: "output",
-        data: chunk,
+        data,
       });
     });
 
@@ -233,6 +251,8 @@ export class ProviderSessionManager {
     });
 
     child.on("close", (exitCode) => {
+      const remainder = reasoningFilter?.flush();
+      if (remainder) this.emitEvent(record, { type: "output", data: remainder });
       const nextStatus = resolveExitStatus(record.summary.status, exitCode);
       this.finalizeRecord(record, nextStatus, exitCode, undefined);
     });
@@ -446,6 +466,7 @@ function resolveSessionLaunch(
   rows: number,
   allowAnyCwd: boolean,
   allowedCwds: string[],
+  reasoningEffort?: ReasoningEffort,
 ): {
   command: string;
   args: string[];
@@ -469,6 +490,8 @@ function resolveSessionLaunch(
     model: modelBinding?.id ?? "",
     provider_model: modelBinding?.providerModel ?? modelBinding?.id ?? "",
     session_id: continuationSessionId?.trim() ?? "",
+    reasoning_effort: reasoningEffort ?? "",
+    reasoningEffort: reasoningEffort ?? "",
     cwd: cwd ?? "",
   });
   const args = [...(mode === "login" && sessionConfig.loginArgs ? sessionConfig.loginArgs : sessionConfig.args ?? [])];
@@ -489,6 +512,8 @@ function resolveSessionLaunch(
       COLUMNS: String(cols),
       LINES: String(rows),
       ...(sessionConfig.env ?? {}),
+      // Scope the override to this launch; inherited process settings must not leak.
+      [REMOTE_REASONING_ENV]: reasoningEffort ?? "",
     },
     cwd,
     timeoutMs: 1,

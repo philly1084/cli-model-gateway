@@ -11,6 +11,9 @@ import type {
 import type { Provider } from "../providers/provider";
 import type { ProviderRegistry } from "../providers/registry";
 import { buildServer } from "../server";
+import Fastify from "fastify";
+import { remoteAgentRoutes } from "../routes/remote-agents";
+import type { RemoteAgentManager } from "../jobs/remote-agent-manager";
 
 const SESSION_SCRIPT = [
   "process.stdin.setEncoding('utf8');",
@@ -20,6 +23,26 @@ const SESSION_SCRIPT = [
   "  process.stdout.write(`input:${chunk}`);",
   "});",
 ].join(" ");
+
+test("authenticated task read restores the accepted handoff and result endpoint for continuation", async () => {
+  const app = Fastify();
+  const handoff = { operationId: "op-123", resultManifestPath: ".kimibuilt/agent-runs/op-123/output/manifest.json" };
+  await app.register(remoteAgentRoutes, {
+    prefix: "/admin",
+    adminApiKey: "admin-key",
+    frontendApiKeys: new Set(["frontend-key"]),
+    registry: {} as ProviderRegistry,
+    manager: { getTask: () => ({ id: "ragent-123", status: "completed", exitCode: 0 }), getHandoffAcknowledgement: () => handoff } as unknown as RemoteAgentManager,
+  });
+  try {
+    const response = await app.inject({ method: "GET", url: "/admin/remote-agent-tasks/ragent-123", headers: { authorization: "Bearer frontend-key" } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().id, "ragent-123");
+    assert.deepEqual(response.json().handoff, handoff);
+    assert.equal(response.json().resultFilesUrl, "/admin/remote-agent-tasks/ragent-123/result-files");
+    assert.equal((await app.inject({ method: "GET", url: "/admin/remote-agent-tasks/ragent-123" })).statusCode, 401);
+  } finally { await app.close(); }
+});
 
 test("remote-agent auth canary body reaches validation without starting a task", async () => {
   const server = createRemoteAgentTestServer();
@@ -253,7 +276,72 @@ test("remote agent task passes a continuation session id into the provider comma
   }
 });
 
-function createRemoteAgentTestServer() {
+test("remote task receives explicit effort in its child environment and reports wrapper acknowledgement", async () => {
+  const server = createRemoteAgentTestServer(true);
+  try {
+    const response = await server.app.inject({ method: "POST", url: "/admin/remote-agent-tasks", headers: { authorization: "Bearer frontend-key" }, payload: { providerId: "gemini-cli", targetId: "k3s-prod", task: "Check only", reasoningEffort: "high" } });
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.task.reasoningEffortReceipt.requested, "high");
+    await waitForTranscriptOutput(server, body.task.id, /effort:high/);
+    const current = await server.app.inject({ method: "GET", url: `/admin/remote-agent-tasks/${body.task.id}`, headers: { authorization: "Bearer frontend-key" } });
+    assert.deepEqual(current.json().reasoningEffortReceipt, { requested: "high", applied: "high", status: "applied", appliedTo: "cli-invocation" });
+    const transcript = await waitForTranscriptOutput(server, body.task.id, /effort:high/);
+    assert.equal(transcript.data.some((event) => event.type === "output" && event.data?.includes("GATEWAY_REMOTE_REASONING_EFFORT_APPLIED=")), false);
+  } finally { await server.close(); }
+});
+
+test("remote tasks reject unsupported effort before creating a provider session", async () => {
+  const server = createRemoteAgentTestServer();
+  try {
+    for (const reasoningEffort of ["high", "ultra"]) {
+      const response = await server.app.inject({ method: "POST", url: "/admin/remote-agent-tasks", headers: { authorization: "Bearer frontend-key" }, payload: { providerId: "gemini-cli", targetId: "k3s-prod", task: "Check only", reasoningEffort } });
+      assert.equal(response.statusCode, 400);
+    }
+  } finally { await server.close(); }
+});
+
+test("missing or mismatched wrapper receipts never claim applied effort and nonzero exits remain failed", async () => {
+  for (const acknowledgement of ["", "low"]) {
+    const server = createRemoteAgentTestServer(true, { acknowledgement, exitCode: 7 });
+    try {
+      const response = await server.app.inject({ method: "POST", url: "/admin/remote-agent-tasks", headers: { authorization: "Bearer frontend-key" }, payload: { providerId: "gemini-cli", targetId: "k3s-prod", task: "Check only", reasoningEffort: "high" } });
+      assert.equal(response.statusCode, 200);
+      const id = response.json().task.id;
+      await waitForTranscriptOutput(server, id, /effort:high/);
+      let current;
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        current = (await server.app.inject({ method: "GET", url: `/admin/remote-agent-tasks/${id}`, headers: { authorization: "Bearer frontend-key" } })).json();
+        if (current.status === "failed") break;
+        await sleep(20);
+      }
+      assert.equal(current.status, "failed");
+      assert.equal(current.exitCode, 7);
+      assert.deepEqual(current.reasoningEffortReceipt, { requested: "high", status: "forwarded" });
+    } finally { await server.close(); }
+  }
+});
+
+test("omitted effort does not inherit process defaults and capabilities advertise the known bridge", async () => {
+  const previous = process.env.GATEWAY_REMOTE_REASONING_EFFORT;
+  process.env.GATEWAY_REMOTE_REASONING_EFFORT = "high";
+  const server = createRemoteAgentTestServer(true);
+  try {
+    const capabilities = await server.app.inject({ method: "GET", url: "/admin/provider-capabilities", headers: { authorization: "Bearer frontend-key" } });
+    assert.equal(capabilities.json().data[0].supportsReasoningEffort, true);
+    const response = await server.app.inject({ method: "POST", url: "/admin/remote-agent-tasks", headers: { authorization: "Bearer frontend-key" }, payload: { providerId: "gemini-cli", targetId: "k3s-prod", task: "Check only" } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().task.reasoningEffortReceipt, undefined);
+    const transcript = await waitForTranscriptOutput(server, response.json().task.id, /effort:\n/);
+    assert.equal(transcript.data.some((event) => event.type === "output" && event.data?.includes("effort:high")), false);
+  } finally {
+    await server.close();
+    if (previous === undefined) delete process.env.GATEWAY_REMOTE_REASONING_EFFORT;
+    else process.env.GATEWAY_REMOTE_REASONING_EFFORT = previous;
+  }
+});
+
+function createRemoteAgentTestServer(codexSession = false, control: { acknowledgement?: string; exitCode?: number } = {}) {
   const cliConfig: CliProviderConfig = {
     id: "gemini-cli",
     type: "cli",
@@ -273,7 +361,9 @@ function createRemoteAgentTestServer() {
     },
     sessionCommand: {
       executable: process.execPath,
-      args: ["-e", SESSION_SCRIPT, "{{session_id}}"],
+      args: codexSession
+        ? ["-e", `const e=process.env.GATEWAY_REMOTE_REASONING_EFFORT; const ack=${JSON.stringify(control.acknowledgement) ?? "e"}; if(ack) process.stdout.write('GATEWAY_REMOTE_REASONING_EFFORT_APPLIED='+ack+'\\n'); process.stdout.write('effort:'+e+'\\n'); process.exitCode=${control.exitCode ?? 0};`, "dist/scripts/remote-agent-session-bridge.js", "--provider", "codex"]
+        : ["-e", SESSION_SCRIPT, "{{session_id}}"],
       supportsWorkingDirectory: true,
       idleTimeoutMs: 5000,
       maxLifetimeMs: 30000,

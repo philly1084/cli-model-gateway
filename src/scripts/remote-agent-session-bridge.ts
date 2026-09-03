@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { shellEscape } from "../utils/shell";
+import { REMOTE_REASONING_ENV, requireRemoteReasoning } from "../utils/remote-reasoning";
+import type { ReasoningEffort } from "../types";
 
 export interface RemoteAgentCliCommand {
   executable: string;
@@ -22,7 +24,10 @@ export function buildRemoteAgentCliCommand(
   prompt: string,
   model = "",
   sessionId = "",
+  reasoningEffort?: ReasoningEffort,
 ): RemoteAgentCliCommand {
+  const effort = requireRemoteReasoning(reasoningEffort);
+  if (effort && provider !== "codex") throw new Error(`Provider ${provider} does not support remote reasoning effort.`);
   if (provider === "grok") {
     return {
       executable: "grok",
@@ -72,6 +77,7 @@ export function buildRemoteAgentCliCommand(
       "--sandbox",
       sandbox,
       ...(model ? ["--model", shellEscape(model)] : []),
+      ...(effort ? ["--reasoning-effort", shellEscape(effort)] : []),
       ...(sessionId ? ["--session", shellEscape(sessionId)] : []),
       shellEscape(remotePrompt),
     ];
@@ -201,13 +207,14 @@ export async function readPromptFromStdin(maxBytes = 512 * 1024): Promise<string
 }
 
 async function run(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
+  const options = parseRemoteAgentArgs(process.argv.slice(2));
   const prompt = await readPromptFromStdin();
   const command = buildRemoteAgentCliCommand(
     options.provider,
     prompt,
     options.model,
     options.sessionId,
+    options.reasoningEffort,
   );
   const child = spawn(command.executable, command.args, {
     cwd: process.cwd(),
@@ -384,10 +391,11 @@ function forwardGrokStreamingOutput(stdout: NodeJS.ReadableStream): void {
   });
 }
 
-function parseArgs(args: string[]): { provider: string; model: string; sessionId: string } {
+export function parseRemoteAgentArgs(args: string[], env: NodeJS.ProcessEnv = process.env): { provider: string; model: string; sessionId: string; reasoningEffort?: ReasoningEffort } {
   let provider = "";
   let model = "";
   let sessionId = "";
+  let effort: unknown = env[REMOTE_REASONING_ENV];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === "--provider") {
@@ -399,12 +407,17 @@ function parseArgs(args: string[]): { provider: string; model: string; sessionId
     } else if (value === "--session") {
       sessionId = args[index + 1] ?? "";
       index += 1;
+    } else if (value === "--reasoning-effort") {
+      effort = args[index + 1];
+      if (!effort || String(effort).startsWith("--")) throw new Error("--reasoning-effort requires a value.");
+      index += 1;
     }
   }
   return {
     provider: provider.trim().toLowerCase(),
     model: model.trim(),
     sessionId: sessionId.trim(),
+    reasoningEffort: requireRemoteReasoning(effort),
   };
 }
 

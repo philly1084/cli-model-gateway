@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ProviderRegistry } from "../providers/registry";
 import { RemoteAgentManager } from "../jobs/remote-agent-manager";
 import { remoteAgentTaskCreateRequestSchema } from "../validation";
+import { requireRemoteReasoning } from "../utils/remote-reasoning";
 
 interface RemoteAgentRoutesOptions {
   registry: ProviderRegistry;
@@ -75,6 +76,7 @@ export const remoteAgentRoutes: FastifyPluginAsync<RemoteAgentRoutesOptions> = a
         sessionId: validationResult.data.sessionId,
         cwd: validationResult.data.cwd,
         model: validationResult.data.model,
+        reasoningEffort: requireRemoteReasoning(validationResult.data.reasoningEffort),
         adminMode: validationResult.data.adminMode,
         cols: validationResult.data.cols ?? 120,
         rows: validationResult.data.rows ?? 40,
@@ -109,7 +111,12 @@ export const remoteAgentRoutes: FastifyPluginAsync<RemoteAgentRoutesOptions> = a
     if (!task) {
       return reply.status(404).send({ error: `Unknown remote agent task: ${taskId}` });
     }
-    return task;
+    const handoff = options.manager.getHandoffAcknowledgement(taskId);
+    return {
+      ...task,
+      ...(handoff ? { handoff } : {}),
+      ...(handoff?.resultManifestPath ? { resultFilesUrl: `/admin/remote-agent-tasks/${task.id}/result-files` } : {}),
+    };
   });
 
   app.get("/remote-agent-tasks/:taskId/transcript", async (request, reply) => {

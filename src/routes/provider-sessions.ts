@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { ProviderRegistry } from "../providers/registry";
 import { ProviderSessionManager } from "../jobs/provider-session-manager";
+import { requireRemoteReasoning } from "../utils/remote-reasoning";
 import {
   providerSessionCreateRequestSchema,
   providerSessionInputRequestSchema,
@@ -68,6 +69,7 @@ export const providerSessionRoutes: FastifyPluginAsync<ProviderSessionRoutesOpti
         provider,
         mode: validationResult.data.mode ?? "interactive",
         model: validationResult.data.model,
+        reasoningEffort: requireRemoteReasoning(validationResult.data.reasoningEffort),
         cwd: validationResult.data.cwd,
         cols: validationResult.data.cols ?? 120,
         rows: validationResult.data.rows ?? 40,
