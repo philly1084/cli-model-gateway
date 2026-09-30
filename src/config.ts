@@ -382,7 +382,9 @@ export function loadProvidersFile(providersPath: string): ProvidersFile {
     });
   }
 
-  return providersFileSchema.parse(parsed);
+  const config = providersFileSchema.parse(parsed);
+  config.remoteCliTargets = overrideRemoteTargetHosts(config.remoteCliTargets);
+  return config;
 }
 
 export function loadRemoteCliTargetsFile(targetsPath: string): ProvidersFile["remoteCliTargets"] {
@@ -407,7 +409,7 @@ export function loadRemoteCliTargetsFile(targetsPath: string): ProvidersFile["re
     });
   }
 
-  return remoteCliTargetsFileSchema.parse(parsed).remoteCliTargets;
+  return overrideRemoteTargetHosts(remoteCliTargetsFileSchema.parse(parsed).remoteCliTargets);
 }
 
 function describeYamlError(error: unknown, source: string): string {
@@ -451,4 +453,17 @@ function buildYamlExcerpt(source: string, line: number, radius: number): string 
   }
 
   return excerpt.join("\n");
+}
+
+function overrideRemoteTargetHosts<T extends { targetId: string; host: string }>(targets: T[]): T[] {
+  return targets.map((target) => {
+    const key = `REMOTE_TARGET_HOST_${target.targetId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+    const value = process.env[key];
+    if (value === undefined) return target;
+    const host = value.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(host)) {
+      throw new Error(`Invalid ${key}: expected a non-empty SSH host, without user, port suffix, or options.`);
+    }
+    return { ...target, host };
+  });
 }

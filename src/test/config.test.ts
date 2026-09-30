@@ -203,3 +203,42 @@ function restoreEnv(previous: NodeJS.ProcessEnv): void {
     }
   }
 }
+
+test("target host overrides apply to both config sources and preserve SSH settings", () => {
+  const key = "REMOTE_TARGET_HOST_PROD";
+  const old = process.env[key];
+  const source = `
+providers:
+  - id: demo
+    type: cli
+    models: [{ id: demo }]
+    responseCommand: { executable: node }
+remoteCliTargets:
+  - targetId: prod
+    host: 203.0.113.10
+    user: deploy
+    port: 2222
+    allowedCwds: [/srv/apps]
+`;
+  const file = writeTempProvidersFile(source);
+  try {
+    delete process.env[key];
+    assert.equal(loadProvidersFile(file).remoteCliTargets?.[0]?.host, "203.0.113.10");
+    assert.equal(loadRemoteCliTargetsFile(file)?.[0]?.host, "203.0.113.10");
+    process.env[key] = "  192.0.2.10  ";
+    for (const targets of [loadProvidersFile(file).remoteCliTargets, loadRemoteCliTargetsFile(file)]) {
+      assert.equal(targets?.[0]?.host, "192.0.2.10");
+      assert.equal(targets?.[0]?.user, "deploy");
+      assert.equal(targets?.[0]?.port, 2222);
+      assert.deepEqual(targets?.[0]?.allowedCwds, ["/srv/apps"]);
+    }
+    for (const invalid of ["", "  ", "-oProxyCommand=bad", "host name", "user@host", "host:22"]) {
+      process.env[key] = invalid;
+      assert.throws(() => loadProvidersFile(file), /Invalid REMOTE_TARGET_HOST_PROD/);
+      assert.throws(() => loadRemoteCliTargetsFile(file), /Invalid REMOTE_TARGET_HOST_PROD/);
+    }
+  } finally {
+    if (old === undefined) delete process.env[key];
+    else process.env[key] = old;
+  }
+});
