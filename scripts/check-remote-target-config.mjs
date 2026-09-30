@@ -8,10 +8,10 @@ import { parseAllDocuments, parseDocument } from 'yaml';
 
 const TARGET_CONFIG_MAP = 'n8n-openai-cli-gateway-targets';
 const REQUIRED_TARGETS = Object.freeze({
-  'k3s-primary': '168.119.176.121',
-  'k3s-secondary': '162.55.163.199',
-  'k3s-prod': '168.119.176.121',
-  prod: '168.119.176.121',
+  'k3s-primary': '203.0.113.10',
+  'k3s-secondary': '203.0.113.20',
+  'k3s-prod': '203.0.113.10',
+  prod: '203.0.113.10',
 });
 
 function asRecord(value) {

@@ -84,7 +84,7 @@ test("extracts safe progress and final text from Kimi stream-json output", () =>
 
 test("builds a strict host-side Codex remote-agent launch from the trusted bootstrap marker", () => {
   const target = {
-    host: "168.119.176.121",
+    host: "203.0.113.10",
     user: "root",
     port: 22,
     cwd: "/opt/kimibuilt",
@@ -95,7 +95,7 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
     "",
     "Use the configured remote target for this task:",
     "- targetId: k3s-prod",
-    "- ssh: ssh -p 22 root@168.119.176.121",
+    "- ssh: ssh -p 22 root@203.0.113.10",
     "- remote cwd: /opt/kimibuilt",
     `REMOTE_AGENT_TARGET_JSON=${JSON.stringify(target)}`,
     "",
@@ -108,7 +108,7 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
   ].join("\n");
   assert.deepEqual(parseRemoteCodexTarget(prompt), target);
   const remotePrompt = buildRemoteCodexPrompt(prompt, target);
-  assert.match(remotePrompt, /already on 168\.119\.176\.121 in \/opt\/kimibuilt/);
+  assert.match(remotePrompt, /already on 203\.0\.113\.10 in \/opt\/kimibuilt/);
   assert.match(remotePrompt, /Work locally in the current remote workspace; do not run SSH/);
   assert.doesNotMatch(remotePrompt, /REMOTE_AGENT_TARGET_JSON=/);
   assert.doesNotMatch(remotePrompt, /- ssh:/);
@@ -124,11 +124,11 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
     "-p",
     "22",
   ]);
-  assert.equal(command.args[6], "root@168.119.176.121");
+  assert.equal(command.args[6], "root@203.0.113.10");
   const remoteCommand = command.args[7];
   assert.ok(remoteCommand);
   assert.match(remoteCommand, /codex-remote-run.*--sandbox workspace-write.*--model 'gpt-5\.6-sol'/);
-  assert.match(remoteCommand, /already on 168\.119\.176\.121 in \/opt\/kimibuilt/);
+  assert.match(remoteCommand, /already on 203\.0\.113\.10 in \/opt\/kimibuilt/);
   assert.doesNotMatch(remoteCommand, /REMOTE_AGENT_TARGET_JSON=/);
   assert.doesNotMatch(remoteCommand, /Work through SSH/);
   const duplicatePrompt = prompt.replace(
@@ -147,7 +147,7 @@ test("builds a strict host-side Codex remote-agent launch from the trusted boots
 
 test("uses danger-full-access only for a trusted admin remote-agent target", () => {
   const target = {
-    host: "162.55.163.199",
+    host: "203.0.113.20",
     user: "root",
     port: 22,
     cwd: "/opt/kimibuilt",

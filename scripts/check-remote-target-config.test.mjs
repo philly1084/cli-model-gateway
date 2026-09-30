@@ -7,19 +7,19 @@ const manifest = await readFile(new URL('../kubernetes/rancher-install.yaml', im
 
 test('pins primary, secondary, and legacy aliases to stable hosts', () => {
   const result = checkRemoteTargetConfig(manifest);
-  assert.equal(result.targets['k3s-primary'], '168.119.176.121');
-  assert.equal(result.targets['k3s-secondary'], '162.55.163.199');
-  assert.equal(result.targets['k3s-prod'], '168.119.176.121');
-  assert.equal(result.targets.prod, '168.119.176.121');
+  assert.equal(result.targets['k3s-primary'], '203.0.113.10');
+  assert.equal(result.targets['k3s-secondary'], '203.0.113.20');
+  assert.equal(result.targets['k3s-prod'], '203.0.113.10');
+  assert.equal(result.targets.prod, '203.0.113.10');
 });
 
 test('rejects moving the secondary target onto the primary host', () => {
   const drifted = manifest.replace(
-    /(- targetId: k3s-secondary[\s\S]*?\n\s+host: )162\.55\.163\.199/,
-    '$1168.119.176.121',
+    /(- targetId: k3s-secondary[\s\S]*?\n\s+host: )203\.0\.113\.20/,
+    '$1203.0.113.10',
   );
   assert.throws(
     () => checkRemoteTargetConfig(drifted),
-    /k3s-secondary must remain pinned to 162\.55\.163\.199/,
+    /k3s-secondary must remain pinned to 203\.0\.113\.20/,
   );
 });

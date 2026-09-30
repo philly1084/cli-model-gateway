@@ -623,7 +623,7 @@ data:
     remoteCliTargets:
       - targetId: k3s-primary
         description: Primary KimiBuilt k3s host via Codex wrapper
-        host: 168.119.176.121
+        host: 203.0.113.10
         user: root
         port: 22
         allowedCwds:
@@ -635,8 +635,8 @@ data:
         opencodeExecutable: /usr/local/bin/codex-remote-run
         timeoutMs: 1800000
       - targetId: k3s-secondary
-        description: Secondary demoserver2 k3s host via Codex wrapper
-        host: 162.55.163.199
+        description: Secondary k3s host (your-server) via Codex wrapper
+        host: 203.0.113.20
         user: root
         port: 22
         allowedCwds:
@@ -649,7 +649,7 @@ data:
         timeoutMs: 1800000
       - targetId: k3s-prod
         description: Legacy alias for the primary KimiBuilt k3s host
-        host: 168.119.176.121
+        host: 203.0.113.10
         user: root
         port: 22
         allowedCwds:
@@ -662,7 +662,7 @@ data:
         timeoutMs: 1800000
       - targetId: prod
         description: Legacy alias for the primary KimiBuilt k3s host
-        host: 168.119.176.121
+        host: 203.0.113.10
         user: root
         port: 22
         allowedCwds:
