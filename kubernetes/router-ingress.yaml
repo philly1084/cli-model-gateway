@@ -14,10 +14,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - router.secdevsolutions.help
-      secretName: router-secdevsolutions-help-tls
+        - router.example.com
+      secretName: router-example-com-tls
   rules:
-    - host: router.secdevsolutions.help
+    - host: router.example.com
       http:
         paths:
           - path: /v1
