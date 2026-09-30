@@ -896,6 +896,49 @@ Use:
 - `kubernetes/configmap-example.yaml`
 - `kubernetes/rancher-install.yaml` (single-file Rancher import)
 
+### Private remote targets and router ingress
+
+The gateway container loads optional Secret `cli-model-gateway-targets` in its
+Deployment namespace (`n8n-openai-gateway` for the Rancher bundle). Set these keys:
+`REMOTE_TARGET_HOST_K3S_PRIMARY`, `REMOTE_TARGET_HOST_K3S_SECONDARY`,
+`REMOTE_TARGET_HOST_K3S_PROD`, and `REMOTE_TARGET_HOST_PROD`. Each overrides only
+`host` for its matching target; aliases need their own keys. Other target ids use
+`REMOTE_TARGET_HOST_` plus the upper-case id with punctuation replaced by `_`.
+Values must be a hostname or IPv4 address, without user, port, or SSH options.
+Unset keys preserve YAML hosts; empty or malformed values are rejected. Overrides
+apply to both providers.yaml and the separate remote target file at startup;
+restart pods after changing Secret values. Keep real infrastructure values outside
+this public repository. Missing Secret is allowed for deterministic CI/examples,
+but the documentation IPs will not reach production targets.
+
+`npm run preflight:remote-targets` checks the effective inventory using the same
+per-target environment keys as expected pins; without them it requires the
+checked-in documentation IPs. This is a configuration check, not an SSH probe or
+proof that the running pod has the Secret. Set all four keys for production checks.
+
+GitHub Actions only builds/pushes images; it does not apply manifests or ingress.
+No new GitHub secret/variable is required. The Rancher bundle and separate
+`kubernetes/router-ingress.yaml` are operator-applied. Before any ingress apply,
+prepare the operator patch below with private values. Immediately after applying
+the placeholder ingress, run it (Bash, environment supplied by the operator):
+
+```bash
+: "${ROUTER_DOMAIN:?Set the private ingress domain}"
+: "${ROUTER_TLS_SECRET:?Set the existing TLS Secret name}"
+kubectl -n n8n-openai-gateway patch ingress n8n-openai-cli-gateway-router --type=json -p "[{
+  \"op\":\"replace\",\"path\":\"/spec/rules/0/host\",\"value\":\"${ROUTER_DOMAIN}\"
+},{\"op\":\"replace\",\"path\":\"/spec/tls/0/hosts/0\",\"value\":\"${ROUTER_DOMAIN}\"
+},{\"op\":\"replace\",\"path\":\"/spec/tls/0/secretName\",\"value\":\"${ROUTER_TLS_SECRET}\"}]"
+```
+
+Create the target Secret and deploy an image containing the override code before
+applying placeholder target config. Do not blindly reapply baseline Deployments
+over live-only settings; use the existing guarded promotion path for the image
+and wire the Secret into the existing gateway container. Applying placeholders
+without the Secret and ingress patch can regress live routing. The standalone
+Deployment exposes Service port 8080; the Rancher bundle exposes port 80 required
+by this ingress. These are alternatives, not a directory-wide apply.
+
 Password safety:
 
 - Deploy manifests intentionally do not define `n8n-openai-cli-gateway-secrets`.

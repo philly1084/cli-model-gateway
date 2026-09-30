@@ -23,6 +23,15 @@ function fail(sourceName, message) {
 }
 
 export function checkRemoteTargetConfig(source, options = {}) {
+  const env = options.env ?? process.env;
+  const expectedTargets = Object.fromEntries(Object.entries(REQUIRED_TARGETS).map(([id, fallback]) => {
+    const key = `REMOTE_TARGET_HOST_${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+    const host = env[key] === undefined ? fallback : env[key].trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(host)) {
+      throw new Error(`Invalid ${key}: expected a non-empty SSH host.`);
+    }
+    return [id, host];
+  }));
   const sourceName = options.sourceName || 'kubernetes/rancher-install.yaml';
   const documents = parseAllDocuments(source, {
     maxAliasCount: 100,
@@ -72,10 +81,11 @@ export function checkRemoteTargetConfig(source, options = {}) {
     if (targets.has(targetId)) {
       fail(sourceName, `duplicate remote CLI targetId ${targetId}.`);
     }
-    targets.set(targetId, host);
+    const key = `REMOTE_TARGET_HOST_${targetId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+    targets.set(targetId, env[key] === undefined ? host : env[key].trim());
   }
 
-  for (const [targetId, expectedHost] of Object.entries(REQUIRED_TARGETS)) {
+  for (const [targetId, expectedHost] of Object.entries(expectedTargets)) {
     const actualHost = targets.get(targetId);
     if (actualHost !== expectedHost) {
       fail(sourceName, `${targetId} must remain pinned to ${expectedHost}; found ${actualHost || 'missing'}.`);

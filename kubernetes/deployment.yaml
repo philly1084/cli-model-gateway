@@ -117,6 +117,10 @@ spec:
             allowPrivilegeEscalation: false
           ports:
             - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: cli-model-gateway-targets
+                optional: true
           env:
             - name: PORT
               value: "8080"
