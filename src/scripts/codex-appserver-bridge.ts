@@ -145,18 +145,23 @@ class JsonRpcStdioClient {
     }
 
     return await new Promise<unknown | null>((resolve) => {
+      const waiter = (value: unknown | null): void => {
+        clearTimeout(timer);
+        resolve(value);
+      };
       const timer = setTimeout(() => {
-        const idx = this.waiters.indexOf(resolve);
+        const idx = this.waiters.indexOf(waiter);
         if (idx >= 0) {
           this.waiters.splice(idx, 1);
         }
         resolve(null);
       }, timeoutMs);
-      this.waiters.push((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      });
+      this.waiters.push(waiter);
     });
+  }
+
+  hasPendingMessages(): boolean {
+    return this.queue.length > 0 || this.buffer.trim().length > 0;
   }
 
   private send(payload: unknown): void {
@@ -1816,6 +1821,11 @@ async function run(): Promise<void> {
     };
 
     while (Date.now() - startedAt < timeoutMs) {
+      // Idle polls and handled tool events continue before the checks below.
+      // Flush delegated calls here even if no further RPC messages arrive.
+      if (toolCallSeenAt && Date.now() - toolCallSeenAt > 1200 && !rpc.hasPendingMessages()) {
+        break;
+      }
       const incoming = await rpc.nextMessage(1000);
       if (!incoming || typeof incoming !== "object") {
         if (turnCompleted) {
@@ -2044,7 +2054,7 @@ async function run(): Promise<void> {
         }
       }
 
-      if (toolCallSeenAt && Date.now() - toolCallSeenAt > 1200) {
+      if (toolCallSeenAt && Date.now() - toolCallSeenAt > 1200 && !rpc.hasPendingMessages()) {
         break;
       }
       if (turnCompleted) {
