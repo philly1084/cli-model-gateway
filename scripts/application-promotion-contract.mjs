@@ -36,6 +36,18 @@ function configId(value) {
   return normalized;
 }
 
+function applicationConfigId(status, expectedReference) {
+  // Canonical pulls report the registry digest in imageID and config digest in image.
+  // Accept only this exact pair; validateState binds both to the signed OCI proof,
+  // and the runner independently checks the node image inventory before any patch.
+  if (typeof status.imageID === 'string' && IMAGE.test(status.imageID)) {
+    requireThat(status.imageID === expectedReference, 'runtime registry digest differs');
+    requireThat(typeof status.image === 'string' && DIGEST.test(status.image), 'runtime config digest missing');
+    return status.image;
+  }
+  return configId(status.imageID);
+}
+
 export function checkOnlyCommand(version) {
   requireThat(/^\d+\.\d+\.\d+$/.test(version), 'Kimi version must be an exact release version');
   const python = [
@@ -99,7 +111,7 @@ function inspect(state) {
     requireThat(status.state?.terminated?.exitCode === 0, 'bootstrap has not succeeded');
     initIds[init.name] = configId(status.imageID);
   }
-  return { d, podSpec, gateway, kimi, cm, pod, appId: configId(appStatus.imageID), initIds };
+  return { d, podSpec, gateway, kimi, cm, pod, appId: applicationConfigId(appStatus, gateway.image), initIds };
 }
 
 export { inspect as inspectApplicationState };
