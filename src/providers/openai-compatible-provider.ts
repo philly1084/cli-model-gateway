@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
 import type {
   AuthStatusResult,
@@ -6,6 +8,7 @@ import type {
   ProviderModelConfig,
   ProviderRateLimits,
   ProviderResult,
+  ProviderStreamEvent,
   ProviderToolCall,
   UnifiedRequest,
 } from "../types";
@@ -56,6 +59,7 @@ type ApiMessage = {
   tool_calls?: Array<{
     id?: string;
     type: "function";
+    extra_content?: { google: { thought_signature: string } };
     function: {
       name: string;
       arguments: string;
@@ -79,6 +83,27 @@ export class OpenAiCompatibleProvider implements Provider {
   readonly description?: string;
   readonly config: OpenAiCompatibleProviderConfig;
   readonly models: ProviderModelConfig[];
+  private readonly toolSignatures = new Map<string, { signature: string; name: string; argumentsHash: string; expires: number }>();
+  private signatureBytes = 0;
+  private signatureKey(model: string, messages: UnifiedRequest["messages"], id: string): string {
+    return createHash("sha256").update(JSON.stringify([model, messages, id])).digest("hex");
+  }
+  private pruneSignatures(): void {
+    for (const [key, entry] of this.toolSignatures) if (entry.expires <= Date.now()) {
+      this.signatureBytes -= Buffer.byteLength(entry.signature); this.toolSignatures.delete(key);
+    }
+  }
+  private rememberSignature(model: string, messages: UnifiedRequest["messages"], call: ProviderToolCall, signature: string): void {
+    this.pruneSignatures();
+    const key = this.signatureKey(model, messages, call.id), old = this.toolSignatures.get(key);
+    if (old) { this.signatureBytes -= Buffer.byteLength(old.signature); this.toolSignatures.delete(key); }
+    this.toolSignatures.set(key, { signature, name: call.name, argumentsHash: createHash("sha256").update(call.arguments).digest("hex"), expires: Date.now() + 300000 });
+    this.signatureBytes += Buffer.byteLength(signature);
+    while (this.toolSignatures.size > 128 || this.signatureBytes > 1048576) {
+      const oldest = this.toolSignatures.entries().next().value!;
+      this.signatureBytes -= Buffer.byteLength(oldest[1].signature); this.toolSignatures.delete(oldest[0]);
+    }
+  }
 
   private constructor(config: OpenAiCompatibleProviderConfig, models: ProviderModelConfig[]) {
     this.id = config.id;
@@ -111,6 +136,22 @@ export class OpenAiCompatibleProvider implements Provider {
       return await this.runKimiCodeAnthropicMessages(providerModel, request);
     }
 
+    const body = this.buildChatBody(providerModel, request);
+    const metadata = request.metadata;
+
+    const response = await this.requestJson(
+      "/chat/completions",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      readPositiveIntegerMetadata(metadata, "gateway_benchmark_timeout_ms"),
+    );
+
+    return parseChatCompletionResponse(response);
+  }
+
+  private buildChatBody(providerModel: string, request: UnifiedRequest): Record<string, unknown> {
     const suppressGroqLocalToolCalling = shouldSuppressGroqLocalToolCalling(
       this.config.baseUrl,
       providerModel,
@@ -136,6 +177,19 @@ export class OpenAiCompatibleProvider implements Provider {
       }),
       stream: false,
     };
+
+    this.pruneSignatures();
+    request.messages.forEach((message, index) => {
+      if (message.role !== "assistant") return;
+      for (const call of splitAssistantToolContext(message.content).toolCalls) {
+        const entry = this.toolSignatures.get(this.signatureKey(providerModel, request.messages.slice(0, index), call.id));
+        if (!entry) continue;
+        if (entry.name !== call.name || entry.argumentsHash !== createHash("sha256").update(call.arguments).digest("hex")) throw Error("Tool continuation differs from signed provider turn");
+        for (const api of body.messages as ApiMessage[]) for (const tool of api.tool_calls ?? []) {
+          if (tool.id === call.id) tool.extra_content = { google: { thought_signature: entry.signature } };
+        }
+      }
+    });
 
     const metadata = request.metadata;
     if (isKimiK2ProviderModel(this.config.baseUrl, providerModel)) {
@@ -190,16 +244,31 @@ export class OpenAiCompatibleProvider implements Provider {
       }
     }
 
-    const response = await this.requestJson(
-      "/chat/completions",
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-      readPositiveIntegerMetadata(metadata, "gateway_benchmark_timeout_ms"),
-    );
+    return body;
+  }
 
-    return parseChatCompletionResponse(response);
+  supportsStreaming(): boolean { return !isKimiCodeApiBaseUrl(this.config.baseUrl); }
+
+  async *runStream(request: UnifiedRequest): AsyncGenerator<ProviderStreamEvent> {
+    if (!this.supportsStreaming() || request.requestKind === "images_generations") throw Error("Native streaming unsupported for this provider request");
+    const model = this.models.find(m => m.id === request.model);
+    if (!model) throw Error("Unknown provider model");
+    const body = this.buildChatBody(model.providerModel || request.providerModel, request);
+    body.stream = true;
+    const key = process.env[this.config.apiKeyEnv]?.trim();
+    if (!key) throw Error("Provider credential unavailable");
+    const controller = new AbortController();
+    const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
+    const timer = setTimeout(() => controller.abort(), readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms") ?? this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    try {
+      signal.throwIfAborted();
+      const response = await fetch(buildProviderUrl(this.config.baseUrl, "/chat/completions"), {
+        method: "POST", headers: buildRequestHeaders(key), body: JSON.stringify(body), signal,
+      });
+      if (!response.ok) { await response.body?.cancel(); throw Error(`Provider stream request failed (${response.status})`); }
+      // No implicit retry: remote tools/session metadata can have side effects even before text.
+      yield* parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature));
+    } finally { clearTimeout(timer); controller.abort(); }
   }
 
   private async runKimiCodeAnthropicMessages(

@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import type { AppConfig, ProviderResult, ProviderStreamEvent, UnifiedRequest } f
 import type { ProviderRegistry } from "../providers/registry";
 import { buildServer } from "../server";
 import {
+  writeSseData,
   buildResponseInputItems,
   buildResponseOutputItems,
   getSessionSignature,
@@ -1067,3 +1069,37 @@ function createTestServer(
 
   return buildServer(config, registry);
 }
+
+for (const endpoint of ["/v1/chat/completions", "/v1/responses"]) {
+  test(`${endpoint} forwards first chunk before completion and cancels upstream on disconnect`, async () => {
+    let cancelled = false;
+    const server = createTestServer(async () => { throw Error("Buffered path must not run"); }, async function* (_model, request) {
+      try {
+        yield { type: "output_text_delta", delta: "first-live-chunk" };
+        await new Promise<void>((resolve) => {
+          if (request.signal?.aborted) resolve(); else request.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        cancelled = request.signal?.aborted === true;
+      } finally { cancelled = request.signal?.aborted === true; }
+    });
+    try {
+      await server.app.listen({ host: "127.0.0.1", port: 0 });
+      const address = server.app.server.address(); assert.ok(address && typeof address !== "string");
+      const controller = new AbortController();
+      const response = await fetch(`http://127.0.0.1:${address.port}${endpoint}`, { method: "POST", signal: controller.signal, headers: { authorization: "Bearer test-key", "content-type": "application/json" }, body: JSON.stringify({ model: "demo-model", stream: true, ...(endpoint.endsWith("responses") ? { input: "hello" } : { messages: [{ role: "user", content: "hello" }] }) }) });
+      const reader = response.body!.getReader(); let text = "";
+      while (!text.includes("first-live-chunk")) { const item = await reader.read(); assert.equal(item.done, false); text += new TextDecoder().decode(item.value); }
+      assert.equal(text.includes('[DONE]'), false); controller.abort(); await reader.cancel().catch(() => {});
+      for (let i = 0; i < 100 && !cancelled; i++) await new Promise(r => setTimeout(r, 10));
+      assert.equal(cancelled, true);
+    } finally { await server.close(); }
+  });
+}
+
+test("SSE backpressure waits for drain and disconnect rejects without listener leaks", async () => {
+  class Socket extends EventEmitter { destroyed = false; write() { return false; } destroy() { this.destroyed = true; this.emit("close"); } }
+  const raw = new Socket(); let completed = false;
+  const task = writeSseData({ raw } as never, { text: "a" }).then(() => { completed = true; });
+  await Promise.resolve(); assert.equal(completed, false); raw.emit("drain"); await task; assert.equal(completed, true); assert.equal(raw.listenerCount("close"), 0);
+  const interrupted = writeSseData({ raw } as never, { text: "b" }); raw.destroy(); await assert.rejects(interrupted, /disconnected/); assert.equal(raw.listenerCount("drain"), 0); assert.equal(raw.listenerCount("error"), 0);
+});
