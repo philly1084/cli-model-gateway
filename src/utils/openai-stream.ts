@@ -41,7 +41,15 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
     if (delta.tool_calls !== undefined) {
       if (!Array.isArray(delta.tool_calls)) throw Error("Invalid provider tool calls");
       for (const item of delta.tool_calls) {
-        const part = object(item), index = part.index;
+        const part = object(item); let index = part.index;
+        // Gemini's OpenAI endpoint emits complete calls without an index. Only a
+        // self-contained, uniquely identified call is safe to normalize this way.
+        if (index === undefined) {
+          const fn = object(part.function);
+          if (typeof part.id !== "string" || !part.id || calls.some(c => c.id === part.id)
+            || typeof fn.name !== "string" || !fn.name || typeof fn.arguments !== "string") throw Error("Unindexed provider tool fragment is ambiguous");
+          object(JSON.parse(fn.arguments)); index = calls.length;
+        }
         if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index > calls.length || index >= 32) throw Error("Invalid provider tool index");
         if (part.type !== undefined && part.type !== "function") throw Error("Unsupported provider tool type");
         const call = calls[index] ??= { id: "", name: "", arguments: "" };

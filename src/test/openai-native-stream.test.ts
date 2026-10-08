@@ -34,3 +34,10 @@ test("provider uses same request policy for native stream and preserves continua
   globalThis.fetch = (async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); if (fail) return new Response('', { status: 503 }); return response(sse(delta({ content: '42' }, 'stop')) + sse('[DONE]')); }) as typeof fetch;
   try { const provider = await OpenAiCompatibleProvider.create({ id: 'test', type: 'openai', baseUrl: 'https://example.invalid/v1', apiKeyEnv: 'STREAM_TEST_KEY', models: [{ id: 'test' }] }); const req: UnifiedRequest = { requestId: 'test', model: 'test', providerModel: 'test', messages: [{ role: 'user', content: '6*7' }, { role: 'assistant', content: '\n\nTOOL_CALLS:\n[{"id":"c","name":"calculate","arguments":"{}"}]' }, { role: 'tool', content: '42', tool_call_id: 'c' }], tools: [], metadata: { temperature: 0.2, max_tokens: 50 } }; await collect(provider.runStream(req)); assert.equal(bodies[0]?.stream, true); assert.equal(bodies[0]?.temperature, 0.2); assert.equal(bodies[0]?.max_tokens, 50); const messages = bodies[0]?.messages as Array<Record<string, unknown>>; assert.equal(messages.at(-1)?.tool_call_id, 'c'); fail = true; await assert.rejects(collect(provider.runStream(req)), /503/); assert.equal(bodies.length, 2); } finally { globalThis.fetch = original; if (previous === undefined) delete process.env.STREAM_TEST_KEY; else process.env.STREAM_TEST_KEY = previous; }
 });
+test("Gemini complete unindexed tools normalize without accepting ambiguous fragments", async () => {
+ const complete={id:'gemini-call',type:'function',function:{name:'multiply',arguments:'{"a":6,"b":7}'}};
+ const events=await parse(sse(delta({tool_calls:[complete]},'tool_calls'))+sse('[DONE]'));
+ assert.deepEqual(events[0],{type:'tool_call',toolCall:{id:'gemini-call',name:'multiply',arguments:'{"a":6,"b":7}'}});
+ await assert.rejects(parse(sse(delta({tool_calls:[{...complete,function:{name:'multiply',arguments:'{"a":'}}]},'tool_calls'))+sse('[DONE]')));
+ await assert.rejects(parse(sse(delta({tool_calls:[complete,complete]},'tool_calls'))+sse('[DONE]')));
+});
