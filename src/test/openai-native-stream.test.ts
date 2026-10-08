@@ -36,8 +36,18 @@ test("provider uses same request policy for native stream and preserves continua
 });
 test("Gemini complete unindexed tools normalize without accepting ambiguous fragments", async () => {
  const complete={id:'gemini-call',type:'function',function:{name:'multiply',arguments:'{"a":6,"b":7}'}};
- const events=await parse(sse(delta({tool_calls:[complete]},'tool_calls'))+sse('[DONE]'));
+ const events=await parse(sse(delta({tool_calls:[complete]},'stop'))+sse('[DONE]'));
  assert.deepEqual(events[0],{type:'tool_call',toolCall:{id:'gemini-call',name:'multiply',arguments:'{"a":6,"b":7}'}});
  await assert.rejects(parse(sse(delta({tool_calls:[{...complete,function:{name:'multiply',arguments:'{"a":'}}]},'tool_calls'))+sse('[DONE]')));
  await assert.rejects(parse(sse(delta({tool_calls:[complete,complete]},'tool_calls'))+sse('[DONE]')));
+});
+
+test("opaque Gemini signatures stay server-side, bind exact history and arguments, and expire", async () => {
+ const original=globalThis.fetch,previous=process.env.STREAM_TEST_KEY,clock=Date.now;let now=1000000;Date.now=()=>now;process.env.STREAM_TEST_KEY='synthetic';let requests=0;const bodies:Record<string,unknown>[]=[];
+ globalThis.fetch=(async(_url,init)=>{requests++;const body=JSON.parse(String(init?.body));bodies.push(body);return requests===1?response(sse(delta({tool_calls:[{id:'signed-call',type:'function',function:{name:'multiply',arguments:'{"a":6,"b":7}'},extra_content:{google:{thought_signature:'opaque-test-signature'}}}]},'stop'))+sse('[DONE]')):response(sse(delta({content:'42'},'stop'))+sse('[DONE]'));})as typeof fetch;
+ try{const p=await OpenAiCompatibleProvider.create({id:'test',type:'openai',baseUrl:'https://example.invalid/v1',apiKeyEnv:'STREAM_TEST_KEY',models:[{id:'test'}]});const first:UnifiedRequest={requestId:'one',model:'test',providerModel:'test',messages:[{role:'user',content:'multiply six by seven'}],tools:[]};const result=await collect(p.runStream(first));assert.equal(JSON.stringify(result).includes('opaque-test-signature'),false);const event=result.find(e=>e.type==='tool_call');assert.ok(event&&event.type==='tool_call');const next:UnifiedRequest={...first,messages:[...first.messages,{role:'assistant',content:'\n\nTOOL_CALLS:\n'+JSON.stringify([event.toolCall])},{role:'tool',tool_call_id:'signed-call',content:'42'}]};await collect(p.runStream(next));const assistant=(bodies[1]!.messages as Array<{tool_calls?:Array<{extra_content?:unknown}>}>)[1];assert.deepEqual(assistant?.tool_calls?.[0]?.extra_content,{google:{thought_signature:'opaque-test-signature'}});
+ const changed={...next,messages:next.messages.map((m,i)=>i===1?{...m,content:'\n\nTOOL_CALLS:\n'+JSON.stringify([{...event.toolCall,arguments:'{"a":8,"b":7}'}])}:m)};await assert.rejects(collect(p.runStream(changed)),/differs/);assert.equal(requests,2);
+ await collect(p.runStream({...next,messages:[{role:'user',content:'different context'},...next.messages.slice(1)]}));assert.equal(JSON.stringify(bodies[2]).includes('opaque-test-signature'),false);
+ now+=300001;await collect(p.runStream(next));assert.equal(JSON.stringify(bodies[3]).includes('opaque-test-signature'),false);
+ }finally{globalThis.fetch=original;Date.now=clock;if(previous===undefined)delete process.env.STREAM_TEST_KEY;else process.env.STREAM_TEST_KEY=previous;}
 });

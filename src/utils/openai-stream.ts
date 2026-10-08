@@ -7,7 +7,7 @@ const object = (value: unknown): Record<string, unknown> => {
 };
 
 // Pull-based, bounded SSE decoding. Tools are released only after a complete valid turn.
-export async function* parseOpenAiStream(response: Response, signal: AbortSignal): AsyncGenerator<ProviderStreamEvent> {
+export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void): AsyncGenerator<ProviderStreamEvent> {
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw Error("Provider did not return an SSE stream");
   const reader = response.body.getReader();
   const abort = () => { void reader.cancel().catch(() => {}); };
@@ -16,6 +16,7 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
   let pending = "", data: string[] = [], bytes = 0, text = "", reasoning = "", model = "";
   let finish: ProviderResult["finishReason"] | undefined, done = false, usage: ProviderResult["usage"];
   const calls: ProviderToolCall[] = [];
+  const signatures = new Map<number, string>();
   function* event(payload: string): Generator<ProviderStreamEvent> {
     if (done) throw Error("Data after provider completion");
     if (payload === "[DONE]") { if (!finish) throw Error("Provider stream missing finish reason"); done = true; return; }
@@ -64,12 +65,24 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
             call[key] += fn[key];
           }
         }
+        if (part.extra_content !== undefined) {
+          const extra = object(part.extra_content);
+          if (extra.google !== undefined) {
+            const google = object(extra.google);
+            if (google.thought_signature !== undefined) {
+              const signature = google.thought_signature;
+              if (typeof signature !== "string" || !signature || signature.length > 65536
+                || (signatures.has(index) && signatures.get(index) !== signature)) throw Error("Invalid provider tool signature");
+              signatures.set(index, signature);
+            }
+          }
+        }
         if (call.id.length > 128 || call.name.length > 128 || call.arguments.length > 65536) throw Error("Provider tool exceeds limit");
       }
     }
     if (choice.finish_reason != null) {
       if (!["stop", "tool_calls", "length"].includes(String(choice.finish_reason))) throw Error("Provider stream failed");
-      finish = choice.finish_reason as ProviderResult["finishReason"];
+      finish = choice.finish_reason === "stop" && calls.length ? "tool_calls" : choice.finish_reason as ProviderResult["finishReason"];
       if (calls.length && finish !== "tool_calls") throw Error("Incomplete provider tool call");
       if (!calls.length && finish === "tool_calls") throw Error("Missing provider tool call");
     }
@@ -97,7 +110,10 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
       object(JSON.parse(call.arguments)); ids.add(call.id);
     }
     signal.throwIfAborted();
-    for (const call of calls) yield { type: "tool_call", toolCall: call };
+    for (const [index, call] of calls.entries()) {
+      const signature = signatures.get(index); if (signature) onToolSignature?.(call, signature);
+      yield { type: "tool_call", toolCall: call };
+    }
     yield { type: "done", finishReason: finish, outputText: text, reasoningText: reasoning || undefined, usage };
   } finally {
     signal.removeEventListener("abort", abort);

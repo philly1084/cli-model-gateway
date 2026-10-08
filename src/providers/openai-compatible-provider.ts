@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
 import type {
@@ -58,6 +59,7 @@ type ApiMessage = {
   tool_calls?: Array<{
     id?: string;
     type: "function";
+    extra_content?: { google: { thought_signature: string } };
     function: {
       name: string;
       arguments: string;
@@ -81,6 +83,27 @@ export class OpenAiCompatibleProvider implements Provider {
   readonly description?: string;
   readonly config: OpenAiCompatibleProviderConfig;
   readonly models: ProviderModelConfig[];
+  private readonly toolSignatures = new Map<string, { signature: string; name: string; argumentsHash: string; expires: number }>();
+  private signatureBytes = 0;
+  private signatureKey(model: string, messages: UnifiedRequest["messages"], id: string): string {
+    return createHash("sha256").update(JSON.stringify([model, messages, id])).digest("hex");
+  }
+  private pruneSignatures(): void {
+    for (const [key, entry] of this.toolSignatures) if (entry.expires <= Date.now()) {
+      this.signatureBytes -= Buffer.byteLength(entry.signature); this.toolSignatures.delete(key);
+    }
+  }
+  private rememberSignature(model: string, messages: UnifiedRequest["messages"], call: ProviderToolCall, signature: string): void {
+    this.pruneSignatures();
+    const key = this.signatureKey(model, messages, call.id), old = this.toolSignatures.get(key);
+    if (old) { this.signatureBytes -= Buffer.byteLength(old.signature); this.toolSignatures.delete(key); }
+    this.toolSignatures.set(key, { signature, name: call.name, argumentsHash: createHash("sha256").update(call.arguments).digest("hex"), expires: Date.now() + 300000 });
+    this.signatureBytes += Buffer.byteLength(signature);
+    while (this.toolSignatures.size > 128 || this.signatureBytes > 1048576) {
+      const oldest = this.toolSignatures.entries().next().value!;
+      this.signatureBytes -= Buffer.byteLength(oldest[1].signature); this.toolSignatures.delete(oldest[0]);
+    }
+  }
 
   private constructor(config: OpenAiCompatibleProviderConfig, models: ProviderModelConfig[]) {
     this.id = config.id;
@@ -154,6 +177,19 @@ export class OpenAiCompatibleProvider implements Provider {
       }),
       stream: false,
     };
+
+    this.pruneSignatures();
+    request.messages.forEach((message, index) => {
+      if (message.role !== "assistant") return;
+      for (const call of splitAssistantToolContext(message.content).toolCalls) {
+        const entry = this.toolSignatures.get(this.signatureKey(providerModel, request.messages.slice(0, index), call.id));
+        if (!entry) continue;
+        if (entry.name !== call.name || entry.argumentsHash !== createHash("sha256").update(call.arguments).digest("hex")) throw Error("Tool continuation differs from signed provider turn");
+        for (const api of body.messages as ApiMessage[]) for (const tool of api.tool_calls ?? []) {
+          if (tool.id === call.id) tool.extra_content = { google: { thought_signature: entry.signature } };
+        }
+      }
+    });
 
     const metadata = request.metadata;
     if (isKimiK2ProviderModel(this.config.baseUrl, providerModel)) {
@@ -231,7 +267,7 @@ export class OpenAiCompatibleProvider implements Provider {
       });
       if (!response.ok) { await response.body?.cancel(); throw Error(`Provider stream request failed (${response.status})`); }
       // No implicit retry: remote tools/session metadata can have side effects even before text.
-      yield* parseOpenAiStream(response, signal);
+      yield* parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature));
     } finally { clearTimeout(timer); controller.abort(); }
   }
 
