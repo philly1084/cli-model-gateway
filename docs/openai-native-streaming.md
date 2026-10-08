@@ -1,0 +1,15 @@
+# OpenAI-compatible native streaming candidate
+
+Offline candidate only; no production deployment or real-provider acceptance has occurred.
+
+The OpenAI-compatible provider shares its existing request-body builder between buffered and streamed requests, preserving model mapping, reasoning flags, tool policy and continuation/session metadata. Native requests set stream=true and consume SSE incrementally. The separate Kimi Anthropic and image-generation paths retain their existing behavior.
+
+The pull-based decoder supports fragmented UTF-8/CRLF and SSE comments/data framing, validates one choice, tracks model identity, preserves usage, assembles indexed function arguments, and requires both finish reason and DONE. Tools are emitted only after the entire completed turn and all tool identities/JSON arguments validate. Limits:2MiB transport,256KiB text/reasoning/line,32calls,64KiB arguments,128character identifiers/names. Incomplete, malformed, errored and oversized streams fail without completion or tool release. Partial text remains partial; it is not a successful result.
+
+Chat and Responses endpoints await writable drain and cancel the upstream fetch on client disconnect. Backpressure has a30second fail-closed deadline; provider timeout remains the existing configured value. Cancellation closes this request but cannot undo remote side effects already performed.
+
+Retry policy is deliberately zero automatic adapter retries. A remote service may act before returning text, so absence of output is not proof that replay is safe. OpenAI benchmark failures also no longer silently replay as buffered requests; existing non-stream API behavior and other provider benchmark fallback behavior remain unchanged. No provider config, model list, version pin, Dockerfile, lockfile, bootstrap, auth or deployment file was changed.
+
+Tests include deterministic upstream streams, real loopback Chat/Responses first-chunk and disconnect checks, forced downstream backpressure, fragmented tool arguments and correlated continuation, HTTP failure without replay, invalid/truncated/model-changing/oversized streams, and benchmark replay rejection. Cached ARM64 Node20 runtime and dependency tree are used offline under nonroot/read-only/cap-drop/no-new-privileges containers with runc; no software download or installation.
+
+Remaining release gates: approval for the existing preservation promotion/check-only Kimi startup proposal; reconcile this scoped patch onto current reviewed main; successful CI signed canonical image; reviewed release proof and existing-auth operator adapter; live preservation dry-run; bounded actual-provider canaries (including first/multiple deltas before completion, tool continuation, abort and errors); then guarded rollout and Brain acceptance. Offline success does not certify upstream provider behavior. Do not use an unsigned local image, alter pins, or bypass release gates.

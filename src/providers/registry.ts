@@ -551,7 +551,9 @@ export class ProviderRegistry {
           reasoningEffort,
           tools,
         );
-      } catch {
+      } catch (error) {
+        // OpenAI API requests can have remote side effects; never silently replay a failed stream.
+        if (binding.provider.config.type === "openai") throw error;
         // Fall back to a non-stream probe; some providers advertise sessions but
         // still reject stream mode for a specific model or output contract.
       }

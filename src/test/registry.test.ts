@@ -907,11 +907,11 @@ test("registry startup benchmarks record small and medium token timing snapshots
     requestedProviderModels.push(body.model ?? "");
     requestedReasoningEfforts.push(body.reasoning_effort);
     return new Response(
-      JSON.stringify({
+      "data: " + JSON.stringify({
         model: body.model,
         choices: [
           {
-            message: {
+            delta: {
               content: "benchmark output with a few tokens",
             },
             finish_reason: "stop",
@@ -922,11 +922,11 @@ test("registry startup benchmarks record small and medium token timing snapshots
           completion_tokens: 6,
           total_tokens: 13,
         },
-      }),
+      }) + "\n\ndata: [DONE]\n\n",
       {
         status: 200,
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "text/event-stream",
         },
       },
     );
@@ -1029,11 +1029,11 @@ test("registry startup benchmarks use a stronger model to judge output quality",
     }
 
     return new Response(
-      JSON.stringify({
+      "data: " + JSON.stringify({
         model: body.model,
         choices: [
           {
-            message: {
+            delta: {
               content: "ok",
             },
             finish_reason: "stop",
@@ -1044,11 +1044,11 @@ test("registry startup benchmarks use a stronger model to judge output quality",
           completion_tokens: 2,
           total_tokens: 6,
         },
-      }),
+      }) + "\n\ndata: [DONE]\n\n",
       {
         status: 200,
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "text/event-stream",
         },
       },
     );
@@ -1301,4 +1301,15 @@ test("registry explains auto routing prompt profile and ranked candidates", asyn
     ["kimi-coder", "general-flash"],
   );
   assert.equal(decision.candidates[0]?.benchmarkStatus, "pending");
+});
+
+test("OpenAI benchmark stream errors are not replayed as buffered requests", async () => {
+  const original = globalThis.fetch, previous = process.env.TEST_STREAM_BENCH_KEY; process.env.TEST_STREAM_BENCH_KEY = "synthetic";
+  const modes: unknown[] = [];
+  globalThis.fetch = (async (_url, init) => { modes.push(JSON.parse(String(init?.body)).stream); return new Response('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n', { headers: { "content-type": "text/event-stream" } }); }) as typeof fetch;
+  try {
+    const registry = await ProviderRegistry.create([{ id: "test", type: "openai", baseUrl: "https://example.invalid/v1", apiKeyEnv: "TEST_STREAM_BENCH_KEY", models: [{ id: "test" }] }]);
+    const results = await registry.runStartupBenchmarks({ timeoutMs: 1000, maxModels: 1, concurrency: 1, evaluateQuality: false });
+    assert.ok(modes.length > 0 && modes.length <= 5); assert.ok(modes.every(x => x === true)); assert.equal(results[0]?.status, "failed");
+  } finally { globalThis.fetch = original; if (previous === undefined) delete process.env.TEST_STREAM_BENCH_KEY; else process.env.TEST_STREAM_BENCH_KEY = previous; }
 });

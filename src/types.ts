@@ -36,6 +36,7 @@ export interface UnifiedToolDefinition {
 }
 
 export interface UnifiedRequest {
+  signal?: AbortSignal;
   requestId: string;
   model: string;
   providerModel: string;

@@ -1,3 +1,4 @@
+import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
 import type {
   AuthStatusResult,
@@ -6,6 +7,7 @@ import type {
   ProviderModelConfig,
   ProviderRateLimits,
   ProviderResult,
+  ProviderStreamEvent,
   ProviderToolCall,
   UnifiedRequest,
 } from "../types";
@@ -111,6 +113,22 @@ export class OpenAiCompatibleProvider implements Provider {
       return await this.runKimiCodeAnthropicMessages(providerModel, request);
     }
 
+    const body = this.buildChatBody(providerModel, request);
+    const metadata = request.metadata;
+
+    const response = await this.requestJson(
+      "/chat/completions",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      readPositiveIntegerMetadata(metadata, "gateway_benchmark_timeout_ms"),
+    );
+
+    return parseChatCompletionResponse(response);
+  }
+
+  private buildChatBody(providerModel: string, request: UnifiedRequest): Record<string, unknown> {
     const suppressGroqLocalToolCalling = shouldSuppressGroqLocalToolCalling(
       this.config.baseUrl,
       providerModel,
@@ -190,16 +208,31 @@ export class OpenAiCompatibleProvider implements Provider {
       }
     }
 
-    const response = await this.requestJson(
-      "/chat/completions",
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-      readPositiveIntegerMetadata(metadata, "gateway_benchmark_timeout_ms"),
-    );
+    return body;
+  }
 
-    return parseChatCompletionResponse(response);
+  supportsStreaming(): boolean { return !isKimiCodeApiBaseUrl(this.config.baseUrl); }
+
+  async *runStream(request: UnifiedRequest): AsyncGenerator<ProviderStreamEvent> {
+    if (!this.supportsStreaming() || request.requestKind === "images_generations") throw Error("Native streaming unsupported for this provider request");
+    const model = this.models.find(m => m.id === request.model);
+    if (!model) throw Error("Unknown provider model");
+    const body = this.buildChatBody(model.providerModel || request.providerModel, request);
+    body.stream = true;
+    const key = process.env[this.config.apiKeyEnv]?.trim();
+    if (!key) throw Error("Provider credential unavailable");
+    const controller = new AbortController();
+    const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
+    const timer = setTimeout(() => controller.abort(), readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms") ?? this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    try {
+      signal.throwIfAborted();
+      const response = await fetch(buildProviderUrl(this.config.baseUrl, "/chat/completions"), {
+        method: "POST", headers: buildRequestHeaders(key), body: JSON.stringify(body), signal,
+      });
+      if (!response.ok) { await response.body?.cancel(); throw Error(`Provider stream request failed (${response.status})`); }
+      // No implicit retry: remote tools/session metadata can have side effects even before text.
+      yield* parseOpenAiStream(response, signal);
+    } finally { clearTimeout(timer); controller.abort(); }
   }
 
   private async runKimiCodeAnthropicMessages(

@@ -513,8 +513,18 @@ function startSseStream(reply: FastifyReply): void {
   reply.raw.write(": stream-open\n\n");
 }
 
-function writeSseData(reply: FastifyReply, payload: unknown): void {
-  reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+export async function writeSseData(reply: FastifyReply, payload: unknown): Promise<void> {
+  if (reply.raw.destroyed) throw Error("Client disconnected");
+  if (reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`)) return;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); reply.raw.off("drain", drained); reply.raw.off("close", closed); reply.raw.off("error", failed); };
+    const drained = () => { cleanup(); resolve(); };
+    const closed = () => { cleanup(); reject(Error("Client disconnected")); };
+    const failed = () => { cleanup(); reject(Error("Client write failed")); };
+    const timer = setTimeout(() => { cleanup(); reply.raw.destroy(); reject(Error("Client backpressure timeout")); }, 30000);
+    reply.raw.once("drain", drained); reply.raw.once("close", closed); reply.raw.once("error", failed);
+    if (reply.raw.destroyed) closed();
+  });
 }
 
 function computeMonotonicDelta(previousText: string, nextText: string): string {
@@ -916,7 +926,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
             hasToolResults,
             rawToolsLength: rawTools.length,
           },
-          "Multi-turn /responses request has no tools defined — tool calls from provider will pass through un-normalized.",
+          "Multi-turn /responses request has no tools defined â€” tool calls from provider will pass through un-normalized.",
         );
       }
     }
@@ -953,12 +963,12 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           toolCallItemIds: new Map<string, string>(),
         };
         let sequenceNumber = 0;
-        const writeResponseStreamEvent = (
+        const writeResponseStreamEvent = async (
           payload: Record<string, unknown>,
           status: "in_progress" | "completed" = "in_progress",
-        ): void => {
+        ): Promise<void> => {
           sequenceNumber += 1;
-          writeSseData(reply, {
+          await writeSseData(reply, {
             id: responseId,
             object: "response.chunk",
             created_at: createdAt,
@@ -973,7 +983,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           });
         };
         startSseStream(reply);
-        writeResponseStreamEvent({
+        await writeResponseStreamEvent({
           type: "response.created",
           response: {
             id: responseId,
@@ -987,11 +997,14 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
             },
           },
         });
+        const streamAbort = new AbortController();
+        const disconnect = () => streamAbort.abort();
+        reply.raw.once("close", disconnect);
         try {
-          for await (const event of options.registry.runModelStream(body.model, runRequest)) {
+          for await (const event of options.registry.runModelStream(body.model, { ...runRequest, signal: streamAbort.signal })) {
             if (event.type === "output_text_delta") {
               streamedResult.outputText += event.delta;
-              writeResponseStreamEvent({
+              await writeResponseStreamEvent({
                 type: "response.output_text.delta",
                 item_id: responseStreamIds.messageId,
                 output_index: 0,
@@ -1003,7 +1016,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
             }
             if (event.type === "reasoning_delta") {
               streamedResult.reasoningText = `${streamedResult.reasoningText || ""}${event.delta}`;
-              writeResponseStreamEvent({
+              await writeResponseStreamEvent({
                 type: "response.reasoning_summary_text.delta",
                 item_id: responseStreamIds.reasoningId,
                 output_index: streamedResult.outputText ? 1 : 0,
@@ -1021,7 +1034,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
                 (streamedResult.reasoningText ? 1 : 0) +
                 streamedResult.toolCalls.length;
               streamedResult.toolCalls.push(event.toolCall);
-              writeResponseStreamEvent({
+              await writeResponseStreamEvent({
                 type: "response.output_item.done",
                 output_index: outputIndex,
                 item_id: toolCallItemId,
@@ -1051,7 +1064,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
                 const delta = computeMonotonicDelta(streamedResult.reasoningText || "", event.reasoningText);
                 if (delta) {
                   streamedResult.reasoningText = event.reasoningText;
-                  writeResponseStreamEvent({
+                  await writeResponseStreamEvent({
                     type: "response.reasoning_summary_text.delta",
                     item_id: responseStreamIds.reasoningId,
                     output_index: streamedResult.outputText ? 1 : 0,
@@ -1067,7 +1080,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
                 const delta = computeMonotonicDelta(streamedResult.outputText, event.outputText);
                 if (delta) {
                   streamedResult.outputText = event.outputText;
-                  writeResponseStreamEvent({
+                  await writeResponseStreamEvent({
                     type: "response.output_text.delta",
                     item_id: responseStreamIds.messageId,
                     output_index: 0,
@@ -1085,7 +1098,8 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
             }
           }
         } catch (error) {
-          writeResponseStreamEvent({
+          if (reply.raw.destroyed) return reply;
+          await writeResponseStreamEvent({
             type: "error",
             object: "error",
             error: error instanceof Error ? error.message : String(error),
@@ -1093,12 +1107,12 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           reply.raw.write("data: [DONE]\n\n");
           reply.raw.end();
           return reply;
-        }
+        } finally { reply.raw.off("close", disconnect); streamAbort.abort(); }
 
         const returnedModel = resolveReturnedModel(body.model, streamedResult);
         logBlankAssistantResult(app.log.warn.bind(app.log), returnedModel, streamedResult, "/responses");
         if (streamedResult.outputText) {
-          writeResponseStreamEvent({
+          await writeResponseStreamEvent({
             type: "response.output_text.done",
             item_id: responseStreamIds.messageId,
             output_index: 0,
@@ -1107,7 +1121,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           });
         }
         if (streamedResult.reasoningText) {
-          writeResponseStreamEvent({
+          await writeResponseStreamEvent({
             type: "response.reasoning_summary_text.done",
             item_id: responseStreamIds.reasoningId,
             output_index: streamedResult.outputText ? 1 : 0,
@@ -1130,7 +1144,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           usage: streamedResult.usage,
         });
         const responsePayload = buildStoredResponse(storedResponse);
-        writeResponseStreamEvent({
+        await writeResponseStreamEvent({
           type: "response.completed",
           response: responsePayload,
           ...responsePayload,
@@ -1583,7 +1597,7 @@ async function handleChatCompletionsRequest(
         finishReason: "stop",
       };
       startSseStream(reply);
-      writeSseData(reply, {
+      await writeSseData(reply, {
         id: respId,
         object: "chat.completion.chunk",
         created,
@@ -1598,11 +1612,14 @@ async function handleChatCompletionsRequest(
           },
         ],
       });
+      const streamAbort = new AbortController();
+      const disconnect = () => streamAbort.abort();
+      reply.raw.once("close", disconnect);
       try {
-        for await (const event of registry.runModelStream(body.model, runRequest)) {
+        for await (const event of registry.runModelStream(body.model, { ...runRequest, signal: streamAbort.signal })) {
           if (event.type === "output_text_delta") {
             streamedResult.outputText += event.delta;
-            writeSseData(reply, {
+            await writeSseData(reply, {
               id: respId,
               object: "chat.completion.chunk",
               created,
@@ -1621,7 +1638,7 @@ async function handleChatCompletionsRequest(
           }
           if (event.type === "reasoning_delta") {
             streamedResult.reasoningText = `${streamedResult.reasoningText || ""}${event.delta}`;
-            writeSseData(reply, {
+            await writeSseData(reply, {
               id: respId,
               object: "chat.completion.chunk",
               created,
@@ -1642,7 +1659,7 @@ async function handleChatCompletionsRequest(
           if (event.type === "tool_call") {
             const toolCallIndex = streamedResult.toolCalls.length;
             streamedResult.toolCalls.push(event.toolCall);
-            writeSseData(reply, {
+            await writeSseData(reply, {
               id: respId,
               object: "chat.completion.chunk",
               created,
@@ -1674,7 +1691,7 @@ async function handleChatCompletionsRequest(
               const delta = computeMonotonicDelta(streamedResult.reasoningText || "", event.reasoningText);
               if (delta) {
                 streamedResult.reasoningText = event.reasoningText;
-                writeSseData(reply, {
+                await writeSseData(reply, {
                   id: respId,
                   object: "chat.completion.chunk",
                   created,
@@ -1698,7 +1715,7 @@ async function handleChatCompletionsRequest(
               const delta = computeMonotonicDelta(streamedResult.outputText, event.outputText);
               if (delta) {
                 streamedResult.outputText = event.outputText;
-                writeSseData(reply, {
+                await writeSseData(reply, {
                   id: respId,
                   object: "chat.completion.chunk",
                   created,
@@ -1723,16 +1740,17 @@ async function handleChatCompletionsRequest(
           }
         }
       } catch (error) {
-        writeSseData(reply, {
+        if (reply.raw.destroyed) return reply;
+        await writeSseData(reply, {
           object: "error",
           error: error instanceof Error ? error.message : String(error),
         });
         reply.raw.write("data: [DONE]\n\n");
         reply.raw.end();
         return reply;
-      }
+      } finally { reply.raw.off("close", disconnect); streamAbort.abort(); }
 
-      writeSseData(reply, {
+      await writeSseData(reply, {
         id: respId,
         object: "chat.completion.chunk",
         created,
