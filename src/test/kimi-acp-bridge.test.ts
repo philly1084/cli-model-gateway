@@ -7,6 +7,7 @@ import {
   mergeKimiAgentTextChunks,
   normalizeToolCallsFromContract,
   parseJsonContractFromText,
+  resolveAllowedToolName,
 } from "../scripts/kimi-acp-bridge.js";
 
 test("Kimi bridge leaves direct function examples as ordinary text", () => {
@@ -98,4 +99,11 @@ test("Kimi bridge concatenates ACP message chunks without inserting line breaks"
     }),
     "",
   );
+});
+
+test("Kimi bridge never aliases an unrelated single offered tool or successful finish",()=>{
+ const offered=new Map([["approved_action","approved_action"]]);
+ assert.equal(resolveAllowedToolName("approved_action",offered),"approved_action");
+ for(const name of ["other","approvedAction","APPROVED_ACTION"," approved_action"]){assert.throws(()=>resolveAllowedToolName(name,offered),/tool_not_offered/);}
+ for(const finish_reason of ["stop","length","error","unknown"]){assert.throws(()=>parseJsonContractFromText(JSON.stringify({output_text:"",tool_calls:[{id:"id",name:"approved_action",arguments:"{}"}],finish_reason})),/finish_reason_invalid|incomplete_tool_turn/);}
 });

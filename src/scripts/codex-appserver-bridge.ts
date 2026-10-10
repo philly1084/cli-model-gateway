@@ -1,11 +1,10 @@
-import { strictToolCalls, strictToolArguments } from "../utils/tool-contract.js";
+import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { normalizeToolName } from "../utils/tools";
 import { resolveReasoningEffort } from "../utils/reasoning";
 import { getCodexExecutableCandidates } from "../utils/runtime-template-vars";
 
@@ -504,7 +503,7 @@ function extractAllowedToolNames(request: GatewayRequest): Map<string, string> {
         : null;
     const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
     if (name) {
-      out.set(normalizeToolName(name), name);
+      out.set(name, name);
     }
   }
   return out;
@@ -1269,12 +1268,14 @@ function parseJsonContractFromText(raw: string): JsonContract | null {
           : typeof value.content === "string"
             ? value.content
             : "";
+    if (value.finish_reason !== undefined && !isFinishReason(value.finish_reason)) throw new ToolContractError("finish_reason_invalid", value.finish_reason);
     const finishReason: FinishReason = isFinishReason(value.finish_reason)
       ? value.finish_reason
       : toolCalls.length > 0
         ? "tool_calls"
         : "stop";
 
+    if (toolCalls.length && finishReason !== "tool_calls") throw new ToolContractError("incomplete_tool_turn", finishReason);
     return {
       output_text: outputText.trim(),
       reasoning: collectReasoningText(extractReasoningValue(value)),
@@ -1749,18 +1750,14 @@ async function run(): Promise<void> {
 
       if (method === "item/tool/call" && params) {
         handledMethod = true;
-        const callId =
-          typeof params.callId === "string" && params.callId
-            ? params.callId
-            : `call_${randomUUID()}`;
-        const name =
-          typeof params.tool === "string" && params.tool
-            ? params.tool
-            : "tool";
-        const args = asToolCallArguments(params.arguments);
-        const normalizedName = normalizeToolName(name);
+        const received = strictToolCalls([{id:params.callId,name:params.tool,arguments:params.arguments}])[0]!;
+        const callId = received.id, name = received.name, args = received.arguments;
+        const normalizedName = name;
         const mappedName = allowedToolNames.get(normalizedName);
         const isAllowed = Boolean(mappedName);
+        if (!isAllowed) throw new ToolContractError("tool_not_offered",name);
+        const existing = toolCalls.find(call=>call.id===callId);
+        if (existing && (existing.name!==name || existing.arguments!==args)) throw new ToolContractError("call_id_conflict",callId);
         if (isAllowed && !toolCallIds.has(callId)) {
           const toolCall = { id: callId, name: mappedName!, arguments: args };
           toolCallIds.add(callId);
@@ -1804,7 +1801,10 @@ async function run(): Promise<void> {
         }
 
         const call = parseToolCallFromRawItem(params.item);
-        const mappedName = call ? allowedToolNames.get(normalizeToolName(call.name)) : undefined;
+        const mappedName = call ? allowedToolNames.get(call.name) : undefined;
+        if (call && !mappedName) throw new ToolContractError("tool_not_offered",call.name);
+        const existing = call && toolCalls.find(previous=>previous.id===call.id);
+        if (existing && call && (existing.name!==call.name || existing.arguments!==call.arguments)) throw new ToolContractError("call_id_conflict",call.id);
         if (call && mappedName && !toolCallIds.has(call.id)) {
           const toolCall = { ...call, name: mappedName };
           toolCallIds.add(call.id);
@@ -1990,7 +1990,8 @@ async function run(): Promise<void> {
         ? parsedContract.tool_calls
         : [];
       for (const call of parsedToolCalls) {
-        const mappedName = allowedToolNames.get(normalizeToolName(call.name));
+        const mappedName = allowedToolNames.get(call.name);
+        if (!mappedName) throw new ToolContractError("tool_not_offered",call.name);
         if (mappedName && !toolCallIds.has(call.id)) {
           const toolCall = { ...call, name: mappedName };
           toolCallIds.add(call.id);

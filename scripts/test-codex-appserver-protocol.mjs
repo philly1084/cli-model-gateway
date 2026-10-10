@@ -24,6 +24,14 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   send({id:m.id,result:{turn:{id:'u'}}});
   setTimeout(()=>{
    if(scenario==='alias') { event('item/completed',{threadId:'t',turnId:'u',item:{type:'agentMessage',text:'alias fixture answer'}});done(); }
+   if(['missing-id','unoffered','alias-name','malformed-arguments'].includes(scenario)) {
+    const message=call();
+    if(scenario==='missing-id')delete message.params.callId;
+    if(scenario==='unoffered')message.params.tool='unrelated';
+    if(scenario==='alias-name')message.params.tool='EXEC_COMMAND';
+    if(scenario==='malformed-arguments')message.params.arguments='{broken';
+    send(message);done();
+   }
    if(scenario==='idle'||scenario==='cancel') { if(scenario==='idle') send(call()); }
    if(scenario==='multiple') {send(call());setTimeout(()=>send(call('c2')),500);}
    if(scenario==='partial'||scenario==='partial-second') {if(scenario==='partial-second') send(call());const s=JSON.stringify(call(scenario==='partial-second'?'c2':'c1'))+'\\n';process.stdout.write(s.slice(0,60));setTimeout(()=>process.stdout.write(s.slice(60)),2500);}
@@ -103,4 +111,8 @@ protocolTest('outer text example cannot become execution; explicit top-level con
  const explicit=await run('explicit-contract');assert.equal(explicit.code,0,explicit.stderr);
  const body=JSON.parse(explicit.stdout);assert.equal(body.finish_reason,'tool_calls');
  assert.deepEqual(body.tool_calls,[{id:'original-id',name:'exec_command',arguments:'{ "cmd": "echo complete" }'}]);
+});
+
+for(const scenario of ['missing-id','unoffered','alias-name','malformed-arguments'])protocolTest('invalid native delegated call fails without execution: '+scenario,async()=>{
+ const result=await run(scenario);assert.equal(result.code,1);assert.equal(result.stdout,'');assert.match(result.stderr,/Provider tool contract rejected/);
 });

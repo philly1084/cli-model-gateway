@@ -686,29 +686,10 @@ function buildPromptWithTools(prompt: string, tools: UnifiedToolDefinition[]): s
 }
 
 function tryParseJsonContract(stdout: string): JsonContract {
-  const trimmed = stdout.trim();
-  if (!trimmed) {
-    throw new Error("Provider returned empty output while json_contract mode is enabled.");
-  }
-
-  try {
-    return normalizeContract(JSON.parse(trimmed));
-  } catch {
-    const lines = trimmed.split(/\r?\n/).reverse();
-    for (const line of lines) {
-      const candidate = line.trim();
-      if (!candidate) {
-        continue;
-      }
-      try {
-        return normalizeContract(JSON.parse(candidate));
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  throw new Error("Unable to parse provider JSON output. Check responseCommand.output mode.");
+  let value: unknown;
+  try { value = JSON.parse(stdout.trim()); }
+  catch { throw new ToolContractError("contract_invalid_json", stdout); }
+  return normalizeContract(value);
 }
 
 function tryParseJsonContractSoft(stdout: string): JsonContract | null {
@@ -717,30 +698,6 @@ function tryParseJsonContractSoft(stdout: string): JsonContract | null {
   } catch {
     return null;
   }
-}
-
-function tryParseJsonContractFromText(value: string): JsonContract | null {
-  if (!value.trim()) {
-    return null;
-  }
-
-  for (const candidate of extractJsonTextCandidates(value)) {
-    const contract = tryParseJsonContractSoft(candidate);
-    if (!contract) {
-      continue;
-    }
-    if (
-      contract.output_text !== undefined ||
-      contract.text !== undefined ||
-      contract.content !== undefined ||
-      contract.finish_reason !== undefined ||
-      contract.tool_calls !== undefined
-    ) {
-      return contract;
-    }
-  }
-
-  return null;
 }
 
 function extractFinalNonEmptyLine(input: string): string | null {
@@ -762,38 +719,9 @@ function tryParseJsonContractFromFinalLine(value: string): JsonContract | null {
   return tryParseJsonContractSoft(finalLine);
 }
 
-function extractJsonTextCandidates(input: string): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const push = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      return;
-    }
-    seen.add(trimmed);
-    out.push(trimmed);
-  };
-
-  push(input);
-
-  const fencePattern = /```(?:json)?\s*([\s\S]*?)```/gi;
-  let match: RegExpExecArray | null = null;
-  while ((match = fencePattern.exec(input)) !== null) {
-    push(match[1] ?? "");
-  }
-
-  const firstBrace = input.indexOf("{");
-  const lastBrace = input.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    push(input.slice(firstBrace, lastBrace + 1));
-  }
-
-  return out;
-}
-
 function normalizeContract(value: unknown): JsonContract {
-  if (!value || typeof value !== "object") {
-    throw new Error("Provider JSON output must be an object.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ToolContractError("contract_not_object", value);
   }
 
   const source = value as Record<string, unknown>;

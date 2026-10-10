@@ -81,3 +81,9 @@ test("legacy history migration is paired, immutable and rollback-safe",()=>{
  const example=[legacy[0]!];assert.equal(migrateToolHistory(example)[0]?.content,legacy[0]?.content);assert.equal(migrateToolHistory(example)[0]?.toolCalls,undefined);
  assert.throws(()=>validateToolHistory([legacy[0]!,{...legacy[1]!,tool_call_id:'wrong'}]),ToolContractError);
 });
+
+for(const prefix of ["Example:\n","```json\n","{broken\n"])test(`CLI contract rejects surrounding text ${JSON.stringify(prefix)}`,async()=>{
+ const output=prefix+JSON.stringify({output_text:"",tool_calls:[call],finish_reason:"tool_calls"});
+ const provider=new CliProvider({id:"fixture",type:"cli",models:[{id:"fixture"}],responseCommand:{executable:process.execPath,args:["-e",`process.stdout.write(${JSON.stringify(output)})`],input:"request_json_stdin",output:"json_contract",timeoutMs:3000}});
+ await assert.rejects(provider.run({requestId:"fixture",model:"fixture",providerModel:"fixture",messages:[],tools:[{type:"function",function:{name:call.name}}]}),/contract_invalid_json/);
+});

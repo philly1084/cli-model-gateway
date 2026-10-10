@@ -1,8 +1,8 @@
-import { strictToolCalls, strictToolArguments } from "../utils/tool-contract.js";
+import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
-import { normalizeToolAlias, normalizeToolName } from "../utils/tools";
+import { normalizeToolName } from "../utils/tools";
 import { resolveReasoningEffort } from "../utils/reasoning";
 
 interface GatewayMessage {
@@ -281,39 +281,15 @@ export function extractAllowedToolNames(request: GatewayRequest): Map<string, st
     const fn = isRecord(item.function) ? item.function : null;
     const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
     if (name) {
-      out.set(normalizeToolName(name), name);
+      out.set(name, name);
     }
   }
   return out;
 }
 
-function resolveAllowedToolName(rawName: string, allowedToolNames: Map<string, string>): string {
-  const trimmed = rawName.trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  if (allowedToolNames.size === 0) {
-    return trimmed;
-  }
-
-  const direct = allowedToolNames.get(normalizeToolName(trimmed));
-  if (direct) {
-    return direct;
-  }
-
-  const alias = normalizeToolAlias(trimmed);
-  for (const allowedName of allowedToolNames.values()) {
-    if (normalizeToolAlias(allowedName) === alias) {
-      return allowedName;
-    }
-  }
-
-  if (allowedToolNames.size === 1) {
-    return allowedToolNames.values().next().value ?? trimmed;
-  }
-
-  return trimmed;
+export function resolveAllowedToolName(rawName: string, allowedToolNames: Map<string, string>): string {
+  if (!allowedToolNames.has(rawName)) throw new ToolContractError("tool_not_offered",rawName);
+  return rawName;
 }
 
 function firstDefined(...candidates: unknown[]): unknown {
@@ -474,12 +450,14 @@ export function parseJsonContractFromText(raw: string): JsonContract | null {
           : typeof value.content === "string"
             ? value.content
             : "";
+    if (value.finish_reason !== undefined && !isFinishReason(value.finish_reason)) throw new ToolContractError("finish_reason_invalid", value.finish_reason);
     const finishReason: FinishReason = isFinishReason(value.finish_reason)
       ? value.finish_reason
       : toolCalls.length > 0
         ? "tool_calls"
         : "stop";
 
+    if (toolCalls.length && finishReason !== "tool_calls") throw new ToolContractError("incomplete_tool_turn", finishReason);
     return {
       output_text: outputText.trim(),
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
@@ -1091,7 +1069,7 @@ async function run(): Promise<void> {
         const toolCalls = parsedContract.tool_calls
           .map((call) => {
             return {
-              id: call.id || `call_${randomUUID()}`,
+              id: call.id,
               name: resolveAllowedToolName(call.name, allowedToolNames),
               arguments: asToolCallArguments(call.arguments),
             };
