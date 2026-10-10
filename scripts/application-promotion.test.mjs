@@ -168,6 +168,11 @@ function harness(options = {}) {
           return JSON.stringify(result);
         }
         roll(state, patch, patch[1].value === f.release.image ? verifyReleaseProof(f.release).imageId : f.baseline.app.imageId);
+        if (options.canonicalRuntime) {
+          const status = state.pods[0].status.containerStatuses[0];
+          status.image = status.imageID;
+          if (patch[1].value === f.release.image) status.imageID = f.release.image;
+        }
         return JSON.stringify(state.deployment);
       }
       return '';
@@ -317,4 +322,83 @@ const ref=process.argv.at(-1);const id=ref===process.env.SYN_TARGET_REF?process.
     assert.deepEqual(final.deployment.spec.template.spec.initContainers[1].command, checkOnlyCommand('1.52.0'));
     assert.equal(final.provider.metadata.name, baseline.provider.name);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function canonicalRuntimeFixture() {
+  const f = fixture();
+  const identity = verifyReleaseProof(f.release);
+  roll(f.state, buildPatch(f.state, f.baseline, f.release), identity.imageId);
+  Object.assign(f.state.pods[0].status.containerStatuses[0], { image: identity.imageId, imageID: identity.image });
+  return f;
+}
+
+test('canonical runtime pair validates against signed proof without rewriting observations', () => {
+  const f = canonicalRuntimeFixture(); const before = clone(f.state);
+  validateState(f.state, f.baseline, f.release, 'after');
+  assert.deepEqual(f.state, before);
+  const patch = buildPatch(f.state, f.baseline, f.release, { rollback: true });
+  assert.equal(patch[1].value, f.baseline.app.image);
+  assert.deepEqual(patch[2].value, checkOnlyCommand('1.52.0'));
+});
+
+const invalidRuntimePairs = {
+  'different registry digest': (s) => { s.imageID = `ghcr.io/philly1084/cli-model-gateway@${digest('f')}`; },
+  'different config digest': (s) => { s.image = digest('f'); },
+  'missing config digest': (s) => { delete s.image; },
+  'mutable config reference': (s) => { s.image = 'ghcr.io/philly1084/cli-model-gateway:main'; },
+  'foreign repository': (s) => { s.imageID = `ghcr.io/other/app@${digest('f')}`; },
+  'mutable registry reference': (s) => { s.imageID = 'ghcr.io/philly1084/cli-model-gateway:main'; },
+  'prefixed registry reference': (s) => { s.imageID = 'containerd://' + s.imageID; },
+  'prefixed config field': (s) => { s.image = 'containerd://' + s.image; },
+  'registry whitespace': (s) => { s.imageID += ' '; },
+  'short config digest': (s) => { s.image = 'sha256:abc'; },
+  'uppercase config digest': (s) => { s.image = s.image.toUpperCase(); },
+  'object config field': (s) => { s.image = { digest: s.image }; },
+  'missing registry field': (s) => { delete s.imageID; },
+};
+for (const [name, alter] of Object.entries(invalidRuntimePairs)) test(`canonical runtime rejects ${name}`, () => {
+  const f = canonicalRuntimeFixture(); alter(f.state.pods[0].status.containerStatuses[0]);
+  assert.throws(() => validateState(f.state, f.baseline, f.release, 'after'), /refused/);
+  assert.throws(() => buildPatch(f.state, f.baseline, f.release, { rollback: true }), /refused/);
+});
+
+test('canonical runtime cannot substitute the root or ARM manifest digest for config identity', () => {
+  for (const source of ['rootManifestBase64', 'armManifestBase64']) {
+    const f = canonicalRuntimeFixture();
+    f.state.pods[0].status.containerStatuses[0].image = `sha256:${sha256(Buffer.from(f.release[source], 'base64'))}`;
+    assert.throws(() => validateState(f.state, f.baseline, f.release, 'after'), /application image identity/);
+  }
+});
+
+test('legacy containerd config identity stays supported and bootstrap format stays strict', () => {
+  const f = fixture(); f.state.pods[0].status.containerStatuses[0].imageID = 'containerd://' + f.baseline.app.imageId;
+  validateState(f.state, f.baseline, f.release);
+  const c = canonicalRuntimeFixture();
+  Object.assign(c.state.pods[0].status.initContainerStatuses[0], {imageID:c.release.image,image:c.baseline.init['gemini-bootstrap'].imageId});
+  assert.throws(() => validateState(c.state,c.baseline,c.release,'after'), /config digest/);
+});
+
+test('canonical apply and rollback retain provenance, inventory, scoped patch and receipt gates', async () => {
+  const h = harness({ canonicalRuntime:true });
+  const applied = await promoteApplication({...h.argumentsForRun,mode:'apply'});
+  assert.equal(applied.decision,'applied');
+  const receipt = h.receipts.at(-1);
+  const rolled = await promoteApplication({...h.argumentsForRun,mode:'rollback',receipt});
+  assert.equal(rolled.decision,'rolled-back');
+  assert.equal(rolled.startupPolicy,'check-only');
+  assert.equal(h.calls.filter(c=>c.tool==='gh').length,2);
+  for (const call of h.calls.filter(c=>c.tool==='gh')) assert.deepEqual(call.args,attestationArgs(h.f.release));
+  assert.deepEqual(h.receipts.map(r=>r.status),['needs-verification','applied','needs-verification','rolled-back']);
+});
+
+test('canonical rollback still rejects failed provenance and missing rollback cache before patch', async () => {
+  for (const gate of ['provenance','cache']) {
+    const h=harness({canonicalRuntime:true});await promoteApplication({...h.argumentsForRun,mode:'apply'});
+    const callCount=h.calls.length;
+    const args={...h.argumentsForRun,mode:'rollback',receipt:h.receipts.at(-1)};
+    if(gate==='provenance')args.run=async(tool)=>{assert.equal(tool,'gh');throw Error('untrusted attestation');};
+    else args.readImageInventory=async()=>({nodeName:'reviewed-node',images:{}});
+    await assert.rejects(promoteApplication(args),/untrusted|cache identity/);
+    assert.equal(h.calls.slice(callCount).filter(c=>c.tool==='kubectl').length,0);
+  }
 });
