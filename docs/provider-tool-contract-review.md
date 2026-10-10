@@ -59,3 +59,17 @@ not replay. This patch does not implement that planner policy or expand sandbox 
 Raw private model output is not newly persisted. Synthetic fixtures preserve exact raw
 evidence; production failures expose hashes only. A protected evidence store would require
 an explicit retention and access design rather than adding raw output to logs.
+
+## Ordinary response text is not execution authority
+
+Native API results use explicit tool-call fields only. Deployed CLI json_contract
+results likewise use only top-level tool_calls. Codex and Kimi/Grok bridge text
+contracts must be complete top-level JSON: fenced examples, prose, nested output_text
+and arbitrary nested objects are not promoted into executable calls. This deliberately
+removes permissive wrapper recovery. Synthetic fixtures retain valid explicit call IDs
+and argument bytes while proving nested examples stay text. Live compatibility canaries
+remain required before promotion; no inference or deployment was performed.
+
+The Windows local suite skips the symlink-result-file test only when Windows cannot
+create the fixture symlink; Linux CI runs it. Real Codex bridge process fixtures use
+a POSIX fake executable and run on Linux CI, without provider calls or credentials.

@@ -63,3 +63,12 @@ test("CLI adapter rejects an unrelated tool even when only one is offered",async
   const request:UnifiedRequest={requestId:"fixture",model:"fixture",providerModel:"fixture",messages:[{role:"user",content:"fixture"}],tools:[{type:"function",function:{name:call.name,parameters:{type:"object"}}}]};
   await assert.rejects(provider.run(request), /tool_not_offered/);
 });
+
+test("CLI outer text containing a tool contract cannot become execution",async()=> {
+  const example=JSON.stringify({output_text:"",tool_calls:[call],finish_reason:"tool_calls"});
+  const provider=new CliProvider({id:"fixture",type:"cli",models:[{id:"fixture"}],responseCommand:{
+    executable:process.execPath,args:["-e",`process.stdout.write(${JSON.stringify(JSON.stringify({output_text:example,finish_reason:"stop"}))})`],
+    input:"request_json_stdin",output:"json_contract",timeoutMs:5000}});
+  const result=await provider.run({requestId:"fixture",model:"fixture",providerModel:"fixture",messages:[],tools:[{type:"function",function:{name:call.name}}]});
+  assert.equal(result.outputText,example);assert.deepEqual(result.toolCalls,[]);assert.equal(result.finishReason,"stop");
+});

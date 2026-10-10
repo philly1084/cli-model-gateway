@@ -18,7 +18,7 @@ import { runCommand, runCommandStream, resolveCommand } from "../utils/command";
 import { buildPrompt } from "../utils/prompt";
 import { withRuntimeTemplateVars } from "../utils/runtime-template-vars";
 import { strictToolCalls, requireOfferedTool, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
-import { normalizeAssistantResult } from "../utils/assistant-output";
+import { normalizeAssistantResult, normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { normalizeProviderUsage } from "../utils/usage";
 import type { Provider } from "./provider";
 
@@ -555,36 +555,7 @@ export class CliProvider implements Provider {
       json.finish_reason ??
       (toolCalls.length > 0 ? "tool_calls" : "stop");
 
-    // Some provider wrappers return a valid outer contract whose output_text is itself
-    // another contract string. Promote the nested contract so callers receive clean text.
-    const nestedContract = tryParseJsonContractFromText(outputText);
-    if (nestedContract) {
-      const nestedToolCalls = normalizeToolCalls(nestedContract.tool_calls);
-      const promotedToolCalls =
-        nestedToolCalls.length > 0 ? nestedToolCalls : toolCalls;
-      const promotedOutputText = (
-        nestedContract.output_text ??
-        nestedContract.text ??
-        nestedContract.content ??
-        outputText
-      ).trim();
-      const promotedFinishReason =
-        nestedContract.finish_reason ??
-        (promotedToolCalls.length > 0 ? "tool_calls" : finishReason);
-      const promotedReasoningText =
-        normalizeReasoningText(nestedContract.reasoning) ?? reasoningText;
-
-      return normalizeAssistantResult({
-        outputText: promotedOutputText,
-        reasoningText: promotedReasoningText,
-        toolCalls: promotedToolCalls,
-        finishReason: promotedFinishReason,
-        usage: normalizeProviderUsage(nestedContract.usage, "cli-contract") ?? normalizeProviderUsage(json.usage, "cli-contract"),
-        raw: json,
-      });
-    }
-
-    return normalizeAssistantResult({
+    return normalizeNativeAssistantResult({
       outputText,
       reasoningText,
       toolCalls,

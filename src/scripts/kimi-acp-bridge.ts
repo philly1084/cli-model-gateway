@@ -447,38 +447,11 @@ export function normalizeToolCallsFromContract(raw: unknown): NonNullable<JsonCo
 }
 
 export function parseJsonContractFromText(raw: string): JsonContract | null {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  let best: JsonContract | null = null;
-  const seen = new Set<string>();
-  const queue: string[] = [];
-  const push = (value: unknown): void => {
-    if (typeof value !== "string") {
-      return;
-    }
-    const text = value.trim();
-    if (!text || seen.has(text)) {
-      return;
-    }
-    seen.add(text);
-    queue.push(text);
-  };
-  const pushDerived = (value: string): void => {
-    const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
-    let match: RegExpExecArray | null;
-    while ((match = fence.exec(value)) !== null) {
-      push(match[1]);
-    }
-
-    const start = value.indexOf("{");
-    const end = value.lastIndexOf("}");
-    if (start !== -1 && end > start) {
-      push(value.slice(start, end + 1));
-    }
-  };
+  // Only an explicit top-level contract carries execution authority. Text,
+  // fences and nested output examples are never searched for tool calls.
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw.trim()); } catch { return null; }
+  if (!isRecord(parsed)) return null;
   const isContractObject = (value: Record<string, unknown>): boolean => {
     return (
       "output_text" in value ||
@@ -514,107 +487,7 @@ export function parseJsonContractFromText(raw: string): JsonContract | null {
       finish_reason: finishReason,
     };
   };
-  const assistantPayloadToContract = (value: string): JsonContract | null => {
-    const parsed = parseAssistantPayloadText(value);
-    if (!parsed.recognized) {
-      return null;
-    }
-
-    const toolCalls = parsed.toolCalls.map((call, index) => ({
-      id: call.id || `call_${index + 1}`,
-      name: call.name,
-      arguments: asToolCallArguments(call.arguments),
-    }));
-    const finishReason: FinishReason =
-      toolCalls.length > 0
-        ? "tool_calls"
-        : isFinishReason(parsed.finishReason)
-          ? parsed.finishReason
-          : "stop";
-
-    return {
-      output_text: parsed.outputText.trim(),
-      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-      finish_reason: finishReason,
-    };
-  };
-
-  const assistantPayloadContract = assistantPayloadToContract(trimmed);
-  if (assistantPayloadContract?.tool_calls && assistantPayloadContract.tool_calls.length > 0) {
-    return assistantPayloadContract;
-  }
-  if (assistantPayloadContract) {
-    best = assistantPayloadContract;
-  }
-  push(trimmed);
-  pushDerived(trimmed);
-
-  for (let i = 0; i < queue.length && i < 80; i += 1) {
-    const current = queue[i];
-    if (typeof current !== "string") {
-      continue;
-    }
-    pushDerived(current);
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(current);
-    } catch {
-      continue;
-    }
-    if (!isRecord(parsed)) {
-      continue;
-    }
-
-    const contract = toContract(parsed);
-    if (contract) {
-      if (!best) {
-        best = contract;
-      }
-      if (contract.output_text) {
-        push(contract.output_text);
-        pushDerived(contract.output_text);
-      }
-      if (contract.tool_calls && contract.tool_calls.length > 0) {
-        return contract;
-      }
-    }
-
-    const fallbackContract = assistantPayloadToContract(current);
-    if (fallbackContract) {
-      if (!best) {
-        best = fallbackContract;
-      }
-      if (fallbackContract.tool_calls && fallbackContract.tool_calls.length > 0) {
-        return fallbackContract;
-      }
-    }
-
-    if (typeof parsed.response === "string") {
-      push(parsed.response);
-      pushDerived(parsed.response);
-    }
-    const maybeMessage = parsed.message;
-    if (isRecord(maybeMessage)) {
-      push(normalizeValue(maybeMessage.content));
-      pushDerived(normalizeValue(maybeMessage.content));
-      push(normalizeValue(maybeMessage));
-      pushDerived(normalizeValue(maybeMessage));
-    }
-
-    for (const entry of Object.values(parsed)) {
-      if (typeof entry === "string") {
-        push(entry);
-        pushDerived(entry);
-      } else if (isRecord(entry)) {
-        const serialized = normalizeValue(entry);
-        push(serialized);
-        pushDerived(serialized);
-      }
-    }
-  }
-
-  return best;
+  return toContract(parsed);
 }
 
 function parseModelArg(argv: string[]): string {

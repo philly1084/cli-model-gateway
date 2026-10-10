@@ -1241,37 +1241,11 @@ function normalizeToolCallsFromContract(raw: unknown): NonNullable<JsonContract[
 }
 
 function parseJsonContractFromText(raw: string): JsonContract | null {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const seen = new Set<string>();
-  const queue: string[] = [];
-  const push = (value: unknown): void => {
-    if (typeof value !== "string") {
-      return;
-    }
-    const text = value.trim();
-    if (!text || seen.has(text)) {
-      return;
-    }
-    seen.add(text);
-    queue.push(text);
-  };
-  const pushDerived = (value: string): void => {
-    const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
-    let match: RegExpExecArray | null;
-    while ((match = fence.exec(value)) !== null) {
-      push(match[1]);
-    }
-
-    const start = value.indexOf("{");
-    const end = value.lastIndexOf("}");
-    if (start !== -1 && end > start) {
-      push(value.slice(start, end + 1));
-    }
-  };
+  // Only an explicit top-level contract carries execution authority. Text,
+  // fences and nested output examples are never searched for tool calls.
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw.trim()); } catch { return null; }
+  if (!isObjectRecord(parsed)) return null;
   const isContractObject = (value: Record<string, unknown>): boolean => {
     return (
       "output_text" in value ||
@@ -1309,53 +1283,7 @@ function parseJsonContractFromText(raw: string): JsonContract | null {
     };
   };
 
-  push(trimmed);
-  pushDerived(trimmed);
-
-  let best: JsonContract | null = null;
-  for (let i = 0; i < queue.length && i < 80; i += 1) {
-    const current = queue[i];
-    if (typeof current !== "string") {
-      continue;
-    }
-    pushDerived(current);
-
-    let parsed: unknown = null;
-    try {
-      parsed = JSON.parse(current);
-    } catch {
-      continue;
-    }
-    if (!isObjectRecord(parsed)) {
-      continue;
-    }
-
-    const contract = toContract(parsed);
-    if (contract) {
-      if (!best) {
-        best = contract;
-      }
-      if (contract.output_text) {
-        push(contract.output_text);
-        pushDerived(contract.output_text);
-      }
-      if (contract.tool_calls && contract.tool_calls.length > 0) {
-        return contract;
-      }
-    }
-
-    if (typeof parsed.response === "string") {
-      push(parsed.response);
-      pushDerived(parsed.response);
-    }
-    const maybeMessage = parsed.message;
-    if (isObjectRecord(maybeMessage) && typeof maybeMessage.content === "string") {
-      push(maybeMessage.content);
-      pushDerived(maybeMessage.content);
-    }
-  }
-
-  return best;
+  return toContract(parsed);
 }
 
 function parseModelArg(argv: string[]): string {
