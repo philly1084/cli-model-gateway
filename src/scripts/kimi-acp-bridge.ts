@@ -1,3 +1,4 @@
+import { kimiOutputEnvironment } from "../utils/output-limit.js";
 import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -794,6 +795,7 @@ export function mergeKimiAgentTextChunks(chunks: string[]): string {
 
 function startKimiAcpProcess(
   args: string[],
+  env: NodeJS.ProcessEnv,
 ): {
   child: ReturnType<typeof spawn>;
   rpc: JsonRpcStdioClient;
@@ -801,7 +803,7 @@ function startKimiAcpProcess(
 } {
   const child = spawn("kimi", args, {
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env,
   });
 
   const childStderrRef = { value: "" };
@@ -838,6 +840,7 @@ function shutdownChild(child: ReturnType<typeof spawn>): void {
 
 async function initializeKimiAcp(
   initializeTimeoutMs: number,
+  env: NodeJS.ProcessEnv,
 ): Promise<{
   child: ReturnType<typeof spawn>;
   rpc: JsonRpcStdioClient;
@@ -846,7 +849,7 @@ async function initializeKimiAcp(
   let lastError: Error | null = null;
 
   for (const candidate of candidateCommands()) {
-    const { child, rpc, childStderrRef } = startKimiAcpProcess(candidate.args);
+    const { child, rpc, childStderrRef } = startKimiAcpProcess(candidate.args, env);
 
     try {
       const initialized = (await rpc.request(
@@ -923,7 +926,9 @@ async function run(): Promise<void> {
   const prompt = buildPrompt(request);
   const reasoningEffort = resolveReasoningEffort(request);
 
-  const { child, rpc, childStderrRef } = await initializeKimiAcp(initializeTimeoutMs);
+  const { child, rpc, childStderrRef } = await initializeKimiAcp(
+    initializeTimeoutMs, kimiOutputEnvironment(isRecord(request.metadata) ? request.metadata : undefined, process.env),
+  );
 
   try {
     const sessionResult = await rpc.request(
