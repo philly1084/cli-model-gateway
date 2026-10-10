@@ -1,5 +1,6 @@
 import type { ProviderResult, ProviderToolCall } from "../types";
 import { extractTextContent } from "./prompt";
+import { strictToolCalls, strictToolArguments, ToolContractError } from "./tool-contract.js";
 
 type AssistantFinishReason = ProviderResult["finishReason"];
 
@@ -52,6 +53,9 @@ const WRAPPER_KEYS = new Set([
 export function normalizeAssistantResult(result: ProviderResult): ProviderResult {
   const parsed = parseAssistantPayloadText(result.outputText);
   const toolCalls = dedupeToolCalls([...result.toolCalls, ...parsed.toolCalls]);
+  if (toolCalls.length && (result.finishReason === "length" || result.finishReason === "error" || parsed.finishReason === "length" || parsed.finishReason === "error")) {
+    throw new ToolContractError("incomplete_tool_turn", {finishReason:result.finishReason,parsedFinishReason:parsed.finishReason});
+  }
 
   return {
     ...result,
@@ -60,6 +64,13 @@ export function normalizeAssistantResult(result: ProviderResult): ProviderResult
     finishReason:
       parsed.finishReason ?? (toolCalls.length > 0 ? "tool_calls" : result.finishReason),
   };
+}
+
+/** Native API tool fields are authoritative; examples in content are never actions. */
+export function normalizeNativeAssistantResult(result: ProviderResult): ProviderResult {
+  const toolCalls = strictToolCalls(result.toolCalls);
+  if (toolCalls.length && (result.finishReason === "length" || result.finishReason === "error")) throw new ToolContractError("incomplete_tool_turn", result.finishReason);
+  return {...result,toolCalls,finishReason:toolCalls.length && result.finishReason === "stop" ? "tool_calls" : result.finishReason};
 }
 
 export function parseAssistantPayloadText(text: string): ParsedAssistantPayload {
@@ -283,7 +294,7 @@ function normalizeDirectToolCall(record: Record<string, unknown>): ProviderToolC
   return {
     id:
       firstNonEmptyString(record.id, record.call_id, record.tool_id, record.toolId) ??
-      "call_1",
+      "",
     name,
     arguments: normalizeToolArguments(
       firstDefined(
@@ -294,7 +305,7 @@ function normalizeDirectToolCall(record: Record<string, unknown>): ProviderToolC
         fn?.arguments,
         fn?.args,
         fn?.parameters,
-      ) ?? {},
+      ),
     ),
   };
 }
@@ -315,23 +326,15 @@ function normalizeToolCallArray(value: unknown): ProviderToolCall[] {
     }
     out.push({
       ...normalized,
-      id: normalized.id || `call_${out.length + 1}`,
+      id: normalized.id,
     });
   }
 
-  return out;
+  return strictToolCalls(out);
 }
 
 function normalizeToolArguments(value: unknown): string {
-  if (typeof value === "string") {
-    return value.trim() || "{}";
-  }
-
-  try {
-    return JSON.stringify(value ?? {});
-  } catch {
-    return "{}";
-  }
+  return strictToolArguments(value);
 }
 
 function dedupeToolCalls(toolCalls: ProviderToolCall[]): ProviderToolCall[] {
@@ -351,13 +354,13 @@ function dedupeToolCalls(toolCalls: ProviderToolCall[]): ProviderToolCall[] {
     }
     seen.add(key);
     out.push({
-      id: id || `call_${out.length + 1}`,
+      id,
       name,
       arguments: args,
     });
   }
 
-  return out;
+  return strictToolCalls(out);
 }
 
 function extractJsonTextCandidates(input: string): string[] {

@@ -1,3 +1,4 @@
+import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -18,8 +19,7 @@ import { extractTextContent, extractTextContentOrJson } from "../utils/prompt";
 import { resolveReasoningEffort } from "../utils/reasoning";
 import {
   isSyntheticAssistantOutputText,
-  normalizeAssistantResult,
-  parseAssistantPayloadText,
+  normalizeNativeAssistantResult,
 } from "../utils/assistant-output";
 import {
   chatCompletionsRequestSchema,
@@ -80,7 +80,7 @@ interface ResponseReasoningItem {
   status: ResponseItemStatus;
 }
 
-type StoredResponseInputItem = ResponseMessageItem | ResponseFunctionCallOutputItem;
+type StoredResponseInputItem = ResponseMessageItem | ResponseFunctionCallOutputItem | ResponseFunctionCallItem;
 type StoredResponseOutputItem = ResponseMessageItem | ResponseFunctionCallItem | ResponseReasoningItem;
 
 interface ResponseOutputItemIds {
@@ -258,6 +258,7 @@ function hydrateMessagesFromPreviousResponse(previousResponseId: string): ChatMe
 }
 
 function responseInputItemToChatMessages(item: StoredResponseInputItem): ChatMessage[] {
+  if (item.type === "function_call") return responseOutputItemToChatMessages(item);
   if (item.type === "function_call_output") {
     return [
       buildChatMessage("tool", normalizeResponseText(item.output), {
@@ -281,11 +282,11 @@ function responseInputItemToChatMessages(item: StoredResponseInputItem): ChatMes
 function responseOutputItemToChatMessages(item: StoredResponseOutputItem): ChatMessage[] {
   if (item.type === "function_call") {
     return [
-      buildChatMessage("assistant", extractToolCallContext({
+      buildChatMessage("assistant", "", {toolCalls: normalizeToolCallContext({
         id: item.call_id,
         name: item.name,
         arguments: item.arguments,
-      }), {
+      }),
         phase: "commentary",
       }),
     ];
@@ -338,6 +339,7 @@ function buildChatMessage(
     phase?: AssistantPhase;
     reasoningContent?: unknown;
     tool_call_id?: string;
+    toolCalls?: ChatMessage["toolCalls"];
   } = {},
 ): ChatMessage {
   const message: ChatMessage = {
@@ -345,6 +347,7 @@ function buildChatMessage(
     content,
   };
 
+  if (options.toolCalls?.length) message.toolCalls = options.toolCalls;
   if (options.phase) {
     message.phase = options.phase;
   }
@@ -373,6 +376,8 @@ export function buildResponseInputItems(messages: ChatMessage[]): StoredResponse
       continue;
     }
 
+    for (const call of strictToolCalls(message.toolCalls)) items.push({id:makeId("fc"),type:"function_call",call_id:call.id,name:call.name,arguments:call.arguments,status:"completed"});
+    if (message.toolCalls?.length && !message.content) continue;
     items.push({
       id: makeId("msg"),
       type: "message",
@@ -1167,7 +1172,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
         return reply;
       }
 
-      const result = normalizeAssistantResult(await options.registry.runModel(body.model, runRequest));
+      const result = normalizeNativeAssistantResult(await options.registry.runModel(body.model, runRequest));
       const returnedModel = resolveReturnedModel(body.model, result);
       logBlankAssistantResult(app.log.warn.bind(app.log), returnedModel, result, "/responses");
       const outputItems = buildResponseOutputItems(result);
@@ -1340,7 +1345,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
     const n = Math.min(body.n ?? 1, 10);
 
     try {
-      const result = normalizeAssistantResult(await options.registry.runModel(body.model, {
+      const result = normalizeNativeAssistantResult(await options.registry.runModel(body.model, {
         requestId: makeId("req"),
         messages: [{ role: "user", content: prompt }],
         tools: [],
@@ -1784,7 +1789,7 @@ async function handleChatCompletionsRequest(
       return reply;
     }
 
-    const result = normalizeAssistantResult(await registry.runModel(body.model, runRequest));
+    const result = normalizeNativeAssistantResult(await registry.runModel(body.model, runRequest));
     const returnedModel = resolveReturnedModel(body.model, result);
     logBlankAssistantResult(reply.log.warn.bind(reply.log), returnedModel, result, "/chat/completions");
 
@@ -2017,6 +2022,7 @@ export function normalizeChatMessages(raw: unknown[]): ChatMessage[] {
     const message: ChatMessage = {
       role,
       content,
+      ...(role === "assistant" && hasToolContext(record.tool_calls ?? record.tool_call ?? record.function_call) ? {toolCalls: normalizeToolCallContext(record.tool_calls ?? record.tool_call ?? record.function_call)} : {}),
     };
     if (typeof record.name === "string") {
       message.name = record.name;
@@ -2034,7 +2040,7 @@ export function normalizeChatMessages(raw: unknown[]): ChatMessage[] {
     }
     messages.push(message);
   }
-  return messages;
+  return migrateToolHistory(messages);
 }
 
 export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] {
@@ -2053,7 +2059,7 @@ export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] 
     for (const item of raw) {
       out.push(...normalizeResponsesInput(item, depth + 1));
     }
-    return out;
+    return migrateToolHistory(out);
   }
 
   if (!raw || typeof raw !== "object") {
@@ -2093,16 +2099,16 @@ export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] 
           : typeof record.id === "string"
             ? record.id
             : undefined;
-    const toolCallText = extractToolCallContext({
+    const toolCalls = normalizeToolCallContext({
       id: callId,
       name: record.name,
       arguments: record.arguments ?? record.input,
     });
-    if (!toolCallText) {
+    if (!toolCalls.length) {
       return [];
     }
     return [
-      buildChatMessage("assistant", toolCallText, { phase: "commentary" }),
+      buildChatMessage("assistant", "", { phase: "commentary", toolCalls }),
     ];
   }
 
@@ -2151,6 +2157,7 @@ export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] 
       buildChatMessage(role, content, {
         phase: role === "assistant" ? normalizeAssistantPhase(record.phase) : undefined,
         reasoningContent: role === "assistant" ? extractReasoningContentField(record) : undefined,
+        toolCalls: role === "assistant" ? normalizeToolCallContext(record.tool_calls ?? record.tool_call ?? record.function_call) : undefined,
       }),
     ];
   }
@@ -2174,6 +2181,7 @@ export function normalizeResponsesInput(raw: unknown, depth = 0): ChatMessage[] 
       buildChatMessage(role, content, {
         phase: role === "assistant" ? normalizeAssistantPhase(record.phase) : undefined,
         reasoningContent: role === "assistant" ? extractReasoningContentField(record) : undefined,
+        toolCalls: role === "assistant" ? normalizeToolCallContext(record.tool_calls ?? record.tool_call ?? record.function_call) : undefined,
       }),
     ];
   }
@@ -2272,21 +2280,7 @@ function normalizeMessageContentForRole(
   content: unknown,
   toolContext: unknown,
 ): string {
-  const explicitToolCalls = normalizeToolCallContext(toolContext);
-  const baseContent =
-    role === "tool"
-      ? extractTextContentOrJson(content)
-      : extractTextContent(content);
-  if (role !== "assistant") {
-    return mergeMessageContent(baseContent, renderToolCallContext(explicitToolCalls));
-  }
-
-  const parsed = parseAssistantPayloadText(extractTextContent(content));
-  const combinedToolCalls = dedupeToolCallContext([
-    ...parsed.toolCalls,
-    ...explicitToolCalls,
-  ]);
-  return mergeMessageContent(parsed.outputText, renderToolCallContext(combinedToolCalls));
+  return role === "tool" ? extractTextContentOrJson(content) : extractTextContent(content);
 }
 
 function hasToolContext(value: unknown): boolean {
@@ -2344,91 +2338,8 @@ function renderToolCallContext(
   return `TOOL_CALLS:\n${JSON.stringify(normalized)}`;
 }
 
-function normalizeToolCallContext(
-  value: unknown,
-): Array<{ id?: string; name: string; arguments: string }> {
-  const items = Array.isArray(value) ? value : value ? [value] : [];
-  const out: Array<{ id?: string; name: string; arguments: string }> = [];
-
-  for (const item of items) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-
-    const record = item as Record<string, unknown>;
-    const fn =
-      record.function && typeof record.function === "object"
-        ? (record.function as Record<string, unknown>)
-        : undefined;
-
-    const name =
-      firstNonEmptyString(
-        record.name,
-        record.tool_name,
-        record.toolName,
-        fn?.name,
-      ) ?? "";
-    if (!name) {
-      continue;
-    }
-
-    const id = firstNonEmptyString(record.id, record.call_id, record.tool_call_id);
-    const argsRaw =
-      firstDefined(
-        record.arguments,
-        record.args,
-        record.parameters,
-        record.input,
-        fn?.arguments,
-        fn?.args,
-      ) ?? {};
-    out.push({
-      id,
-      name,
-      arguments: stringifyToolContextArguments(argsRaw),
-    });
-  }
-
-  return out;
-}
-
-function dedupeToolCallContext(
-  toolCalls: Array<{ id?: string; name: string; arguments: string }>,
-): Array<{ id?: string; name: string; arguments: string }> {
-  const out: Array<{ id?: string; name: string; arguments: string }> = [];
-  const seen = new Set<string>();
-
-  for (const call of toolCalls) {
-    const name = typeof call.name === "string" ? call.name.trim() : "";
-    if (!name) {
-      continue;
-    }
-    const id = typeof call.id === "string" ? call.id.trim() : "";
-    const argumentsText = typeof call.arguments === "string" ? call.arguments : "{}";
-    const key = `${id}|${name}|${argumentsText}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    out.push({
-      id: id || undefined,
-      name,
-      arguments: argumentsText,
-    });
-  }
-
-  return out;
-}
-
-function stringifyToolContextArguments(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value ?? {});
-  } catch {
-    return "{}";
-  }
+function normalizeToolCallContext(value: unknown): NonNullable<ChatMessage["toolCalls"]> {
+  return strictToolCalls(value === undefined || value === null ? undefined : Array.isArray(value) ? value : [value]);
 }
 
 function isAuthorized(request: FastifyRequest, allowedKeys: Set<string>): boolean {

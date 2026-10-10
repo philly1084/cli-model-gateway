@@ -1,10 +1,10 @@
+import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { normalizeToolName } from "../utils/tools";
 import { resolveReasoningEffort } from "../utils/reasoning";
 import { getCodexExecutableCandidates } from "../utils/runtime-template-vars";
 
@@ -503,7 +503,7 @@ function extractAllowedToolNames(request: GatewayRequest): Map<string, string> {
         : null;
     const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
     if (name) {
-      out.set(normalizeToolName(name), name);
+      out.set(name, name);
     }
   }
   return out;
@@ -640,16 +640,7 @@ function extractReasoningValue(record: Record<string, unknown>): unknown {
   return undefined;
 }
 
-function asToolCallArguments(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value ?? {});
-  } catch {
-    return "{}";
-  }
-}
+function asToolCallArguments(value: unknown): string { return strictToolArguments(value); }
 
 function parseToolCallFromRawItem(item: unknown):
   | {
@@ -678,14 +669,14 @@ function parseToolCallFromRawItem(item: unknown):
   const id =
     typeof record.call_id === "string" && record.call_id
       ? record.call_id
-      : `call_${randomUUID()}`;
+      : "";
 
   const argsRaw = record.type === "custom_tool_call" ? record.input : record.arguments;
-  return {
+  return strictToolCalls([{
     id,
     name,
     arguments: asToolCallArguments(argsRaw),
-  };
+  }])[0]!;
 }
 
 function collectAssistantContentFromRawItem(item: unknown): {
@@ -1245,72 +1236,15 @@ function isFinishReason(value: unknown): value is FinishReason {
 }
 
 function normalizeToolCallsFromContract(raw: unknown): NonNullable<JsonContract["tool_calls"]> {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [];
-  }
-
-  const calls: NonNullable<JsonContract["tool_calls"]> = [];
-  for (const entry of raw) {
-    if (!isObjectRecord(entry)) {
-      continue;
-    }
-
-    const fn = isObjectRecord(entry.function) ? entry.function : undefined;
-    const name =
-      (typeof entry.name === "string" && entry.name) ||
-      (fn && typeof fn.name === "string" ? fn.name : "");
-    if (!name) {
-      continue;
-    }
-
-    const id =
-      typeof entry.id === "string" && entry.id
-        ? entry.id
-        : `call_${calls.length + 1}`;
-    const argsRaw = entry.arguments ?? (fn ? fn.arguments : undefined);
-
-    calls.push({
-      id,
-      name,
-      arguments: asToolCallArguments(argsRaw),
-    });
-  }
-
-  return calls;
+  return strictToolCalls(raw);
 }
 
 function parseJsonContractFromText(raw: string): JsonContract | null {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const seen = new Set<string>();
-  const queue: string[] = [];
-  const push = (value: unknown): void => {
-    if (typeof value !== "string") {
-      return;
-    }
-    const text = value.trim();
-    if (!text || seen.has(text)) {
-      return;
-    }
-    seen.add(text);
-    queue.push(text);
-  };
-  const pushDerived = (value: string): void => {
-    const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
-    let match: RegExpExecArray | null;
-    while ((match = fence.exec(value)) !== null) {
-      push(match[1]);
-    }
-
-    const start = value.indexOf("{");
-    const end = value.lastIndexOf("}");
-    if (start !== -1 && end > start) {
-      push(value.slice(start, end + 1));
-    }
-  };
+  // Only an explicit top-level contract carries execution authority. Text,
+  // fences and nested output examples are never searched for tool calls.
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw.trim()); } catch { return null; }
+  if (!isObjectRecord(parsed)) return null;
   const isContractObject = (value: Record<string, unknown>): boolean => {
     return (
       "output_text" in value ||
@@ -1334,12 +1268,14 @@ function parseJsonContractFromText(raw: string): JsonContract | null {
           : typeof value.content === "string"
             ? value.content
             : "";
+    if (value.finish_reason !== undefined && !isFinishReason(value.finish_reason)) throw new ToolContractError("finish_reason_invalid", value.finish_reason);
     const finishReason: FinishReason = isFinishReason(value.finish_reason)
       ? value.finish_reason
       : toolCalls.length > 0
         ? "tool_calls"
         : "stop";
 
+    if (toolCalls.length && finishReason !== "tool_calls") throw new ToolContractError("incomplete_tool_turn", finishReason);
     return {
       output_text: outputText.trim(),
       reasoning: collectReasoningText(extractReasoningValue(value)),
@@ -1348,53 +1284,7 @@ function parseJsonContractFromText(raw: string): JsonContract | null {
     };
   };
 
-  push(trimmed);
-  pushDerived(trimmed);
-
-  let best: JsonContract | null = null;
-  for (let i = 0; i < queue.length && i < 80; i += 1) {
-    const current = queue[i];
-    if (typeof current !== "string") {
-      continue;
-    }
-    pushDerived(current);
-
-    let parsed: unknown = null;
-    try {
-      parsed = JSON.parse(current);
-    } catch {
-      continue;
-    }
-    if (!isObjectRecord(parsed)) {
-      continue;
-    }
-
-    const contract = toContract(parsed);
-    if (contract) {
-      if (!best) {
-        best = contract;
-      }
-      if (contract.output_text) {
-        push(contract.output_text);
-        pushDerived(contract.output_text);
-      }
-      if (contract.tool_calls && contract.tool_calls.length > 0) {
-        return contract;
-      }
-    }
-
-    if (typeof parsed.response === "string") {
-      push(parsed.response);
-      pushDerived(parsed.response);
-    }
-    const maybeMessage = parsed.message;
-    if (isObjectRecord(maybeMessage) && typeof maybeMessage.content === "string") {
-      push(maybeMessage.content);
-      pushDerived(maybeMessage.content);
-    }
-  }
-
-  return best;
+  return toContract(parsed);
 }
 
 function parseModelArg(argv: string[]): string {
@@ -1860,18 +1750,14 @@ async function run(): Promise<void> {
 
       if (method === "item/tool/call" && params) {
         handledMethod = true;
-        const callId =
-          typeof params.callId === "string" && params.callId
-            ? params.callId
-            : `call_${randomUUID()}`;
-        const name =
-          typeof params.tool === "string" && params.tool
-            ? params.tool
-            : "tool";
-        const args = asToolCallArguments(params.arguments);
-        const normalizedName = normalizeToolName(name);
+        const received = strictToolCalls([{id:params.callId,name:params.tool,arguments:params.arguments}])[0]!;
+        const callId = received.id, name = received.name, args = received.arguments;
+        const normalizedName = name;
         const mappedName = allowedToolNames.get(normalizedName);
         const isAllowed = Boolean(mappedName);
+        if (!isAllowed) throw new ToolContractError("tool_not_offered",name);
+        const existing = toolCalls.find(call=>call.id===callId);
+        if (existing && (existing.name!==name || existing.arguments!==args)) throw new ToolContractError("call_id_conflict",callId);
         if (isAllowed && !toolCallIds.has(callId)) {
           const toolCall = { id: callId, name: mappedName!, arguments: args };
           toolCallIds.add(callId);
@@ -1915,7 +1801,10 @@ async function run(): Promise<void> {
         }
 
         const call = parseToolCallFromRawItem(params.item);
-        const mappedName = call ? allowedToolNames.get(normalizeToolName(call.name)) : undefined;
+        const mappedName = call ? allowedToolNames.get(call.name) : undefined;
+        if (call && !mappedName) throw new ToolContractError("tool_not_offered",call.name);
+        const existing = call && toolCalls.find(previous=>previous.id===call.id);
+        if (existing && call && (existing.name!==call.name || existing.arguments!==call.arguments)) throw new ToolContractError("call_id_conflict",call.id);
         if (call && mappedName && !toolCallIds.has(call.id)) {
           const toolCall = { ...call, name: mappedName };
           toolCallIds.add(call.id);
@@ -2101,7 +1990,8 @@ async function run(): Promise<void> {
         ? parsedContract.tool_calls
         : [];
       for (const call of parsedToolCalls) {
-        const mappedName = allowedToolNames.get(normalizeToolName(call.name));
+        const mappedName = allowedToolNames.get(call.name);
+        if (!mappedName) throw new ToolContractError("tool_not_offered",call.name);
         if (mappedName && !toolCallIds.has(call.id)) {
           const toolCall = { ...call, name: mappedName };
           toolCallIds.add(call.id);

@@ -7,62 +7,27 @@ import {
   mergeKimiAgentTextChunks,
   normalizeToolCallsFromContract,
   parseJsonContractFromText,
+  resolveAllowedToolName,
 } from "../scripts/kimi-acp-bridge.js";
 
-test("Kimi bridge parses direct function payloads as tool calls", () => {
-  const parsed = parseJsonContractFromText(
-    '{"type":"function","name":"update_notes_page","parameters":{"notes_page_update":"Done"}}',
-  );
-
-  assert.deepEqual(parsed, {
-    output_text: "",
-    tool_calls: [
-      {
-        id: "call_1",
-        name: "update_notes_page",
-        arguments: '{"notes_page_update":"Done"}',
-      },
-    ],
-    finish_reason: "tool_calls",
-  });
+test("Kimi bridge leaves direct function examples as ordinary text", () => {
+  assert.equal(parseJsonContractFromText('{"type":"function","name":"update_notes_page","parameters":{"value":"example"}}'), null);
 });
 
-test("Kimi bridge normalizes complex tool call shapes and repairs malformed arguments", () => {
-  const calls = normalizeToolCallsFromContract([
-    {
-      functionCall: {
-        name: "searchDocs",
-        arguments: '{"query":"oauth",}',
-      },
-      call_id: "call_search",
-    },
-  ]);
-
-  assert.deepEqual(calls, [
-    {
-      id: "call_search",
-      name: "searchDocs",
-      arguments: '{"query":"oauth"}',
-    },
-  ]);
+test("Kimi bridge rejects malformed arguments instead of repairing them", () => {
+  assert.throws(() => normalizeToolCallsFromContract([{id:"call_search",name:"searchDocs",arguments:'{"query":"oauth",}'}]), /arguments_invalid_json/);
+  assert.deepEqual(normalizeToolCallsFromContract([{id:"call_search",name:"searchDocs",arguments:{query:"oauth"}}]), [{id:"call_search",name:"searchDocs",arguments:'{"query":"oauth"}'}]);
 });
 
-test("Kimi bridge recovers nested tool contracts from assistant text", () => {
-  const parsed = parseJsonContractFromText(
-    '{"output_text":"{\\"output_text\\":\\"\\",\\"tool_calls\\":[{\\"id\\":\\"call_1\\",\\"name\\":\\"search_docs\\",\\"arguments\\":{\\"query\\":\\"oauth\\"}}],\\"finish_reason\\":\\"tool_calls\\"}","finish_reason":"stop"}',
-  );
-
-  assert.deepEqual(parsed, {
-    output_text: "",
-    tool_calls: [
-      {
-        id: "call_1",
-        name: "search_docs",
-        arguments: '{"query":"oauth"}',
-      },
-    ],
-    finish_reason: "tool_calls",
+test("Kimi bridge preserves outer text authority and exact explicit calls", () => {
+  const call = {id:"original-id",name:"search_docs",arguments:'{ "query": "oauth" }'};
+  const nested = JSON.stringify({output_text:"",tool_calls:[call],finish_reason:"tool_calls"});
+  assert.deepEqual(parseJsonContractFromText(JSON.stringify({output_text:nested,finish_reason:"stop"})), {
+    output_text:nested,tool_calls:undefined,finish_reason:"stop"
   });
+  assert.deepEqual(parseJsonContractFromText(nested)?.tool_calls,[call]);
+  assert.equal(parseJsonContractFromText('Example: '+nested),null);
+  assert.equal(parseJsonContractFromText('```json\n'+nested+'\n```'),null);
 });
 
 test("Kimi bridge prompt includes explicit available tool names and tool choice guidance", () => {
@@ -134,4 +99,11 @@ test("Kimi bridge concatenates ACP message chunks without inserting line breaks"
     }),
     "",
   );
+});
+
+test("Kimi bridge never aliases an unrelated single offered tool or successful finish",()=>{
+ const offered=new Map([["approved_action","approved_action"]]);
+ assert.equal(resolveAllowedToolName("approved_action",offered),"approved_action");
+ for(const name of ["other","approvedAction","APPROVED_ACTION"," approved_action"]){assert.throws(()=>resolveAllowedToolName(name,offered),/tool_not_offered/);}
+ for(const finish_reason of ["stop","length","error","unknown"]){assert.throws(()=>parseJsonContractFromText(JSON.stringify({output_text:"",tool_calls:[{id:"id",name:"approved_action",arguments:"{}"}],finish_reason})),/finish_reason_invalid|incomplete_tool_turn/);}
 });

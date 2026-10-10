@@ -27,7 +27,7 @@ import { CliProvider } from "./cli-provider";
 import { OpenAiCompatibleProvider } from "./openai-compatible-provider";
 import type { Provider } from "./provider";
 import { trackProvider, trackFallback } from "../metrics";
-import { isSyntheticAssistantOutputText, normalizeAssistantResult } from "../utils/assistant-output";
+import { isSyntheticAssistantOutputText, normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { extractTextContent } from "../utils/prompt";
 import { estimateTokensFromText } from "../utils/usage";
 
@@ -852,7 +852,7 @@ export class ProviderRegistry {
           providerModel: binding.providerModel,
         });
         request.execution?.check();
-        const result = normalizeAssistantResult(rawResult);
+        const result = normalizeNativeAssistantResult(rawResult);
         if (isInvalidProviderResult(result, request)) {
           throw new Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
         }

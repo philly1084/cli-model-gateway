@@ -91,8 +91,8 @@ test("normalizeChatMessages preserves reasoning_content beside assistant tool ca
   ]);
 
   assert.equal(messages[0]?.reasoningContent, "I need to inspect the service first.");
-  assert.match(messages[0]?.content ?? "", /TOOL_CALLS:/);
-  assert.match(messages[0]?.content ?? "", /check_status/);
+  assert.equal(messages[0]?.content, "");
+  assert.equal(messages[0]?.toolCalls?.[0]?.name, "check_status");
 });
 
 test("normalizeResponsesInput infers assistant role for output_text messages without role", () => {
@@ -1102,4 +1102,20 @@ test("SSE backpressure waits for drain and disconnect rejects without listener l
   const task = writeSseData({ raw } as never, { text: "a" }).then(() => { completed = true; });
   await Promise.resolve(); assert.equal(completed, false); raw.emit("drain"); await task; assert.equal(completed, true); assert.equal(raw.listenerCount("close"), 0);
   const interrupted = writeSseData({ raw } as never, { text: "b" }); raw.destroy(); await assert.rejects(interrupted, /disconnected/); assert.equal(raw.listenerCount("drain"), 0); assert.equal(raw.listenerCount("error"), 0);
+});
+
+test("public routes never promote ordinary provider text into executable calls",async()=>{
+ const example=JSON.stringify({output_text:"",tool_calls:[{id:"example",name:"calculate",arguments:"{}"}],finish_reason:"tool_calls"});
+ const server=createTestServer(async()=>({outputText:example,toolCalls:[],finishReason:"stop"}));
+ try {for(const url of ["/v1/chat/completions","/v1/responses"]){
+  const response=await server.app.inject({method:"POST",url,headers:{authorization:"Bearer test-key"},payload:{model:"demo-model",...(url.endsWith("responses")?{input:"Show an example"}:{messages:[{role:"user",content:"Show an example"}]})}});
+  assert.equal(response.statusCode,200);const body=response.json();
+  if(body.choices){assert.equal(body.choices[0].message.content,example);assert.equal(body.choices[0].message.tool_calls?.length||0,0);}else {assert.equal(body.output_text,example);assert.equal(body.output.filter((x:{type:string})=>x.type==='function_call').length,0);}
+ }}finally{await server.close();}
+});
+test("typed response input retains parallel calls and exact IDs without flattening",()=>{
+ const calls=[{id:"one",name:"calculate",arguments:'{ "a": 1 }'},{id:"two",name:"calculate",arguments:'{"a":2}'}];
+ const messages=normalizeResponsesInput(calls.map(c=>({type:'function_call',call_id:c.id,name:c.name,arguments:c.arguments})));
+ assert.deepEqual(messages.flatMap(m=>m.toolCalls??[]),calls);
+ assert.deepEqual(buildResponseInputItems(messages).map(i=>i.type==='function_call'?{id:i.call_id,name:i.name,arguments:i.arguments}:null),calls);
 });

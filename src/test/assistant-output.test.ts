@@ -20,23 +20,8 @@ test("unwraps leaked output_text JSON into plain assistant text", () => {
   assert.equal(normalized.finishReason, "stop");
 });
 
-test("promotes leaked function payload text into a tool call", () => {
-  const result: ProviderResult = {
-    outputText:
-      '{"type":"function","name":"update_notes_page","parameters":{"notes_page_update":"It is going well, thanks for asking."}}',
-    toolCalls: [],
-    finishReason: "stop",
-  };
-
-  const normalized = normalizeAssistantResult(result);
-  assert.equal(normalized.outputText, "");
-  assert.equal(normalized.toolCalls.length, 1);
-  assert.deepEqual(normalized.toolCalls[0], {
-    id: "call_1",
-    name: "update_notes_page",
-    arguments: '{"notes_page_update":"It is going well, thanks for asking."}',
-  });
-  assert.equal(normalized.finishReason, "tool_calls");
+test("rejects leaked function payloads without a provider call identity", () => {
+  assert.throws(() => normalizeAssistantResult({outputText:'{"type":"function","name":"update_notes_page","parameters":{"value":"example"}}',toolCalls:[],finishReason:"stop"}), /call_id_missing/);
 });
 
 test("treats assistant placeholder output as synthetic", () => {

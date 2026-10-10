@@ -24,10 +24,23 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   send({id:m.id,result:{turn:{id:'u'}}});
   setTimeout(()=>{
    if(scenario==='alias') { event('item/completed',{threadId:'t',turnId:'u',item:{type:'agentMessage',text:'alias fixture answer'}});done(); }
+   if(['missing-id','unoffered','alias-name','malformed-arguments'].includes(scenario)) {
+    const message=call();
+    if(scenario==='missing-id')delete message.params.callId;
+    if(scenario==='unoffered')message.params.tool='unrelated';
+    if(scenario==='alias-name')message.params.tool='EXEC_COMMAND';
+    if(scenario==='malformed-arguments')message.params.arguments='{broken';
+    send(message);done();
+   }
    if(scenario==='idle'||scenario==='cancel') { if(scenario==='idle') send(call()); }
    if(scenario==='multiple') {send(call());setTimeout(()=>send(call('c2')),500);}
    if(scenario==='partial'||scenario==='partial-second') {if(scenario==='partial-second') send(call());const s=JSON.stringify(call(scenario==='partial-second'?'c2':'c1'))+'\\n';process.stdout.write(s.slice(0,60));setTimeout(()=>process.stdout.write(s.slice(60)),2500);}
    if(scenario==='raw') event('rawResponseItem/completed',{threadId:'t',turnId:'u',item:{type:'function_call',call_id:'c1',name:'exec_command',arguments:'{"cmd":"echo complete"}'}});
+   if(scenario==='nested-example'||scenario==='explicit-contract') {
+    const contract={output_text:'',tool_calls:[{id:'original-id',name:'exec_command',arguments:'{ "cmd": "echo complete" }'}],finish_reason:'tool_calls'};
+    const text=JSON.stringify(scenario==='nested-example'?{output_text:JSON.stringify(contract),finish_reason:'stop'}:contract);
+    event('item/completed',{threadId:'t',turnId:'u',item:{type:'agentMessage',text}});done();
+   }
    if(scenario==='text') setTimeout(()=>{event('item/completed',{threadId:'t',turnId:'u',item:{type:'agentMessage',text:'complete answer'}});done();},2500);
    if(scenario==='error') {event('error',{turnId:'u',willRetry:false,error:{message:'synthetic provider failure'}});event('turn/completed',{threadId:'t',turn:{id:'u',status:'failed'}});}
    if(scenario==='incomplete') {process.stdout.write('{"method":"item/tool/call","params":');setTimeout(()=>process.exit(0),100);}
@@ -89,4 +102,17 @@ protocolTest('bridge process cancellation yields no completed response',async()=
 protocolTest('bounded policies disable hidden Codex alias fallback; unbounded compatibility remains',async()=>{
  for(const allowFallback of [false,true]) { const r=await run('alias',false,{gateway_policy:{operationId:'alias-fixture',allowFallback,maxAttempts:2,maxLatencyMs:5000}});assert.equal(r.code,1);assert.equal((r.stderr.match(/MODEL:/g)||[]).length,1);assert.equal(r.stdout,''); }
  const legacy=await run('alias');assert.equal(legacy.code,0,legacy.stderr);assert.match(JSON.parse(legacy.stdout).output_text,/alias fixture answer/);
+});
+
+protocolTest('outer text example cannot become execution; explicit top-level contract retains identity',async()=>{
+ const ordinary=await run('nested-example');assert.equal(ordinary.code,0,ordinary.stderr);
+ const text=JSON.parse(ordinary.stdout);assert.equal(text.finish_reason,'stop');assert.equal(text.tool_calls?.length||0,0);
+ assert.equal(JSON.parse(text.output_text).tool_calls[0].id,'original-id');
+ const explicit=await run('explicit-contract');assert.equal(explicit.code,0,explicit.stderr);
+ const body=JSON.parse(explicit.stdout);assert.equal(body.finish_reason,'tool_calls');
+ assert.deepEqual(body.tool_calls,[{id:'original-id',name:'exec_command',arguments:'{ "cmd": "echo complete" }'}]);
+});
+
+for(const scenario of ['missing-id','unoffered','alias-name','malformed-arguments'])protocolTest('invalid native delegated call fails without execution: '+scenario,async()=>{
+ const result=await run(scenario);assert.equal(result.code,1);assert.equal(result.stdout,'');assert.match(result.stderr,/Provider tool contract rejected/);
 });

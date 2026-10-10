@@ -1,8 +1,8 @@
+import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
-import { parseAssistantPayloadText } from "../utils/assistant-output";
-import { normalizeToolAlias, normalizeToolName } from "../utils/tools";
+import { normalizeToolName } from "../utils/tools";
 import { resolveReasoningEffort } from "../utils/reasoning";
 
 interface GatewayMessage {
@@ -281,39 +281,15 @@ export function extractAllowedToolNames(request: GatewayRequest): Map<string, st
     const fn = isRecord(item.function) ? item.function : null;
     const name = fn && typeof fn.name === "string" ? fn.name.trim() : "";
     if (name) {
-      out.set(normalizeToolName(name), name);
+      out.set(name, name);
     }
   }
   return out;
 }
 
-function resolveAllowedToolName(rawName: string, allowedToolNames: Map<string, string>): string {
-  const trimmed = rawName.trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  if (allowedToolNames.size === 0) {
-    return trimmed;
-  }
-
-  const direct = allowedToolNames.get(normalizeToolName(trimmed));
-  if (direct) {
-    return direct;
-  }
-
-  const alias = normalizeToolAlias(trimmed);
-  for (const allowedName of allowedToolNames.values()) {
-    if (normalizeToolAlias(allowedName) === alias) {
-      return allowedName;
-    }
-  }
-
-  if (allowedToolNames.size === 1) {
-    return allowedToolNames.values().next().value ?? trimmed;
-  }
-
-  return trimmed;
+export function resolveAllowedToolName(rawName: string, allowedToolNames: Map<string, string>): string {
+  if (!allowedToolNames.has(rawName)) throw new ToolContractError("tool_not_offered",rawName);
+  return rawName;
 }
 
 function firstDefined(...candidates: unknown[]): unknown {
@@ -439,130 +415,18 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
   return out;
 }
 
-function asToolCallArguments(value: unknown): string {
-  if (typeof value === "string") {
-    let trimmed = value.trim();
-    if (!trimmed) {
-      return "{}";
-    }
-
-    if (trimmed.startsWith("```json")) {
-      trimmed = trimmed.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
-    } else if (trimmed.startsWith("```")) {
-      trimmed = trimmed.replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
-    }
-
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try {
-        return JSON.stringify(sanitizeValue(JSON.parse(trimmed)));
-      } catch {
-        try {
-          const repaired = trimmed
-            .replace(/,\s*([}\]])/g, "$1")
-            .replace(/\r/g, "\\r")
-            .replace(/\n/g, "\\n")
-            .replace(/\t/g, "\\t");
-          return JSON.stringify(sanitizeValue(JSON.parse(repaired)));
-        } catch {
-          return trimmed;
-        }
-      }
-    }
-
-    return trimmed;
-  }
-  try {
-    return JSON.stringify(sanitizeValue(value ?? {}));
-  } catch {
-    return "{}";
-  }
-}
+function asToolCallArguments(value: unknown): string { return strictToolArguments(value); }
 
 export function normalizeToolCallsFromContract(raw: unknown): NonNullable<JsonContract["tool_calls"]> {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [];
-  }
-
-  const calls: NonNullable<JsonContract["tool_calls"]> = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-
-    const fn = isRecord(entry.function) ? entry.function : undefined;
-    const functionCall = isRecord(entry.functionCall)
-      ? entry.functionCall
-      : isRecord(entry.function_call)
-        ? entry.function_call
-        : undefined;
-    const merged = functionCall ?? fn;
-    const name = firstNonEmptyString(
-      entry.name,
-      entry.tool_name,
-      entry.toolName,
-      merged?.name,
-    );
-    if (!name) {
-      continue;
-    }
-
-    const id =
-      firstNonEmptyString(entry.id, entry.call_id, entry.tool_id, entry.toolId) ??
-      `call_${calls.length + 1}`;
-    const argsRaw = firstDefined(
-      entry.arguments,
-      entry.args,
-      entry.parameters,
-      entry.input,
-      merged?.arguments,
-      merged?.args,
-      merged?.parameters,
-      merged?.input,
-    );
-
-    calls.push({
-      id,
-      name,
-      arguments: asToolCallArguments(argsRaw),
-    });
-  }
-
-  return calls;
+  return strictToolCalls(raw);
 }
 
 export function parseJsonContractFromText(raw: string): JsonContract | null {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  let best: JsonContract | null = null;
-  const seen = new Set<string>();
-  const queue: string[] = [];
-  const push = (value: unknown): void => {
-    if (typeof value !== "string") {
-      return;
-    }
-    const text = value.trim();
-    if (!text || seen.has(text)) {
-      return;
-    }
-    seen.add(text);
-    queue.push(text);
-  };
-  const pushDerived = (value: string): void => {
-    const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
-    let match: RegExpExecArray | null;
-    while ((match = fence.exec(value)) !== null) {
-      push(match[1]);
-    }
-
-    const start = value.indexOf("{");
-    const end = value.lastIndexOf("}");
-    if (start !== -1 && end > start) {
-      push(value.slice(start, end + 1));
-    }
-  };
+  // Only an explicit top-level contract carries execution authority. Text,
+  // fences and nested output examples are never searched for tool calls.
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw.trim()); } catch { return null; }
+  if (!isRecord(parsed)) return null;
   const isContractObject = (value: Record<string, unknown>): boolean => {
     return (
       "output_text" in value ||
@@ -586,119 +450,21 @@ export function parseJsonContractFromText(raw: string): JsonContract | null {
           : typeof value.content === "string"
             ? value.content
             : "";
+    if (value.finish_reason !== undefined && !isFinishReason(value.finish_reason)) throw new ToolContractError("finish_reason_invalid", value.finish_reason);
     const finishReason: FinishReason = isFinishReason(value.finish_reason)
       ? value.finish_reason
       : toolCalls.length > 0
         ? "tool_calls"
         : "stop";
 
+    if (toolCalls.length && finishReason !== "tool_calls") throw new ToolContractError("incomplete_tool_turn", finishReason);
     return {
       output_text: outputText.trim(),
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
       finish_reason: finishReason,
     };
   };
-  const assistantPayloadToContract = (value: string): JsonContract | null => {
-    const parsed = parseAssistantPayloadText(value);
-    if (!parsed.recognized) {
-      return null;
-    }
-
-    const toolCalls = parsed.toolCalls.map((call, index) => ({
-      id: call.id || `call_${index + 1}`,
-      name: call.name,
-      arguments: asToolCallArguments(call.arguments),
-    }));
-    const finishReason: FinishReason =
-      toolCalls.length > 0
-        ? "tool_calls"
-        : isFinishReason(parsed.finishReason)
-          ? parsed.finishReason
-          : "stop";
-
-    return {
-      output_text: parsed.outputText.trim(),
-      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-      finish_reason: finishReason,
-    };
-  };
-
-  const assistantPayloadContract = assistantPayloadToContract(trimmed);
-  if (assistantPayloadContract?.tool_calls && assistantPayloadContract.tool_calls.length > 0) {
-    return assistantPayloadContract;
-  }
-  if (assistantPayloadContract) {
-    best = assistantPayloadContract;
-  }
-  push(trimmed);
-  pushDerived(trimmed);
-
-  for (let i = 0; i < queue.length && i < 80; i += 1) {
-    const current = queue[i];
-    if (typeof current !== "string") {
-      continue;
-    }
-    pushDerived(current);
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(current);
-    } catch {
-      continue;
-    }
-    if (!isRecord(parsed)) {
-      continue;
-    }
-
-    const contract = toContract(parsed);
-    if (contract) {
-      if (!best) {
-        best = contract;
-      }
-      if (contract.output_text) {
-        push(contract.output_text);
-        pushDerived(contract.output_text);
-      }
-      if (contract.tool_calls && contract.tool_calls.length > 0) {
-        return contract;
-      }
-    }
-
-    const fallbackContract = assistantPayloadToContract(current);
-    if (fallbackContract) {
-      if (!best) {
-        best = fallbackContract;
-      }
-      if (fallbackContract.tool_calls && fallbackContract.tool_calls.length > 0) {
-        return fallbackContract;
-      }
-    }
-
-    if (typeof parsed.response === "string") {
-      push(parsed.response);
-      pushDerived(parsed.response);
-    }
-    const maybeMessage = parsed.message;
-    if (isRecord(maybeMessage)) {
-      push(normalizeValue(maybeMessage.content));
-      pushDerived(normalizeValue(maybeMessage.content));
-      push(normalizeValue(maybeMessage));
-      pushDerived(normalizeValue(maybeMessage));
-    }
-
-    for (const entry of Object.values(parsed)) {
-      if (typeof entry === "string") {
-        push(entry);
-        pushDerived(entry);
-      } else if (isRecord(entry)) {
-        const serialized = normalizeValue(entry);
-        push(serialized);
-        pushDerived(serialized);
-      }
-    }
-  }
-
-  return best;
+  return toContract(parsed);
 }
 
 function parseModelArg(argv: string[]): string {
@@ -1303,7 +1069,7 @@ async function run(): Promise<void> {
         const toolCalls = parsedContract.tool_calls
           .map((call) => {
             return {
-              id: call.id || `call_${randomUUID()}`,
+              id: call.id,
               name: resolveAllowedToolName(call.name, allowedToolNames),
               arguments: asToolCallArguments(call.arguments),
             };

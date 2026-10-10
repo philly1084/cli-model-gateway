@@ -1313,3 +1313,10 @@ test("OpenAI benchmark stream errors are not replayed as buffered requests", asy
     assert.ok(modes.length > 0 && modes.length <= 5); assert.ok(modes.every(x => x === true)); assert.equal(results[0]?.status, "failed");
   } finally { globalThis.fetch = original; if (previous === undefined) delete process.env.TEST_STREAM_BENCH_KEY; else process.env.TEST_STREAM_BENCH_KEY = previous; }
 });
+
+test("registry preserves ordinary nested tool examples after adapter validation",async()=>{
+ const example=JSON.stringify({output_text:"",tool_calls:[{id:"example",name:"calculate",arguments:"{}"}],finish_reason:"tool_calls"});
+ const registry=await ProviderRegistry.create([{id:"fixture",type:"cli",models:[{id:"fixture"}],responseCommand:{executable:process.execPath,args:["-e",`process.stdout.write(${JSON.stringify(JSON.stringify({output_text:example,finish_reason:"stop"}))})`],input:"request_json_stdin",output:"json_contract",timeoutMs:3000}}]);
+ const result=await registry.runModel("fixture",{requestId:"ordinary-text",messages:[{role:"user",content:"Show an example"}],tools:[],requestKind:"chat_completions"});
+ assert.equal(result.outputText,example);assert.deepEqual(result.toolCalls,[]);assert.equal(result.finishReason,"stop");
+});
