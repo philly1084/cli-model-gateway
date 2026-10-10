@@ -12,6 +12,13 @@ event; duplicate IDs, malformed events, truncation and post-terminal data fail c
 Contract errors expose a stable code, issue and SHA-256 evidence fingerprint, not raw
 arguments. No automatic repair request or tool replay is introduced.
 
+Compatibility change: callers must resend their active tool definitions on each turn
+where tools may be requested. Missing IDs and guessed aliases no longer receive
+fabricated replacements. Native Anthropic parallel results are grouped in the next user
+message with exact `tool_use_id` values; truncated native tool turns cannot be promoted
+to success. The buffered OpenAI/Anthropic matrix exercises both valid continuations and
+missing IDs, malformed arguments, unoffered functions, truncation and orphan results.
+
 ## Deployed configuration inspected, not changed
 
 Mounted provider YAML SHA-256 on 2026-10-10:

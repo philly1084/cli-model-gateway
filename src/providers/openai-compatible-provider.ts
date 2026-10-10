@@ -1,4 +1,4 @@
-import { strictToolCalls, validateToolHistory, validateToolResult, requireOfferedTool } from "../utils/tool-contract.js";
+import { strictToolCalls, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
 import { createHash } from "node:crypto";
 import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
@@ -274,8 +274,10 @@ export class OpenAiCompatibleProvider implements Provider {
       if (!response.ok) { await response.body?.cancel(); throw Error(`Provider stream request failed (${response.status})`); }
       // No implicit retry: remote tools/session metadata can have side effects even before text.
       const offered = new Set(request.tools.map(t => t.function.name));
+      const toolEvents: ProviderStreamEvent[] = [];
       for await (const event of parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature))) {
-        if (event.type === "tool_call") requireOfferedTool(event.toolCall, offered);
+        if (event.type === "tool_call") { requireOfferedTool(event.toolCall, offered); toolEvents.push(event); continue; }
+        if (event.type === "done") for (const tool of toolEvents) yield tool;
         yield event;
       }
     } finally { clearTimeout(timer); controller.abort(); }
@@ -782,16 +784,10 @@ function buildAnthropicMessages(
     }
 
     if (message.role === "tool") {
-      out.push({
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: message.tool_call_id || "call_1",
-            content: message.content,
-          },
-        ],
-      });
+      const result = {type:"tool_result",tool_use_id:message.tool_call_id,content:message.content};
+      const previous = out.at(-1);
+      if (previous?.role === "user" && Array.isArray(previous.content) && previous.content.every(part => part.type === "tool_result")) previous.content.push(result);
+      else out.push({role:"user",content:[result]});
       continue;
     }
 
@@ -806,7 +802,7 @@ function buildAnthropicMessages(
           type: "tool_use",
           id: call.id,
           name: call.name,
-          input: tryParseJson(call.arguments) ?? {},
+          input: JSON.parse(call.arguments),
         });
       }
       out.push({
@@ -861,6 +857,7 @@ function parseAnthropicMessagesResponse(payload: unknown): ProviderResult {
     }
   }
 
+  if (toolCalls.length && record.stop_reason !== "tool_use") throw new ToolContractError("anthropic_tool_stop_mismatch", record.stop_reason);
   return normalizeAssistantResult({
     outputText: textParts.join("\n\n").trim(),
     reasoningText: reasoningParts.join("\n\n").trim() || undefined,

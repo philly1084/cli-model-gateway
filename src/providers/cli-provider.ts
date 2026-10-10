@@ -639,6 +639,7 @@ function parseJsonStreamEvent(line: string): ProviderStreamEvent | null {
   }
 
   if (parsed.type === "reasoning_delta" || parsed.type === "output_text_delta") {
+    if (typeof parsed.delta !== "string") throw new ToolContractError("stream_invalid_delta", parsed);
     return typeof parsed.delta === "string" && parsed.delta
       ? {
         type: parsed.type,
@@ -853,7 +854,7 @@ function normalizeToolCalls(rawToolCalls: unknown[] | undefined): ProviderToolCa
 }
 
 function normalizeSingleToolCall(value: unknown): ProviderToolCall | null {
-  const normalized = normalizeToolCalls(Array.isArray(value) ? value : value ? [value] : undefined);
+  const normalized = strictToolCalls([value]);
   return normalized[0] ?? null;
 }
 
