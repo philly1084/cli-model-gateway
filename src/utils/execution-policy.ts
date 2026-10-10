@@ -1,3 +1,4 @@
+import { readOutputLimit } from "./output-limit.js";
 import { z } from "zod";
 
 export const gatewayPolicySchema = z.object({
@@ -23,6 +24,7 @@ export class ExecutionPolicy {
   private terminal = false;
   private cause = "cancelled";
   constructor(private options: { metadata?: Record<string, unknown>; signal?: AbortSignal; receivedAt?: number; requestId: string; model: string; receipt?: (value: ExecutionReceipt) => void; clock?: () => number }) {
+    readOutputLimit(options.metadata);
     const policy = options.metadata?.gateway_policy === undefined ? undefined : gatewayPolicySchema.parse(options.metadata.gateway_policy);
     this.operationId = policy?.operationId ?? options.requestId;
     this.allowFallback = policy?.allowFallback ?? true;

@@ -1,3 +1,4 @@
+import { readOutputLimit } from "./utils/output-limit.js";
 import { gatewayPolicySchema } from "./utils/execution-policy";
 import { z } from "zod";
 import { REASONING_EFFORT_VALUES } from "./types";
@@ -41,6 +42,11 @@ const reasoningConfigSchema = z.object({
   effort: reasoningEffortSchema.optional(),
 }).passthrough();
 
+function validateOutputLimit(value: Record<string, unknown>, ctx: z.RefinementCtx): void {
+  try { readOutputLimit(value); }
+  catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : "Invalid output limit" }); }
+}
+
 // Chat completions request schema
 export const chatCompletionsRequestSchema = z.object({
   gateway_policy: gatewayPolicySchema.optional(),
@@ -58,7 +64,7 @@ export const chatCompletionsRequestSchema = z.object({
   reasoning_effort: reasoningEffortSchema.optional(),
   reasoningEffort: reasoningEffortSchema.optional(),
   reasoning: reasoningConfigSchema.optional(),
-}).passthrough();
+}).passthrough().superRefine(validateOutputLimit);
 
 // Responses API input item schema - very permissive for n8n compatibility
 // Accepts strings, objects, or null/undefined items
@@ -86,7 +92,7 @@ export const responsesRequestSchema = z.object({
   reasoning_effort: reasoningEffortSchema.optional(),
   reasoningEffort: reasoningEffortSchema.optional(),
   reasoning: reasoningConfigSchema.optional(),
-}).passthrough();
+}).passthrough().superRefine(validateOutputLimit);
 
 // Image generations request schema
 export const imageGenerationsRequestSchema = z.object({
