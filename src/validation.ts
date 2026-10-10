@@ -1,3 +1,4 @@
+import { gatewayPolicySchema } from "./utils/execution-policy";
 import { z } from "zod";
 import { REASONING_EFFORT_VALUES } from "./types";
 
@@ -42,6 +43,7 @@ const reasoningConfigSchema = z.object({
 
 // Chat completions request schema
 export const chatCompletionsRequestSchema = z.object({
+  gateway_policy: gatewayPolicySchema.optional(),
   model: z.string().min(1, "model is required"),
   messages: z.array(chatMessageSchema).min(1, "messages must include at least one item"),
   tools: z.array(toolDefinitionSchema).optional(),
@@ -69,6 +71,7 @@ const responseInputItemSchema = z.union([
 
 // Responses API request schema
 export const responsesRequestSchema = z.object({
+  gateway_policy: gatewayPolicySchema.optional(),
   model: z.string().min(1, "model is required"),
   input: z.union([z.string(), responseInputItemSchema, z.array(responseInputItemSchema)]).optional(),
   instructions: z.string().optional(),

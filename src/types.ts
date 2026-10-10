@@ -1,3 +1,4 @@
+import type { ExecutionPolicy, ExecutionReceipt } from "./utils/execution-policy";
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 export type AssistantPhase = "commentary" | "final_answer";
 export const REASONING_EFFORT_VALUES = [
@@ -36,6 +37,9 @@ export interface UnifiedToolDefinition {
 }
 
 export interface UnifiedRequest {
+  execution?: ExecutionPolicy;
+  receivedAt?: number;
+  receipt?: (value: ExecutionReceipt) => void;
   signal?: AbortSignal;
   requestId: string;
   model: string;

@@ -1530,8 +1530,10 @@ export function resolveCodexAppServerTurnModel(
   model: string,
   requestKind: GatewayRequest["requestKind"],
   chatGptFallbackModel: string,
+  allowInternalFallback = true,
 ): string {
   if (
+    allowInternalFallback &&
     requestKind === "images_generations" &&
     model === "codex-latest" &&
     chatGptFallbackModel !== model
@@ -1669,10 +1671,13 @@ async function run(): Promise<void> {
     }
     rpc.notify("initialized");
 
+    // Bounded requests account for model attempts in the registry, not inside a bridge.
+    const allowInternalFallback = getRequestMetadata(request)?.gateway_policy === undefined;
     let selectedModel = resolveCodexAppServerTurnModel(
       model,
       request.requestKind,
       chatGptFallbackModel,
+      allowInternalFallback,
     );
     if (selectedModel !== model) {
       process.stderr.write(
@@ -1697,6 +1702,7 @@ async function run(): Promise<void> {
       )) as Record<string, unknown>;
     } catch (error) {
       if (
+        allowInternalFallback &&
         selectedModel === "codex-latest" &&
         chatGptFallbackModel !== selectedModel &&
         isChatGptCodexLatestUnsupportedError(error)
