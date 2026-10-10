@@ -2,7 +2,6 @@ import { strictToolCalls, strictToolArguments } from "../utils/tool-contract.js"
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
-import { parseAssistantPayloadText } from "../utils/assistant-output";
 import { normalizeToolAlias, normalizeToolName } from "../utils/tools";
 import { resolveReasoningEffort } from "../utils/reasoning";
 
