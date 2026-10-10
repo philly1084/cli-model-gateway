@@ -1,6 +1,6 @@
 import type { ProviderResult, ProviderToolCall } from "../types";
 import { extractTextContent } from "./prompt";
-import { strictToolCalls, strictToolArguments } from "./tool-contract.js";
+import { strictToolCalls, strictToolArguments, ToolContractError } from "./tool-contract.js";
 
 type AssistantFinishReason = ProviderResult["finishReason"];
 
@@ -53,6 +53,9 @@ const WRAPPER_KEYS = new Set([
 export function normalizeAssistantResult(result: ProviderResult): ProviderResult {
   const parsed = parseAssistantPayloadText(result.outputText);
   const toolCalls = dedupeToolCalls([...result.toolCalls, ...parsed.toolCalls]);
+  if (toolCalls.length && (result.finishReason === "length" || result.finishReason === "error" || parsed.finishReason === "length" || parsed.finishReason === "error")) {
+    throw new ToolContractError("incomplete_tool_turn", {finishReason:result.finishReason,parsedFinishReason:parsed.finishReason});
+  }
 
   return {
     ...result,

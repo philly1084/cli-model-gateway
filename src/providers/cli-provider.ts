@@ -828,6 +828,8 @@ function normalizeContract(value: unknown): JsonContract {
   }
 
   const source = value as Record<string, unknown>;
+  if (source.tool_calls !== undefined && !Array.isArray(source.tool_calls)) throw new ToolContractError("calls_not_bounded_array", source.tool_calls);
+  if (source.finish_reason !== undefined && !["stop","tool_calls","length","error"].includes(String(source.finish_reason))) throw new ToolContractError("finish_reason_invalid", source.finish_reason);
   return {
     output_text:
       typeof source.output_text === "string" ? source.output_text : undefined,
@@ -856,7 +858,8 @@ function normalizeSingleToolCall(value: unknown): ProviderToolCall | null {
 }
 
 function normalizeFinishReasonValue(value: unknown): ProviderResult["finishReason"] {
-  return value === "tool_calls" || value === "length" || value === "error" ? value : "stop";
+  if (value !== "stop" && value !== "tool_calls" && value !== "length" && value !== "error") throw new ToolContractError("finish_reason_invalid", value);
+  return value;
 }
 
 function extractReasoningValue(record: Record<string, unknown>): unknown {

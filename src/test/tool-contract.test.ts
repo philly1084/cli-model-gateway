@@ -2,9 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { strictToolCalls, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
 import { CliProvider } from "../providers/cli-provider.js";
+import {normalizeAssistantResult} from "../utils/assistant-output.js";
 import type { UnifiedRequest, ProviderStreamEvent } from "../types";
 
 const call = {id:"original-id",name:"approved_action",arguments:'{ " value ": 7 }'};
+for(const finishReason of ['length','error'] as const)test(`text normalization cannot promote ${finishReason} to successful tool completion`,()=>{
+ assert.throws(()=>normalizeAssistantResult({outputText:'',toolCalls:[call],finishReason}),/incomplete_tool_turn/);
+});
 const assistant = {role:"assistant" as const,content:'TOOL_CALLS:\n'+JSON.stringify([call,{...call,id:'parallel-id'}])};
 test("parallel results may arrive out of order but must match exactly once",()=>{
   validateToolHistory([assistant,{role:'tool',tool_call_id:'parallel-id',content:'two'},{role:'tool',tool_call_id:call.id,content:'one'},{role:'user',content:'next'}]);
