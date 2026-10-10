@@ -19,10 +19,11 @@ const scenario = process.env.FAKE_SCENARIO;
 readline.createInterface({input:process.stdin}).on('line', line => {
  const m=JSON.parse(line);
  if(m.method==='initialize') send({id:m.id,result:{}});
- if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'t'}}});
+ if(m.method==='thread/start') { if(scenario==='alias') { process.stderr.write('MODEL:'+m.params.model+'\\n'); if(m.params.model==='codex-latest') { send({id:m.id,error:{message:'codex-latest not supported for ChatGPT account'}}); return; } } send({id:m.id,result:{thread:{id:'t'}}}); }
  if(m.method==='turn/start') {
   send({id:m.id,result:{turn:{id:'u'}}});
   setTimeout(()=>{
+   if(scenario==='alias') { event('item/completed',{threadId:'t',turnId:'u',item:{type:'agentMessage',text:'alias fixture answer'}});done(); }
    if(scenario==='idle'||scenario==='cancel') { if(scenario==='idle') send(call()); }
    if(scenario==='multiple') {send(call());setTimeout(()=>send(call('c2')),500);}
    if(scenario==='partial'||scenario==='partial-second') {if(scenario==='partial-second') send(call());const s=JSON.stringify(call(scenario==='partial-second'?'c2':'c1'))+'\\n';process.stdout.write(s.slice(0,60));setTimeout(()=>process.stdout.write(s.slice(60)),2500);}
@@ -36,12 +37,12 @@ readline.createInterface({input:process.stdin}).on('line', line => {
 process.stdin.on('end',()=>process.exit(0));
 `;
 
-async function run(scenario, stream = false) {
+async function run(scenario, stream = false, metadata) {
  const dir=mkdtempSync(join(tmpdir(),'bridge-preflight-'));
  const cli=join(dir,'fake-codex');
  writeFileSync(cli,fake,{mode:0o700});
  const started=Date.now();
- const child=spawn(process.execPath,[resolve(process.env.BRIDGE_TEST_PATH || 'dist/scripts/codex-appserver-bridge.js'),'offline-test-model'],{
+ const child=spawn(process.execPath,[resolve(process.env.BRIDGE_TEST_PATH || 'dist/scripts/codex-appserver-bridge.js'),scenario==='alias'?'codex-latest':'offline-test-model'],{
   detached:true,env:{PATH:process.env.PATH,HOME:dir,CODEX_EXECUTABLE:cli,FAKE_SCENARIO:scenario,CODEX_APPSERVER_TIMEOUT_MS:'6500'},stdio:['pipe','pipe','pipe']
  });
  let stdout='',stderr='';
@@ -50,7 +51,7 @@ async function run(scenario, stream = false) {
  const safety=setTimeout(killGroup,9000);
  let cancelError;
  const cancel=scenario==='cancel'?setTimeout(()=>{try{if(!child.kill('SIGTERM')) cancelError='signal-not-delivered';}catch(e){cancelError=e.code;}},500):null;
- child.stdin.end(JSON.stringify({requestKind:'responses',messages:[{role:'user',content:'offline protocol test'}],tools:scenario==='text'?[]:[{type:'function',function:{name:'exec_command',parameters:{type:'object'}}}],stream}));
+ child.stdin.end(JSON.stringify({requestKind:'responses',metadata,messages:[{role:'user',content:'offline protocol test'}],tools:scenario==='text'?[]:[{type:'function',function:{name:'exec_command',parameters:{type:'object'}}}],stream}));
  try {
   const result=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',(code,signal)=>resolve({code,signal}));});
   return {...result,stdout,stderr,cancelError,elapsed:Date.now()-started};
@@ -83,4 +84,9 @@ protocolTest('incomplete RPC line never becomes a tool call',async()=>{
 });
 protocolTest('bridge process cancellation yields no completed response',async()=>{
  const r=await run('cancel');assert.equal(r.cancelError,undefined,'child signal must succeed');assert.equal(r.signal,'SIGTERM');assert.equal(r.stdout,'');assert.ok(r.elapsed<2000);
+});
+
+protocolTest('bounded policies disable hidden Codex alias fallback; unbounded compatibility remains',async()=>{
+ for(const allowFallback of [false,true]) { const r=await run('alias',false,{gateway_policy:{operationId:'alias-fixture',allowFallback,maxAttempts:2,maxLatencyMs:5000}});assert.equal(r.code,1);assert.equal((r.stderr.match(/MODEL:/g)||[]).length,1);assert.equal(r.stdout,''); }
+ const legacy=await run('alias');assert.equal(legacy.code,0,legacy.stderr);assert.match(JSON.parse(legacy.stdout).output_text,/alias fixture answer/);
 });

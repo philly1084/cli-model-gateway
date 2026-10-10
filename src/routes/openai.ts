@@ -1,3 +1,4 @@
+import type { ExecutionReceipt } from "../utils/execution-policy";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -701,10 +702,21 @@ interface OpenAiRoutesOptions {
   defaultReasoningEffort?: ReasoningEffort;
 }
 
+const requestArrivals = new WeakMap<object, number>();
+function executionTransport(reply: FastifyReply) {
+  const controller = new AbortController();
+  const close = () => { if (!reply.raw.writableFinished) controller.abort(Error("Client disconnected")); cleanup(); };
+  const cleanup = () => { reply.raw.off("close", close); reply.raw.off("finish", cleanup); };
+  reply.raw.once("close", close); reply.raw.once("finish", cleanup);
+  if (reply.raw.destroyed) close();
+  return { signal: controller.signal, receivedAt: requestArrivals.get(reply.request) ?? Date.now(), receipt: (value: ExecutionReceipt) => reply.log.info(value, "Gateway execution receipt") };
+}
+
 export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
   app,
   options,
 ) => {
+  app.addHook("onRequest", async request => { requestArrivals.set(request, Date.now()); });
   app.addHook("preHandler", async (request, reply) => {
     if (!isAuthorized(request, options.n8nApiKeys)) {
       sendOpenAiError(reply, 401, "Invalid API key.", "invalid_api_key");
@@ -790,7 +802,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       request.log.warn(
         {
           error: validationResult.error,
-          body: typeof request.body === "object" ? JSON.stringify(request.body).slice(0, 2000) : String(request.body)
+          bodyOmitted: true
         },
         "Chat completions validation failed"
       );
@@ -837,7 +849,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       request.log.warn(
         {
           error: validationResult.error,
-          body: typeof request.body === "object" ? JSON.stringify(request.body).slice(0, 2000) : String(request.body)
+          bodyOmitted: true
         },
         "Responses API validation failed"
       );
@@ -941,6 +953,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       const inputItems = buildResponseInputItems(inputMessages);
       const responseId = makeId("resp");
       const runRequest = {
+        ...executionTransport(reply),
         requestId: makeId("req"),
         messages,
         tools,
@@ -1001,7 +1014,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
         const disconnect = () => streamAbort.abort();
         reply.raw.once("close", disconnect);
         try {
-          for await (const event of options.registry.runModelStream(body.model, { ...runRequest, signal: streamAbort.signal })) {
+          for await (const event of options.registry.runModelStream(body.model, { ...runRequest, signal: AbortSignal.any([runRequest.signal, streamAbort.signal]) })) {
             if (event.type === "output_text_delta") {
               streamedResult.outputText += event.delta;
               await writeResponseStreamEvent({
@@ -1578,6 +1591,7 @@ async function handleChatCompletionsRequest(
   try {
     const reasoningEffort = resolveReasoningEffort(body, defaultReasoningEffort);
     const runRequest = {
+        ...executionTransport(reply),
       requestId: makeId("req"),
       messages,
       tools,
@@ -1616,7 +1630,7 @@ async function handleChatCompletionsRequest(
       const disconnect = () => streamAbort.abort();
       reply.raw.once("close", disconnect);
       try {
-        for await (const event of registry.runModelStream(body.model, { ...runRequest, signal: streamAbort.signal })) {
+        for await (const event of registry.runModelStream(body.model, { ...runRequest, signal: AbortSignal.any([runRequest.signal, streamAbort.signal]) })) {
           if (event.type === "output_text_delta") {
             streamedResult.outputText += event.delta;
             await writeSseData(reply, {

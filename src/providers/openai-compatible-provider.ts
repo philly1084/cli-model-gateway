@@ -139,6 +139,7 @@ export class OpenAiCompatibleProvider implements Provider {
     const body = this.buildChatBody(providerModel, request);
     const metadata = request.metadata;
 
+    request.signal?.throwIfAborted(); request.execution?.dispatch();
     const response = await this.requestJson(
       "/chat/completions",
       {
@@ -146,6 +147,7 @@ export class OpenAiCompatibleProvider implements Provider {
         body: JSON.stringify(body),
       },
       readPositiveIntegerMetadata(metadata, "gateway_benchmark_timeout_ms"),
+      request.signal,
     );
 
     return parseChatCompletionResponse(response);
@@ -262,6 +264,7 @@ export class OpenAiCompatibleProvider implements Provider {
     const timer = setTimeout(() => controller.abort(), readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms") ?? this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     try {
       signal.throwIfAborted();
+      request.execution?.dispatch();
       const response = await fetch(buildProviderUrl(this.config.baseUrl, "/chat/completions"), {
         method: "POST", headers: buildRequestHeaders(key), body: JSON.stringify(body), signal,
       });
@@ -300,6 +303,7 @@ export class OpenAiCompatibleProvider implements Provider {
       }
     }
 
+    request.signal?.throwIfAborted(); request.execution?.dispatch();
     const response = await this.requestJson(
       "/messages",
       {
@@ -310,6 +314,7 @@ export class OpenAiCompatibleProvider implements Provider {
         body: JSON.stringify(body),
       },
       readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms"),
+      request.signal,
     );
 
     return parseAnthropicMessagesResponse(response);
@@ -338,6 +343,7 @@ export class OpenAiCompatibleProvider implements Provider {
     copyStringMetadata(body, request.metadata, "response_format");
     copyStringMetadata(body, request.metadata, "user");
 
+    request.signal?.throwIfAborted(); request.execution?.dispatch();
     const response = await this.requestJson(
       "/images/generations",
       {
@@ -345,6 +351,7 @@ export class OpenAiCompatibleProvider implements Provider {
         body: JSON.stringify(body),
       },
       readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms"),
+      request.signal,
     );
 
     return {
@@ -408,8 +415,9 @@ export class OpenAiCompatibleProvider implements Provider {
     pathname: string,
     init: ProviderRequestInit,
     timeoutMsOverride?: number,
+    signal?: AbortSignal,
   ): Promise<unknown> {
-    return await requestProviderJson(this.config, pathname, init, timeoutMsOverride);
+    return await requestProviderJson(this.config, pathname, init, timeoutMsOverride, signal);
   }
 }
 
@@ -1150,6 +1158,7 @@ async function requestProviderJson(
   pathname: string,
   init: ProviderRequestInit,
   timeoutMsOverride?: number,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const apiKey = process.env[config.apiKeyEnv]?.trim();
   if (!apiKey) {
@@ -1160,14 +1169,16 @@ async function requestProviderJson(
   const timeoutMs = timeoutMsOverride ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  let responseComplete = false;
   try {
     const response = await fetch(buildProviderUrl(config.baseUrl, pathname), {
       ...init,
       headers: buildRequestHeaders(apiKey, init.headers),
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
     });
 
     const text = await response.text();
+    responseComplete = true;
     const payload = tryParseJson(text);
 
     if (!response.ok) {
@@ -1185,8 +1196,9 @@ async function requestProviderJson(
     return payload;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Provider API request timed out after ${timeoutMs}ms.`);
+      throw Object.assign(new Error(`Provider API request timed out after ${timeoutMs}ms.`), { uncertain: true });
     }
+    if (!responseComplete && error instanceof Error) Object.assign(error, { uncertain: true });
     throw error;
   } finally {
     clearTimeout(timer);

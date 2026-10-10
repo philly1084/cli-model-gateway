@@ -1,3 +1,4 @@
+import { controlledCommand } from "./controlled-command";
 import { spawn } from "node:child_process";
 import type { CommandSpec } from "../types";
 import { applyTemplate, applyTemplateRecord, checkShellSafety, type TemplateOptions } from "./template.js";
@@ -60,7 +61,14 @@ export function resolveCommand(
 export async function runCommand(
   command: ResolvedCommand,
   stdinData?: string,
+  signal?: AbortSignal,
+  cleanup?: (absent: boolean) => void,
 ): Promise<CommandOutput> {
+  if (signal) {
+    let stdout = "", stderr = "";
+    for await (const event of controlledCommand(command, stdinData, signal, cleanup)) { if (event.stream === "stdout") stdout += event.chunk; else stderr += event.chunk; }
+    return { stdout, stderr, exitCode: 0, signal: null, timedOut: false };
+  }
   const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB cap per stream
 
   return await new Promise<CommandOutput>((resolve, reject) => {
@@ -140,7 +148,10 @@ export async function runCommand(
 export async function* runCommandStream(
   command: ResolvedCommand,
   stdinData?: string,
+  requestSignal?: AbortSignal,
+  cleanup?: (absent: boolean) => void,
 ): AsyncGenerator<CommandStreamEvent, void, void> {
+  if (requestSignal) { yield* controlledCommand(command, stdinData, requestSignal, cleanup); return; }
   const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB cap per stream
   const child = spawn(command.executable, command.args, {
     env: {

@@ -1,3 +1,4 @@
+import { ExecutionPolicy } from "../utils/execution-policy";
 import type {
   AutoRouterBenchmarkMeasurement,
   AutoRouterBenchmarkPromptKind,
@@ -734,6 +735,13 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): Promise<ProviderResult> {
+    const execution = new ExecutionPolicy({ ...request, model: modelId });
+    let success = false;
+    try { execution.check(); const result = await execution.wait(this.runModelWithin(modelId, { ...request, execution, signal: execution.signal })); success = true; return result; }
+    finally { execution.finish(success); }
+  }
+
+  private async runModelWithin(modelId: string, request: Omit<UnifiedRequest, "model" | "providerModel">): Promise<ProviderResult> {
     const autoSelection = modelId === AUTO_MODEL_ID
       ? this.selectAutoModel(request)
       : undefined;
@@ -749,6 +757,7 @@ export class ProviderRegistry {
     let lastError: unknown;
 
     while (currentModelId) {
+      request.execution?.check();
       if (visited.has(currentModelId)) {
         break;
       }
@@ -836,11 +845,13 @@ export class ProviderRegistry {
           throw new Error(`Model ${binding.modelId} does not support tools requests.`);
         }
 
+        request.execution?.attempt(binding.modelId, binding.provider.id);
         const rawResult = await binding.provider.run({
           ...request,
           model: binding.modelId,
           providerModel: binding.providerModel,
         });
+        request.execution?.check();
         const result = normalizeAssistantResult(rawResult);
         if (isInvalidProviderResult(result, request)) {
           throw new Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
@@ -859,6 +870,8 @@ export class ProviderRegistry {
           resolvedModel: result.resolvedModel ?? binding.modelId,
         };
       } catch (error) {
+        request.execution?.check();
+        if (error && typeof error === "object" && "uncertain" in error && error.uncertain) throw error;
         lastError = error;
         const failureKind = this.modelStats.recordFailure({
           modelId: binding.modelId,
@@ -939,6 +952,7 @@ export class ProviderRegistry {
     visited: Set<string>,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): string | undefined {
+    if (request.execution && !request.execution.canFallback()) return undefined;
     return (
       binding.fallbackModelIds.find(
         (fallback) =>
@@ -1065,6 +1079,22 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): AsyncIterable<ProviderStreamEvent> {
+    const execution = new ExecutionPolicy({ ...request, model: modelId });
+    let success = false, completed = false;
+    const iterator = this.runModelStreamWithin(modelId, { ...request, execution, signal: execution.signal })[Symbol.asyncIterator]();
+    try {
+      execution.check();
+      for (;;) { const item = await execution.wait(iterator.next()); if (item.done) break; if (item.value.type === "done") { if (item.value.finishReason === "error") throw Object.assign(Error("Provider terminal reported failure"), { uncertain: true }); completed = true; } yield item.value; }
+      if (!completed) throw Object.assign(Error("Provider stream ended without a terminal receipt"), { uncertain: true });
+      success = true;
+    } finally {
+      execution.finish(success);
+      // Do not block a deadline on an uncooperative provider; cleanup remains uncertain.
+      void iterator.return?.().catch(() => {});
+    }
+  }
+
+  private async *runModelStreamWithin(modelId: string, request: Omit<UnifiedRequest, "model" | "providerModel">): AsyncIterable<ProviderStreamEvent> {
     if (modelId === AUTO_MODEL_ID) {
       throw new Error("Auto model routing does not support provider-native streaming.");
     }
@@ -1079,6 +1109,7 @@ export class ProviderRegistry {
       throw new Error(`Model ${modelId} does not support streaming.`);
     }
 
+    request.execution?.attempt(binding.modelId, binding.provider.id);
     const attemptIndex = 0;
     const startedAt = Date.now();
     this.modelStats.recordAttempt({

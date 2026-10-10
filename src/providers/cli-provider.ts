@@ -83,9 +83,11 @@ export class CliProvider implements Provider {
   }
 
   async run(request: UnifiedRequest): Promise<ProviderResult> {
+    request.signal?.throwIfAborted();
     const prepared = await this.prepareCommandExecution(request);
     try {
-      const output = await runCommand(prepared.resolved, prepared.stdinPayload);
+      request.signal?.throwIfAborted(); request.execution?.dispatch();
+      const output = await runCommand(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent));
       if (isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC) && output.stderr.trim()) {
         process.stderr.write(output.stderr);
       }
@@ -127,7 +129,8 @@ export class CliProvider implements Provider {
 
     try {
       let pendingStdout = "";
-      for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload)) {
+      request.signal?.throwIfAborted(); request.execution?.dispatch();
+      for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent))) {
         if (event.stream !== "stdout") {
           if (isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC) && event.chunk) {
             process.stderr.write(event.chunk);
@@ -176,10 +179,9 @@ export class CliProvider implements Provider {
     const promptFile = path.join(tmpDir, "prompt.txt");
     const requestFile = path.join(tmpDir, "request.json");
 
-    const requestPayload = {
-      ...request,
-      prompt,
-    };
+    // Internal execution controls never enter provider JSON or retained prompt files.
+    const { execution: _execution, signal: _signal, receipt: _receipt, receivedAt: _receivedAt, ...providerRequest } = request;
+    const requestPayload = { ...providerRequest, prompt };
 
     await writeFile(promptFile, prompt, "utf8");
     await writeFile(requestFile, JSON.stringify(requestPayload, null, 2), "utf8");
