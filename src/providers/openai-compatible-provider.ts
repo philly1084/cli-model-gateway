@@ -1,3 +1,4 @@
+import { strictToolCalls, validateToolHistory, validateToolResult, requireOfferedTool } from "../utils/tool-contract.js";
 import { createHash } from "node:crypto";
 import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
@@ -123,6 +124,7 @@ export class OpenAiCompatibleProvider implements Provider {
   }
 
   async run(request: UnifiedRequest): Promise<ProviderResult> {
+    validateToolHistory(request.messages);
     const modelConfig = this.models.find((model) => model.id === request.model);
     if (!modelConfig) {
       throw new Error(`Provider ${this.id} does not expose model ${request.model}.`);
@@ -133,7 +135,7 @@ export class OpenAiCompatibleProvider implements Provider {
       return await this.runImageGeneration(providerModel, request);
     }
     if (isKimiCodeApiBaseUrl(this.config.baseUrl)) {
-      return await this.runKimiCodeAnthropicMessages(providerModel, request);
+      return validateToolResult(await this.runKimiCodeAnthropicMessages(providerModel, request), request);
     }
 
     const body = this.buildChatBody(providerModel, request);
@@ -150,10 +152,11 @@ export class OpenAiCompatibleProvider implements Provider {
       request.signal,
     );
 
-    return parseChatCompletionResponse(response);
+    return validateToolResult(parseChatCompletionResponse(response), request);
   }
 
   private buildChatBody(providerModel: string, request: UnifiedRequest): Record<string, unknown> {
+    validateToolHistory(request.messages);
     const suppressGroqLocalToolCalling = shouldSuppressGroqLocalToolCalling(
       this.config.baseUrl,
       providerModel,
@@ -270,7 +273,11 @@ export class OpenAiCompatibleProvider implements Provider {
       });
       if (!response.ok) { await response.body?.cancel(); throw Error(`Provider stream request failed (${response.status})`); }
       // No implicit retry: remote tools/session metadata can have side effects even before text.
-      yield* parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature));
+      const offered = new Set(request.tools.map(t => t.function.name));
+      for await (const event of parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature))) {
+        if (event.type === "tool_call") requireOfferedTool(event.toolCall, offered);
+        yield event;
+      }
     } finally { clearTimeout(timer); controller.abort(); }
   }
 
@@ -624,25 +631,7 @@ function splitAssistantToolContext(content: string): {
     return { content, toolCalls: [] };
   }
 
-  const toolCalls: ProviderToolCall[] = [];
-  for (const item of parsed) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const record = item as Record<string, unknown>;
-    const name = typeof record.name === "string" ? record.name.trim() : "";
-    if (!name) {
-      continue;
-    }
-
-    const id = typeof record.id === "string" ? record.id : undefined;
-    const argumentsValue = normalizeToolArguments(record.arguments);
-    toolCalls.push({
-      id: id || `call_${toolCalls.length + 1}`,
-      name,
-      arguments: argumentsValue,
-    });
-  }
+  const toolCalls = strictToolCalls(parsed);
 
   return {
     content: baseContent,
@@ -776,35 +765,7 @@ function isKimiK2ProviderModel(baseUrl: string, providerModel: string): boolean 
   return isKimiBaseUrl(baseUrl) && isKimiK2Model(providerModel);
 }
 
-function normalizeApiToolCalls(raw: unknown): ProviderToolCall[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-
-  const toolCalls: ProviderToolCall[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-
-    const record = item as Record<string, unknown>;
-    const fn = record.function && typeof record.function === "object"
-      ? (record.function as Record<string, unknown>)
-      : undefined;
-    const name = typeof fn?.name === "string" ? fn.name.trim() : "";
-    if (!name) {
-      continue;
-    }
-
-    toolCalls.push({
-      id: typeof record.id === "string" && record.id ? record.id : `call_${toolCalls.length + 1}`,
-      name,
-      arguments: normalizeToolArguments(fn?.arguments),
-    });
-  }
-
-  return toolCalls;
-}
+function normalizeApiToolCalls(raw: unknown): ProviderToolCall[] { return strictToolCalls(raw); }
 
 function buildAnthropicMessages(
   messages: UnifiedRequest["messages"],
@@ -888,12 +849,8 @@ function parseAnthropicMessagesResponse(payload: unknown): ProviderResult {
       textParts.push(part.text);
       continue;
     }
-    if (type === "tool_use" && typeof part.name === "string") {
-      toolCalls.push({
-        id: typeof part.id === "string" && part.id ? part.id : `call_${toolCalls.length + 1}`,
-        name: part.name,
-        arguments: normalizeToolArguments(part.input),
-      });
+    if (type === "tool_use") {
+      toolCalls.push(...strictToolCalls([{ id: part.id, name: part.name, arguments: part.input }]));
       continue;
     }
     if (type.includes("thinking") || type.includes("reasoning")) {

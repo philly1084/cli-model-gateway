@@ -17,7 +17,7 @@ import type {
 import { runCommand, runCommandStream, resolveCommand } from "../utils/command";
 import { buildPrompt } from "../utils/prompt";
 import { withRuntimeTemplateVars } from "../utils/runtime-template-vars";
-import { normalizeToolName, normalizeToolAlias, normalizeArgumentKey } from "../utils/tools";
+import { strictToolCalls, requireOfferedTool, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
 import { normalizeAssistantResult } from "../utils/assistant-output";
 import { normalizeProviderUsage } from "../utils/usage";
 import type { Provider } from "./provider";
@@ -129,6 +129,16 @@ export class CliProvider implements Provider {
 
     try {
       let pendingStdout = "";
+      let bytes = 0;
+      let terminal: Extract<ProviderStreamEvent, {type:"done"}> | undefined;
+      const calls: ProviderToolCall[] = [];
+      const accept = (event: ProviderStreamEvent): ProviderStreamEvent | undefined => {
+        if (terminal) throw new ToolContractError("data_after_done", event);
+        normalizeStreamToolEvent(event, allowedTools);
+        if (event.type === "tool_call") { calls.push(event.toolCall); strictToolCalls(calls); return; }
+        if (event.type === "done") { terminal = event; return; }
+        return event;
+      };
       request.signal?.throwIfAborted(); request.execution?.dispatch();
       for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent))) {
         if (event.stream !== "stdout") {
@@ -138,6 +148,8 @@ export class CliProvider implements Provider {
           continue;
         }
 
+        bytes += Buffer.byteLength(event.chunk);
+        if (bytes > 2097152) throw new ToolContractError("stream_oversized", bytes);
         pendingStdout += event.chunk;
         let newlineIndex = pendingStdout.indexOf("\n");
         while (newlineIndex !== -1) {
@@ -145,7 +157,7 @@ export class CliProvider implements Provider {
           pendingStdout = pendingStdout.slice(newlineIndex + 1);
           const parsedEvent = parseJsonStreamEvent(line);
           if (parsedEvent) {
-            yield normalizeStreamToolEvent(parsedEvent, allowedTools);
+            const accepted = accept(parsedEvent); if (accepted) yield accepted;
           }
           newlineIndex = pendingStdout.indexOf("\n");
         }
@@ -153,8 +165,14 @@ export class CliProvider implements Provider {
 
       const trailingEvent = parseJsonStreamEvent(pendingStdout.trim());
       if (trailingEvent) {
-        yield normalizeStreamToolEvent(trailingEvent, allowedTools);
+        const accepted = accept(trailingEvent); if (accepted) yield accepted;
       }
+      request.signal?.throwIfAborted();
+      if (!terminal) throw new ToolContractError("stream_missing_done", calls);
+      const final = terminal as Extract<ProviderStreamEvent, {type:"done"}>;
+      if ((calls.length > 0) !== (final.finishReason === "tool_calls")) throw new ToolContractError("finish_reason_mismatch", final);
+      for (const call of calls) yield {type:"tool_call",toolCall:call};
+      yield final;
     } finally {
       await rm(prepared.tmpDir, { recursive: true, force: true });
     }
@@ -165,6 +183,7 @@ export class CliProvider implements Provider {
     resolved: ReturnType<typeof resolveCommand>;
     stdinPayload: string;
   }> {
+    validateToolHistory(request.messages);
     const modelConfig = this.models.find((model) => model.id === request.model);
     if (!modelConfig) {
       throw new Error(`Provider ${this.id} does not expose model ${request.model}.`);
@@ -612,11 +631,11 @@ function parseJsonStreamEvent(line: string): ProviderStreamEvent | null {
   try {
     parsed = JSON.parse(line) as JsonStreamContract;
   } catch {
-    return null;
+    throw new ToolContractError("stream_invalid_json", line);
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof parsed.type !== "string") {
-    return null;
+    throw new ToolContractError("stream_invalid_event", parsed);
   }
 
   if (parsed.type === "reasoning_delta" || parsed.type === "output_text_delta") {
@@ -652,183 +671,24 @@ function parseJsonStreamEvent(line: string): ProviderStreamEvent | null {
     };
   }
 
-  return null;
+  throw new ToolContractError("stream_unknown_event", parsed);
 }
 
-function normalizeResultToolCalls(
-  result: ProviderResult,
-  tools: UnifiedToolDefinition[],
-): ProviderResult {
-  const allowedTools = extractAllowedTools(tools);
-  if (result.toolCalls.length === 0) {
-    return result;
-  }
-
-  // When no tool definitions were provided by the caller, pass through
-  // whatever tool calls the provider returned. Previously this branch
-  // silently dropped ALL tool calls and rewrote finish_reason to "stop",
-  // which caused agents to lose tool-calling ability on subsequent turns
-  // when n8n didn't re-send the tools array.
-  if (allowedTools.size === 0) {
-    return result;
-  }
-
-  const mappedToolCalls: ProviderToolCall[] = [];
-  for (const call of result.toolCalls) {
-    const toolMeta = resolveAllowedToolMeta(call.name, allowedTools);
-    if (!toolMeta) {
-      continue;
-    }
-    mappedToolCalls.push({
-      ...call,
-      name: toolMeta.name,
-      arguments: canonicalizeArgumentsForTool(call.arguments, toolMeta.argumentKeyMap),
-    });
-  }
-
-  return {
-    ...result,
-    toolCalls: mappedToolCalls,
-    finishReason:
-      mappedToolCalls.length > 0
-        ? result.finishReason
-        : result.finishReason === "tool_calls"
-          ? "stop"
-          : result.finishReason,
-  };
+function normalizeResultToolCalls(result: ProviderResult, tools: UnifiedToolDefinition[]): ProviderResult {
+  const names = extractAllowedTools(tools);
+  strictToolCalls(result.toolCalls);
+  if ((result.toolCalls.length > 0) !== (result.finishReason === "tool_calls")) throw new ToolContractError("finish_reason_mismatch", result.raw);
+  for (const call of result.toolCalls) requireOfferedTool(call, names);
+  return result;
 }
 
-function normalizeStreamToolEvent(
-  event: ProviderStreamEvent,
-  allowedTools: Map<string, AllowedToolMeta>,
-): ProviderStreamEvent {
-  if (event.type !== "tool_call") {
-    return event;
-  }
-
-  if (allowedTools.size === 0) {
-    return event;
-  }
-
-  const toolMeta = resolveAllowedToolMeta(event.toolCall.name, allowedTools);
-  if (!toolMeta) {
-    return event;
-  }
-
-  return {
-    type: "tool_call",
-    toolCall: {
-      ...event.toolCall,
-      name: toolMeta.name,
-      arguments: canonicalizeArgumentsForTool(event.toolCall.arguments, toolMeta.argumentKeyMap),
-    },
-  };
+function normalizeStreamToolEvent(event: ProviderStreamEvent, names: Set<string>): ProviderStreamEvent {
+  if (event.type === "tool_call") requireOfferedTool(event.toolCall, names);
+  return event;
 }
 
-type AllowedToolMeta = {
-  name: string;
-  argumentKeyMap: Map<string, string>;
-};
-
-
-
-function resolveAllowedToolMeta(
-  rawName: string,
-  allowedTools: Map<string, AllowedToolMeta>,
-): AllowedToolMeta | null {
-  const direct = allowedTools.get(normalizeToolName(rawName));
-  if (direct) {
-    return direct;
-  }
-
-  const alias = allowedTools.get(normalizeToolAlias(rawName));
-  if (alias) {
-    return alias;
-  }
-
-  if (allowedTools.size === 1) {
-    const only = allowedTools.values().next().value;
-    return only ?? null;
-  }
-
-  return null;
-}
-
-function extractAllowedTools(tools: UnifiedToolDefinition[]): Map<string, AllowedToolMeta> {
-  const out = new Map<string, AllowedToolMeta>();
-  for (const item of tools) {
-    if (!item || item.type !== "function") {
-      continue;
-    }
-    const name = typeof item.function.name === "string" ? item.function.name.trim() : "";
-    if (!name) {
-      continue;
-    }
-    out.set(normalizeToolName(name), {
-      name,
-      argumentKeyMap: buildArgumentKeyMap(item.function.parameters),
-    });
-  }
-  return out;
-}
-
-
-
-function buildArgumentKeyMap(parameters: unknown): Map<string, string> {
-  const out = new Map<string, string>();
-  if (!parameters || typeof parameters !== "object") {
-    return out;
-  }
-  const props = (parameters as Record<string, unknown>).properties;
-  if (!props || typeof props !== "object" || Array.isArray(props)) {
-    return out;
-  }
-  for (const key of Object.keys(props as Record<string, unknown>)) {
-    if (!key) {
-      continue;
-    }
-    out.set(normalizeArgumentKey(key), key);
-  }
-  return out;
-}
-
-function canonicalizeArgumentsForTool(
-  rawArgs: string,
-  argumentKeyMap: Map<string, string>,
-): string {
-  if (argumentKeyMap.size === 0) {
-    return rawArgs;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawArgs);
-  } catch {
-    return rawArgs;
-  }
-
-  const sanitized = sanitizeArgumentKeys(parsed);
-  if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) {
-    try {
-      return JSON.stringify(sanitized ?? {});
-    } catch {
-      return rawArgs;
-    }
-  }
-
-  const out: Record<string, unknown> = {};
-  for (const [rawKey, value] of Object.entries(sanitized as Record<string, unknown>)) {
-    const trimmedKey = String(rawKey ?? "").trim();
-    const canonicalKey =
-      argumentKeyMap.get(normalizeArgumentKey(trimmedKey)) ?? trimmedKey;
-    out[canonicalKey] = value;
-  }
-
-  try {
-    return JSON.stringify(out);
-  } catch {
-    return rawArgs;
-  }
+function extractAllowedTools(tools: UnifiedToolDefinition[]): Set<string> {
+  return new Set(tools.filter(item => item.type === "function").map(item => item.function.name));
 }
 
 function buildPromptWithTools(prompt: string, tools: UnifiedToolDefinition[]): string {
@@ -987,68 +847,7 @@ function normalizeContract(value: unknown): JsonContract {
 }
 
 function normalizeToolCalls(rawToolCalls: unknown[] | undefined): ProviderToolCall[] {
-  if (!rawToolCalls || rawToolCalls.length === 0) {
-    return [];
-  }
-
-  const calls: ProviderToolCall[] = [];
-  for (const entry of rawToolCalls) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-
-    const obj = entry as Record<string, unknown>;
-    const functionObj =
-      obj.function && typeof obj.function === "object"
-        ? (obj.function as Record<string, unknown>)
-        : undefined;
-
-    const idCandidate =
-      (typeof obj.id === "string" && obj.id) ||
-      (typeof obj.call_id === "string" && obj.call_id) ||
-      (typeof obj.tool_id === "string" && obj.tool_id) ||
-      (typeof obj.toolId === "string" && obj.toolId) ||
-      undefined;
-    const nameCandidate =
-      (typeof obj.name === "string" && obj.name) ||
-      (typeof obj.tool_name === "string" && obj.tool_name) ||
-      (typeof obj.toolName === "string" && obj.toolName) ||
-      (functionObj && typeof functionObj.name === "string" ? functionObj.name : undefined);
-    const argsRaw =
-      obj.arguments ??
-      obj.args ??
-      obj.parameters ??
-      (functionObj ? functionObj.arguments : undefined) ??
-      (functionObj ? functionObj.args : undefined) ??
-      "{}";
-
-    const nested = extractNestedToolCall(argsRaw);
-    if (nested) {
-      calls.push({
-        id: idCandidate ?? nested.id ?? `call_${calls.length + 1}`,
-        name: nested.name || nameCandidate || "tool",
-        arguments: nested.arguments,
-      });
-      continue;
-    }
-
-    if (!nameCandidate) {
-      continue;
-    }
-
-    const args = asToolCallArguments(argsRaw);
-    if (args === null) {
-      continue; // Skip invalid tool call arguments
-    }
-
-    calls.push({
-      id: idCandidate ?? `call_${calls.length + 1}`,
-      name: nameCandidate,
-      arguments: args,
-    });
-  }
-
-  return calls;
+  return strictToolCalls(rawToolCalls);
 }
 
 function normalizeSingleToolCall(value: unknown): ProviderToolCall | null {
@@ -1119,236 +918,4 @@ function normalizeReasoningText(value: unknown): string | undefined {
   }
 
   return undefined;
-}
-
-function sanitizeArgumentKeys(value: unknown, depth = 0): unknown {
-  if (depth > 20) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeArgumentKeys(item, depth + 1));
-  }
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [rawKey, rawVal] of Object.entries(value as Record<string, unknown>)) {
-      const trimmedKey = String(rawKey ?? "").trim();
-      const key = trimmedKey || String(rawKey ?? "");
-      out[key] = sanitizeArgumentKeys(rawVal, depth + 1);
-    }
-    return out;
-  }
-  return value;
-}
-
-function asToolCallArguments(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "{}";
-  }
-
-  if (typeof value === "string") {
-    let trimmed = value.trim();
-    if (!trimmed) {
-      return "{}";
-    }
-
-    // Sometimes LLMs return markdown-wrapped JSON for arguments
-    if (trimmed.startsWith("```json")) {
-      trimmed = trimmed.replace(/^```json\s*/, "").replace(/\s*```$/, "").trim();
-    } else if (trimmed.startsWith("```")) {
-      trimmed = trimmed.replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
-    }
-
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try {
-        return JSON.stringify(sanitizeArgumentKeys(JSON.parse(trimmed)));
-      } catch {
-        // Attempt lightweight JSON repair
-        try {
-          let repaired = trimmed;
-          // 1. Remove trailing commas before closing braces/brackets
-          repaired = repaired.replace(/,\s*([}\]])/g, "$1");
-          // 2. Escape literal newlines within the string (JSON requires \n)
-          // Note: This is rudimentary. A full JSON parser would be better, but 
-          // this catches the most common formatting errors from text-based LLMs.
-          repaired = repaired.replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
-
-          return JSON.stringify(sanitizeArgumentKeys(JSON.parse(repaired)));
-        } catch {
-          // If we still can't parse it, it's malformed beyond simple repair.
-          // We MUST return the raw string so n8n can catch the JSON parse error
-          // and feed it back to the LLM. If we drop the tool call entirely,
-          // the agent loop silently exits!
-          return trimmed;
-        }
-      }
-    }
-
-    // If it's a string, didn't start with { or [ and couldn't be parsed, it's invalid.
-    return trimmed;
-  }
-
-  try {
-    return JSON.stringify(sanitizeArgumentKeys(value));
-  } catch {
-    return "{}";
-  }
-}
-
-function extractNestedToolCall(
-  value: unknown,
-): { id?: string; name: string; arguments: string } | null {
-  const queue: unknown[] = [value];
-  const seen = new Set<string>();
-
-  for (let i = 0; i < queue.length && i < 80; i += 1) {
-    const current = queue[i];
-    if (!current) {
-      continue;
-    }
-
-    if (typeof current === "string") {
-      const text = current.trim();
-      if (!text || seen.has(text)) {
-        continue;
-      }
-      seen.add(text);
-
-      for (const candidate of jsonCandidates(text)) {
-        if (seen.has(candidate)) {
-          continue;
-        }
-        seen.add(candidate);
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(candidate);
-        } catch {
-          continue;
-        }
-        queue.push(parsed);
-      }
-      continue;
-    }
-
-    if (typeof current !== "object") {
-      continue;
-    }
-
-    const obj = current as Record<string, unknown>;
-    const toolCalls = normalizeToolCallsShallow(
-      Array.isArray(obj.tool_calls) ? obj.tool_calls : undefined,
-    );
-    if (toolCalls.length > 0) {
-      const first = toolCalls[0];
-      if (first) {
-        return first;
-      }
-    }
-
-    if (typeof obj.response === "string") {
-      queue.push(obj.response);
-    }
-    if (
-      obj.message &&
-      typeof obj.message === "object" &&
-      typeof (obj.message as Record<string, unknown>).content === "string"
-    ) {
-      queue.push((obj.message as Record<string, unknown>).content);
-    }
-    if (typeof obj.output_text === "string") {
-      queue.push(obj.output_text);
-    }
-    if (typeof obj.text === "string") {
-      queue.push(obj.text);
-    }
-    if (typeof obj.content === "string") {
-      queue.push(obj.content);
-    }
-
-    for (const v of Object.values(obj)) {
-      if (typeof v === "string") {
-        queue.push(v);
-      }
-    }
-  }
-
-  return null;
-}
-
-function jsonCandidates(input: string): string[] {
-  const out: string[] = [];
-  const trimmed = input.trim();
-  if (trimmed) {
-    out.push(trimmed);
-  }
-
-  const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
-  let match: RegExpExecArray | null;
-  while ((match = fence.exec(input)) !== null) {
-    const candidate = match[1]?.trim();
-    if (candidate) {
-      out.push(candidate);
-    }
-  }
-
-  const start = input.indexOf("{");
-  const end = input.lastIndexOf("}");
-  if (start !== -1 && end > start) {
-    const body = input.slice(start, end + 1).trim();
-    if (body) {
-      out.push(body);
-    }
-  }
-
-  return out;
-}
-
-function normalizeToolCallsShallow(
-  rawToolCalls: unknown[] | undefined,
-): Array<{ id?: string; name: string; arguments: string }> {
-  if (!rawToolCalls || rawToolCalls.length === 0) {
-    return [];
-  }
-
-  const out: Array<{ id?: string; name: string; arguments: string }> = [];
-  for (const entry of rawToolCalls) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-
-    const obj = entry as Record<string, unknown>;
-    const fn =
-      obj.function && typeof obj.function === "object"
-        ? (obj.function as Record<string, unknown>)
-        : undefined;
-    const name =
-      (typeof obj.name === "string" && obj.name) ||
-      (typeof obj.tool_name === "string" && obj.tool_name) ||
-      (typeof obj.toolName === "string" && obj.toolName) ||
-      (fn && typeof fn.name === "string" ? fn.name : "");
-    if (!name) {
-      continue;
-    }
-    const argsRaw =
-      obj.arguments ??
-      obj.args ??
-      obj.parameters ??
-      (fn ? fn.arguments : undefined) ??
-      (fn ? fn.args : undefined) ??
-      {};
-
-    const normalizedArgs = asToolCallArguments(argsRaw);
-
-    out.push({
-      id:
-        (typeof obj.id === "string" && obj.id) ||
-        (typeof obj.call_id === "string" && obj.call_id) ||
-        (typeof obj.tool_id === "string" && obj.tool_id) ||
-        (typeof obj.toolId === "string" && obj.toolId) ||
-        undefined,
-      name,
-      arguments: normalizedArgs,
-    });
-  }
-
-  return out;
 }

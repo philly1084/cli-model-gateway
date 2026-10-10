@@ -64,34 +64,9 @@ test("Gemini bridge preserves direct final answers from stream-json text parts",
   assert.equal(parsed.tool_calls, undefined);
 });
 
-test("Gemini bridge repairs malformed string arguments without dropping the tool call", () => {
-  const rawOutput = JSON.stringify({
-    tool_calls: [
-      {
-        id: "call_status",
-        name: "check_status",
-        arguments: '{"service":"api",}',
-      },
-    ],
-  });
-
-  const parsed = parseGeminiStreamJsonOutput(rawOutput, [
-    {
-      type: "function",
-      function: {
-        name: "check_status",
-      },
-    },
-  ]);
-
-  assert.equal(parsed.finish_reason, "tool_calls");
-  assert.deepEqual(parsed.tool_calls, [
-    {
-      id: "call_status",
-      name: "check_status",
-      arguments: '{"service":"api"}',
-    },
-  ]);
+test("Gemini bridge rejects malformed string arguments", () => {
+  const output=JSON.stringify({type:"message",role:"assistant",content:JSON.stringify({tool_calls:[{id:"call_status",name:"check_status",arguments:'{"service":"api",}'}],finish_reason:"tool_calls"})});
+  assert.throws(() => parseGeminiStreamJsonOutput(output, [{type:"function",function:{name:"check_status"}}]), /arguments_invalid_json/);
 });
 
 test("Gemini bridge prompt includes forced tool choice guidance", () => {

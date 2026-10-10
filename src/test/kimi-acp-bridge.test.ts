@@ -9,42 +9,13 @@ import {
   parseJsonContractFromText,
 } from "../scripts/kimi-acp-bridge.js";
 
-test("Kimi bridge parses direct function payloads as tool calls", () => {
-  const parsed = parseJsonContractFromText(
-    '{"type":"function","name":"update_notes_page","parameters":{"notes_page_update":"Done"}}',
-  );
-
-  assert.deepEqual(parsed, {
-    output_text: "",
-    tool_calls: [
-      {
-        id: "call_1",
-        name: "update_notes_page",
-        arguments: '{"notes_page_update":"Done"}',
-      },
-    ],
-    finish_reason: "tool_calls",
-  });
+test("Kimi bridge rejects direct function payloads without a call identity", () => {
+  assert.throws(() => parseJsonContractFromText('{"type":"function","name":"update_notes_page","parameters":{"value":"example"}}'), /call_id_missing/);
 });
 
-test("Kimi bridge normalizes complex tool call shapes and repairs malformed arguments", () => {
-  const calls = normalizeToolCallsFromContract([
-    {
-      functionCall: {
-        name: "searchDocs",
-        arguments: '{"query":"oauth",}',
-      },
-      call_id: "call_search",
-    },
-  ]);
-
-  assert.deepEqual(calls, [
-    {
-      id: "call_search",
-      name: "searchDocs",
-      arguments: '{"query":"oauth"}',
-    },
-  ]);
+test("Kimi bridge rejects malformed arguments instead of repairing them", () => {
+  assert.throws(() => normalizeToolCallsFromContract([{id:"call_search",name:"searchDocs",arguments:'{"query":"oauth",}'}]), /arguments_invalid_json/);
+  assert.deepEqual(normalizeToolCallsFromContract([{id:"call_search",name:"searchDocs",arguments:{query:"oauth"}}]), [{id:"call_search",name:"searchDocs",arguments:'{"query":"oauth"}'}]);
 });
 
 test("Kimi bridge recovers nested tool contracts from assistant text", () => {

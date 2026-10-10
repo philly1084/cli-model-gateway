@@ -1,3 +1,4 @@
+import { strictToolCalls, strictToolArguments } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -640,16 +641,7 @@ function extractReasoningValue(record: Record<string, unknown>): unknown {
   return undefined;
 }
 
-function asToolCallArguments(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value ?? {});
-  } catch {
-    return "{}";
-  }
-}
+function asToolCallArguments(value: unknown): string { return strictToolArguments(value); }
 
 function parseToolCallFromRawItem(item: unknown):
   | {
@@ -678,14 +670,14 @@ function parseToolCallFromRawItem(item: unknown):
   const id =
     typeof record.call_id === "string" && record.call_id
       ? record.call_id
-      : `call_${randomUUID()}`;
+      : "";
 
   const argsRaw = record.type === "custom_tool_call" ? record.input : record.arguments;
-  return {
+  return strictToolCalls([{
     id,
     name,
     arguments: asToolCallArguments(argsRaw),
-  };
+  }])[0]!;
 }
 
 function collectAssistantContentFromRawItem(item: unknown): {
@@ -1245,38 +1237,7 @@ function isFinishReason(value: unknown): value is FinishReason {
 }
 
 function normalizeToolCallsFromContract(raw: unknown): NonNullable<JsonContract["tool_calls"]> {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [];
-  }
-
-  const calls: NonNullable<JsonContract["tool_calls"]> = [];
-  for (const entry of raw) {
-    if (!isObjectRecord(entry)) {
-      continue;
-    }
-
-    const fn = isObjectRecord(entry.function) ? entry.function : undefined;
-    const name =
-      (typeof entry.name === "string" && entry.name) ||
-      (fn && typeof fn.name === "string" ? fn.name : "");
-    if (!name) {
-      continue;
-    }
-
-    const id =
-      typeof entry.id === "string" && entry.id
-        ? entry.id
-        : `call_${calls.length + 1}`;
-    const argsRaw = entry.arguments ?? (fn ? fn.arguments : undefined);
-
-    calls.push({
-      id,
-      name,
-      arguments: asToolCallArguments(argsRaw),
-    });
-  }
-
-  return calls;
+  return strictToolCalls(raw);
 }
 
 function parseJsonContractFromText(raw: string): JsonContract | null {

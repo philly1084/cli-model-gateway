@@ -1,3 +1,4 @@
+import { strictToolCalls, strictToolArguments } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
@@ -439,95 +440,10 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
   return out;
 }
 
-function asToolCallArguments(value: unknown): string {
-  if (typeof value === "string") {
-    let trimmed = value.trim();
-    if (!trimmed) {
-      return "{}";
-    }
-
-    if (trimmed.startsWith("```json")) {
-      trimmed = trimmed.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
-    } else if (trimmed.startsWith("```")) {
-      trimmed = trimmed.replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
-    }
-
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try {
-        return JSON.stringify(sanitizeValue(JSON.parse(trimmed)));
-      } catch {
-        try {
-          const repaired = trimmed
-            .replace(/,\s*([}\]])/g, "$1")
-            .replace(/\r/g, "\\r")
-            .replace(/\n/g, "\\n")
-            .replace(/\t/g, "\\t");
-          return JSON.stringify(sanitizeValue(JSON.parse(repaired)));
-        } catch {
-          return trimmed;
-        }
-      }
-    }
-
-    return trimmed;
-  }
-  try {
-    return JSON.stringify(sanitizeValue(value ?? {}));
-  } catch {
-    return "{}";
-  }
-}
+function asToolCallArguments(value: unknown): string { return strictToolArguments(value); }
 
 export function normalizeToolCallsFromContract(raw: unknown): NonNullable<JsonContract["tool_calls"]> {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [];
-  }
-
-  const calls: NonNullable<JsonContract["tool_calls"]> = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-
-    const fn = isRecord(entry.function) ? entry.function : undefined;
-    const functionCall = isRecord(entry.functionCall)
-      ? entry.functionCall
-      : isRecord(entry.function_call)
-        ? entry.function_call
-        : undefined;
-    const merged = functionCall ?? fn;
-    const name = firstNonEmptyString(
-      entry.name,
-      entry.tool_name,
-      entry.toolName,
-      merged?.name,
-    );
-    if (!name) {
-      continue;
-    }
-
-    const id =
-      firstNonEmptyString(entry.id, entry.call_id, entry.tool_id, entry.toolId) ??
-      `call_${calls.length + 1}`;
-    const argsRaw = firstDefined(
-      entry.arguments,
-      entry.args,
-      entry.parameters,
-      entry.input,
-      merged?.arguments,
-      merged?.args,
-      merged?.parameters,
-      merged?.input,
-    );
-
-    calls.push({
-      id,
-      name,
-      arguments: asToolCallArguments(argsRaw),
-    });
-  }
-
-  return calls;
+  return strictToolCalls(raw);
 }
 
 export function parseJsonContractFromText(raw: string): JsonContract | null {

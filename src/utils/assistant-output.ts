@@ -1,5 +1,6 @@
 import type { ProviderResult, ProviderToolCall } from "../types";
 import { extractTextContent } from "./prompt";
+import { strictToolCalls, strictToolArguments } from "./tool-contract.js";
 
 type AssistantFinishReason = ProviderResult["finishReason"];
 
@@ -283,7 +284,7 @@ function normalizeDirectToolCall(record: Record<string, unknown>): ProviderToolC
   return {
     id:
       firstNonEmptyString(record.id, record.call_id, record.tool_id, record.toolId) ??
-      "call_1",
+      "",
     name,
     arguments: normalizeToolArguments(
       firstDefined(
@@ -294,7 +295,7 @@ function normalizeDirectToolCall(record: Record<string, unknown>): ProviderToolC
         fn?.arguments,
         fn?.args,
         fn?.parameters,
-      ) ?? {},
+      ),
     ),
   };
 }
@@ -315,23 +316,15 @@ function normalizeToolCallArray(value: unknown): ProviderToolCall[] {
     }
     out.push({
       ...normalized,
-      id: normalized.id || `call_${out.length + 1}`,
+      id: normalized.id,
     });
   }
 
-  return out;
+  return strictToolCalls(out);
 }
 
 function normalizeToolArguments(value: unknown): string {
-  if (typeof value === "string") {
-    return value.trim() || "{}";
-  }
-
-  try {
-    return JSON.stringify(value ?? {});
-  } catch {
-    return "{}";
-  }
+  return strictToolArguments(value);
 }
 
 function dedupeToolCalls(toolCalls: ProviderToolCall[]): ProviderToolCall[] {
@@ -351,13 +344,13 @@ function dedupeToolCalls(toolCalls: ProviderToolCall[]): ProviderToolCall[] {
     }
     seen.add(key);
     out.push({
-      id: id || `call_${out.length + 1}`,
+      id,
       name,
       arguments: args,
     });
   }
 
-  return out;
+  return strictToolCalls(out);
 }
 
 function extractJsonTextCandidates(input: string): string[] {
