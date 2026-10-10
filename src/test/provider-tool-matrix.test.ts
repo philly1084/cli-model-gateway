@@ -9,11 +9,13 @@ for(const profile of ['openai','anthropic'] as const)test(`${profile} buffered t
  const oldFetch=globalThis.fetch,oldKey=process.env.PROTOCOL_FIXTURE_KEY;process.env.PROTOCOL_FIXTURE_KEY='synthetic';let variant='valid';const bodies:Record<string,unknown>[]=[];
  globalThis.fetch=(async(_url,init)=>{
   bodies.push(JSON.parse(String(init?.body)));const c={...call,...(variant==='missing-id'?{id:undefined}:{}),...(variant==='unoffered'?{name:'unrelated'}:{}),...(variant==='malformed'?{arguments:'{"a":7,}'}:{})};
+  if(variant==='text-example'){const text=JSON.stringify({tool_calls:[call],finish_reason:'tool_calls'});return Response.json(profile==='openai'?{choices:[{message:{content:text},finish_reason:'stop'}]}:{content:[{type:'text',text}],stop_reason:'end_turn'});}
   return Response.json(profile==='openai'?{choices:[{message:{content:'',tool_calls:[{id:c.id,type:'function',function:{name:c.name,arguments:c.arguments}}]},finish_reason:variant==='truncated'?'length':'tool_calls'}]}:{content:[{type:'tool_use',id:c.id,name:c.name,input:variant==='malformed'?[]:{a:7}}],stop_reason:variant==='truncated'?'max_tokens':'tool_use'});
  })as typeof fetch;
  try{
   const provider=await OpenAiCompatibleProvider.create({id:'fixture',type:'openai',baseUrl:profile==='anthropic'?'https://api.kimi.com/coding/v1':'https://example.invalid/v1',apiKeyEnv:'PROTOCOL_FIXTURE_KEY',models:[{id:'fixture'}]});
   const result=await provider.run(request);assert.deepEqual(result.toolCalls,[call]);
+  variant='text-example';const example=await provider.run(request);assert.deepEqual(example.toolCalls,[]);assert.match(example.outputText,/tool_calls/);assert.equal(example.finishReason,'stop');
   for(variant of ['missing-id','unoffered','malformed','truncated'])await assert.rejects(provider.run(request));
   variant='valid';const continuation={...request,messages:[...request.messages,{role:'assistant' as const,content:'TOOL_CALLS:\n'+JSON.stringify([call,{...call,id:'parallel'}])},{role:'tool' as const,tool_call_id:'parallel',content:'two'},{role:'tool' as const,tool_call_id:call.id,content:'one'}]};await provider.run(continuation);
   const messages=bodies.at(-1)!.messages as Array<Record<string,unknown>>;

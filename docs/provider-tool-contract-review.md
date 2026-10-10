@@ -18,6 +18,8 @@ fabricated replacements. Native Anthropic parallel results are grouped in the ne
 message with exact `tool_use_id` values; truncated native tool turns cannot be promoted
 to success. The buffered OpenAI/Anthropic matrix exercises both valid continuations and
 missing IDs, malformed arguments, unoffered functions, truncation and orphan results.
+Native API assistant text is never scanned into executable tool calls: a JSON example
+in `content` remains text. Text-contract bridges remain a separate compatibility path.
 
 ## Deployed configuration inspected, not changed
 

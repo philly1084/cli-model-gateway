@@ -13,7 +13,7 @@ import type {
   ProviderToolCall,
   UnifiedRequest,
 } from "../types";
-import { normalizeAssistantResult } from "../utils/assistant-output";
+import { normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { extractTextContent } from "../utils/prompt";
 import type { Provider } from "./provider";
 import { normalizeProviderUsage } from "../utils/usage";
@@ -665,7 +665,7 @@ function parseChatCompletionResponse(payload: unknown): ProviderResult {
   const finishReason = normalizeFinishReason(choice.finish_reason, toolCalls.length > 0);
   const reasoningContent = extractResponseReasoningContent(payload, choice, message);
 
-  return normalizeAssistantResult({
+  return normalizeNativeAssistantResult({
     outputText: extractMessageText(payload, choice, message),
     reasoningText: extractReasoningText(reasoningContent),
     reasoningContent,
@@ -858,7 +858,7 @@ function parseAnthropicMessagesResponse(payload: unknown): ProviderResult {
   }
 
   if (toolCalls.length && record.stop_reason !== "tool_use") throw new ToolContractError("anthropic_tool_stop_mismatch", record.stop_reason);
-  return normalizeAssistantResult({
+  return normalizeNativeAssistantResult({
     outputText: textParts.join("\n\n").trim(),
     reasoningText: reasoningParts.join("\n\n").trim() || undefined,
     toolCalls,

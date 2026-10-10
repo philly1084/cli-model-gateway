@@ -66,6 +66,13 @@ export function normalizeAssistantResult(result: ProviderResult): ProviderResult
   };
 }
 
+/** Native API tool fields are authoritative; examples in content are never actions. */
+export function normalizeNativeAssistantResult(result: ProviderResult): ProviderResult {
+  const toolCalls = strictToolCalls(result.toolCalls);
+  if (toolCalls.length && (result.finishReason === "length" || result.finishReason === "error")) throw new ToolContractError("incomplete_tool_turn", result.finishReason);
+  return {...result,toolCalls,finishReason:toolCalls.length && result.finishReason === "stop" ? "tool_calls" : result.finishReason};
+}
+
 export function parseAssistantPayloadText(text: string): ParsedAssistantPayload {
   const trimmed = text.trim();
   if (!trimmed) {
