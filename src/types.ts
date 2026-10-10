@@ -25,6 +25,7 @@ export interface ChatMessage {
   name?: string;
   tool_call_id?: string;
   reasoningContent?: unknown;
+  toolCalls?: ProviderToolCall[];
 }
 
 export interface UnifiedToolDefinition {

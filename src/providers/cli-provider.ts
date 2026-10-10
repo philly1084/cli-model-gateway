@@ -17,8 +17,8 @@ import type {
 import { runCommand, runCommandStream, resolveCommand } from "../utils/command";
 import { buildPrompt } from "../utils/prompt";
 import { withRuntimeTemplateVars } from "../utils/runtime-template-vars";
-import { strictToolCalls, requireOfferedTool, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
-import { normalizeAssistantResult, normalizeNativeAssistantResult } from "../utils/assistant-output";
+import { strictToolCalls, migrateToolHistory, requireOfferedTool, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
+import { normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { normalizeProviderUsage } from "../utils/usage";
 import type { Provider } from "./provider";
 
@@ -183,6 +183,7 @@ export class CliProvider implements Provider {
     resolved: ReturnType<typeof resolveCommand>;
     stdinPayload: string;
   }> {
+    request = {...request,messages:migrateToolHistory(request.messages)};
     validateToolHistory(request.messages);
     const modelConfig = this.models.find((model) => model.id === request.model);
     if (!modelConfig) {
@@ -491,7 +492,7 @@ export class CliProvider implements Provider {
   private parseOutput(stdout: string): ProviderResult {
     const mode = this.config.responseCommand.output;
     if (mode === "text_plain") {
-      return normalizeAssistantResult({
+      return normalizeNativeAssistantResult({
         outputText: stdout.trim(),
         toolCalls: [],
         finishReason: "stop",
@@ -500,23 +501,19 @@ export class CliProvider implements Provider {
 
     if (mode === "text_contract_final_line") {
       let contract = tryParseJsonContractFromFinalLine(stdout);
-      if (!contract) {
-        // Fallback for models (like Gemini) that disobey instructions and wrap JSON in markdown blocks
-        contract = tryParseJsonContractFromText(stdout);
-      }
       if (contract && (contract.output_text || contract.text || contract.content || contract.tool_calls?.length)) {
         const toolCalls = normalizeToolCalls(contract.tool_calls);
-        return normalizeAssistantResult({
+        return normalizeNativeAssistantResult({
           outputText: (contract.output_text ?? contract.text ?? contract.content ?? "").trim(),
           reasoningText: normalizeReasoningText(contract.reasoning),
           toolCalls,
-          finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+          finishReason: contract.finish_reason ?? (toolCalls.length > 0 ? "tool_calls" : "stop"),
           usage: normalizeProviderUsage(contract.usage, "cli-contract"),
           raw: contract,
         });
       }
 
-      return normalizeAssistantResult({
+      return normalizeNativeAssistantResult({
         outputText: stdout.trim(),
         toolCalls: [],
         finishReason: "stop",
@@ -525,10 +522,10 @@ export class CliProvider implements Provider {
 
     if (mode === "text") {
       // Allow text-mode providers to opt into tool calling by emitting the JSON contract.
-      const contract = tryParseJsonContractFromText(stdout);
+      const contract = (() => { try { return tryParseJsonContract(stdout); } catch { return null; } })();
       if (contract && (contract.output_text || contract.text || contract.content || contract.tool_calls?.length)) {
         const toolCalls = normalizeToolCalls(contract.tool_calls);
-        return normalizeAssistantResult({
+        return normalizeNativeAssistantResult({
           outputText: (contract.output_text ?? contract.text ?? contract.content ?? "").trim(),
           reasoningText: normalizeReasoningText(contract.reasoning),
           toolCalls,
@@ -539,7 +536,7 @@ export class CliProvider implements Provider {
         });
       }
 
-      return normalizeAssistantResult({
+      return normalizeNativeAssistantResult({
         outputText: stdout.trim(),
         toolCalls: [],
         finishReason: "stop",

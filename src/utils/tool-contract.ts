@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ProviderToolCall, UnifiedRequest, ProviderResult } from "../types";
+import type { ProviderToolCall, UnifiedRequest, ProviderResult, ChatMessage } from "../types";
 
 /** Protocol failures contain evidence hashes, never model arguments or credentials. */
 export class ToolContractError extends Error {
@@ -41,21 +41,41 @@ export function requireOfferedTool(call: ProviderToolCall, names: ReadonlySet<st
   if (!names.has(call.name)) throw new ToolContractError("tool_not_offered", call);
 }
 
+/** Read-only compatibility: import a legacy marker only beside explicit result messages.
+ * Stored history is never rewritten, so rollback retains the original transcript. */
+export function migrateToolHistory(messages: ChatMessage[]): ChatMessage[] {
+  const migrated = messages.map((message,index) => {
+    if (message.role !== "assistant" || message.toolCalls !== undefined) return {...message};
+    const marker = "TOOL_CALLS:\n", at = message.content.indexOf(marker);
+    if (at < 0 || (at > 0 && !message.content.slice(0,at).endsWith("\n\n"))) return {...message};
+    // Ordinary examples without explicit tool-result continuation remain ordinary text.
+    if (messages[index+1]?.role !== "tool") return {...message};
+    let raw: unknown;
+    try { raw = JSON.parse(message.content.slice(at+marker.length)); }
+    catch { throw new ToolContractError("history_invalid_json",message.content); }
+    const calls = strictToolCalls(raw);
+    return {...message,content:message.content.slice(0,at).replace(/\n\n$/, ""),toolCalls:calls};
+  });
+  const out: ChatMessage[] = [];
+  for (const message of migrated) {
+    const previous = out.at(-1);
+    if (message.role === "assistant" && message.toolCalls?.length && !message.content && previous?.role === "assistant" && previous.toolCalls?.length && message.reasoningContent === undefined) {
+      previous.toolCalls = [...previous.toolCalls,...message.toolCalls];
+    } else out.push(message);
+  }
+  return out;
+}
+
 export function validateToolHistory(messages: UnifiedRequest["messages"]): void {
   const pending = new Set<string>(), seen = new Set<string>();
-  for (const message of messages) {
+  for (const message of migrateToolHistory(messages)) {
     if (message.role === "tool") {
       if (!message.tool_call_id || !pending.delete(message.tool_call_id)) throw new ToolContractError("orphan_or_duplicate_result", message.tool_call_id);
       continue;
     }
-    if (pending.size) throw new ToolContractError("tool_results_missing", [...pending]);
-    if (message.role !== "assistant") continue;
-    const marker = "TOOL_CALLS:\n", at = message.content.indexOf(marker);
-    if (at < 0) continue;
-    let calls: unknown;
-    try { calls = JSON.parse(message.content.slice(at + marker.length)); }
-    catch { throw new ToolContractError("history_invalid_json", message.content); }
-    for (const call of strictToolCalls(calls)) {
+    const calls = message.role === "assistant" ? strictToolCalls(message.toolCalls) : [];
+    if (pending.size && (!calls.length || message.content)) throw new ToolContractError("tool_results_missing", [...pending]);
+    for (const call of calls) {
       if (seen.has(call.id)) throw new ToolContractError("history_reused_call_id", call.id);
       seen.add(call.id); pending.add(call.id);
     }

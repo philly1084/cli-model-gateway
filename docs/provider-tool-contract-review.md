@@ -47,8 +47,11 @@ fuzzy tool-name or argument repair.
 
 This is not proof that all providers execute a real tool round trip. No live inference
 was authorized for this work. A separately budgeted canary must check each enabled model.
-The route layer still has legacy tool-history flattening and textual wrapper extraction;
-that deserves a separate typed-message migration before broad autonomous execution.
+Routes now retain explicit tool-call fields and do not reparse provider response text.
+Legacy marker history is imported only beside explicit tool-result continuations and
+validated for matching identities. Conversion is in memory: original transcripts remain
+unchanged for rollback. CLI prompt rendering is an adapter-boundary representation,
+not the canonical API/history representation. Malformed or unmatched continuations fail.
 The existing schema validators at execution remain necessary: valid JSON is not proof
 that arguments satisfy a tool's schema or that an operation is authorized.
 

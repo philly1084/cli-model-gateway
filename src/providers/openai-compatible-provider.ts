@@ -1,4 +1,4 @@
-import { strictToolCalls, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
+import { strictToolCalls, migrateToolHistory, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
 import { createHash } from "node:crypto";
 import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
@@ -124,6 +124,7 @@ export class OpenAiCompatibleProvider implements Provider {
   }
 
   async run(request: UnifiedRequest): Promise<ProviderResult> {
+    request = {...request,messages:migrateToolHistory(request.messages)};
     validateToolHistory(request.messages);
     const modelConfig = this.models.find((model) => model.id === request.model);
     if (!modelConfig) {
@@ -156,6 +157,7 @@ export class OpenAiCompatibleProvider implements Provider {
   }
 
   private buildChatBody(providerModel: string, request: UnifiedRequest): Record<string, unknown> {
+    request = {...request,messages:migrateToolHistory(request.messages)};
     validateToolHistory(request.messages);
     const suppressGroqLocalToolCalling = shouldSuppressGroqLocalToolCalling(
       this.config.baseUrl,
@@ -186,7 +188,7 @@ export class OpenAiCompatibleProvider implements Provider {
     this.pruneSignatures();
     request.messages.forEach((message, index) => {
       if (message.role !== "assistant") return;
-      for (const call of splitAssistantToolContext(message.content).toolCalls) {
+      for (const call of ({content:message.content,toolCalls:strictToolCalls(message.toolCalls)}).toolCalls) {
         const entry = this.toolSignatures.get(this.signatureKey(providerModel, request.messages.slice(0, index), call.id));
         if (!entry) continue;
         if (entry.name !== call.name || entry.argumentsHash !== createHash("sha256").update(call.arguments).digest("hex")) throw Error("Tool continuation differs from signed provider turn");
@@ -556,7 +558,7 @@ function buildApiMessages(
   const suppressLocalToolCalling = Boolean(options?.suppressLocalToolCalling);
   return messages.flatMap((message) => {
     if (message.role === "assistant") {
-      const parsed = splitAssistantToolContext(message.content);
+      const parsed = ({content:message.content,toolCalls:strictToolCalls(message.toolCalls)});
       if (!suppressLocalToolCalling && parsed.toolCalls.length > 0) {
         const apiMessage: ApiMessage = {
           role: "assistant",
@@ -612,34 +614,6 @@ function buildApiMessages(
   });
 }
 
-function splitAssistantToolContext(content: string): {
-  content: string;
-  toolCalls: ProviderToolCall[];
-} {
-  const marker = "\n\nTOOL_CALLS:\n";
-  const markerIndex = content.indexOf(marker);
-  const fallbackMarker = "TOOL_CALLS:\n";
-  const splitIndex = markerIndex >= 0 ? markerIndex : content.indexOf(fallbackMarker);
-  if (splitIndex < 0) {
-    return { content, toolCalls: [] };
-  }
-
-  const toolCallsRaw = content
-    .slice(splitIndex + (markerIndex >= 0 ? marker.length : fallbackMarker.length))
-    .trim();
-  const baseContent = content.slice(0, splitIndex).trim();
-  const parsed = tryParseJson(toolCallsRaw);
-  if (!Array.isArray(parsed)) {
-    return { content, toolCalls: [] };
-  }
-
-  const toolCalls = strictToolCalls(parsed);
-
-  return {
-    content: baseContent,
-    toolCalls,
-  };
-}
 
 function parseChatCompletionResponse(payload: unknown): ProviderResult {
   if (!payload || typeof payload !== "object") {
@@ -722,7 +696,7 @@ function shouldRejectMalformedDeepSeekToolContinuation(
   return request.messages.some(
     (message) =>
       message.role === "assistant" &&
-      splitAssistantToolContext(message.content).toolCalls.length > 0 &&
+      ({content:message.content,toolCalls:strictToolCalls(message.toolCalls)}).toolCalls.length > 0 &&
       (typeof message.reasoningContent !== "string" || !message.reasoningContent.trim()),
   );
 }
@@ -792,7 +766,7 @@ function buildAnthropicMessages(
     }
 
     if (message.role === "assistant") {
-      const parsed = splitAssistantToolContext(message.content);
+      const parsed = ({content:message.content,toolCalls:strictToolCalls(message.toolCalls)});
       const content: Array<Record<string, unknown>> = [];
       if (parsed.content) {
         content.push({ type: "text", text: parsed.content });

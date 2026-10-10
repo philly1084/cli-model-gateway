@@ -10,7 +10,7 @@ export function buildPrompt(messages: ChatMessage[]): string {
       if (message.tool_call_id) {
         headerParts.push(`tool_call_id=${message.tool_call_id}`);
       }
-      return `${headerParts.join(" ")}:\n${message.content}`.trim();
+      return `${headerParts.join(" ")}:\n${message.content}${message.toolCalls?.length ? "\n\nTOOL_CALLS:\n"+JSON.stringify(message.toolCalls) : ""}`.trim();
     })
     .join("\n\n");
 }

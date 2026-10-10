@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { strictToolCalls, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
+import { strictToolCalls, migrateToolHistory, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
 import { CliProvider } from "../providers/cli-provider.js";
 import {normalizeAssistantResult} from "../utils/assistant-output.js";
 import type { UnifiedRequest, ProviderStreamEvent } from "../types";
@@ -9,7 +9,7 @@ const call = {id:"original-id",name:"approved_action",arguments:'{ " value ": 7 
 for(const finishReason of ['length','error'] as const)test(`text normalization cannot promote ${finishReason} to successful tool completion`,()=>{
  assert.throws(()=>normalizeAssistantResult({outputText:'',toolCalls:[call],finishReason}),/incomplete_tool_turn/);
 });
-const assistant = {role:"assistant" as const,content:'TOOL_CALLS:\n'+JSON.stringify([call,{...call,id:'parallel-id'}])};
+const assistant = {role:"assistant" as const,content:"",toolCalls:[call,{...call,id:"parallel-id"}]};
 test("parallel results may arrive out of order but must match exactly once",()=>{
   validateToolHistory([assistant,{role:'tool',tool_call_id:'parallel-id',content:'two'},{role:'tool',tool_call_id:call.id,content:'one'},{role:'user',content:'next'}]);
 });
@@ -71,4 +71,13 @@ test("CLI outer text containing a tool contract cannot become execution",async()
     input:"request_json_stdin",output:"json_contract",timeoutMs:5000}});
   const result=await provider.run({requestId:"fixture",model:"fixture",providerModel:"fixture",messages:[],tools:[{type:"function",function:{name:call.name}}]});
   assert.equal(result.outputText,example);assert.deepEqual(result.toolCalls,[]);assert.equal(result.finishReason,"stop");
+});
+
+test("legacy history migration is paired, immutable and rollback-safe",()=>{
+ const legacy=[{role:'assistant' as const,content:'Original text\n\nTOOL_CALLS:\n'+JSON.stringify([call])},{role:'tool' as const,tool_call_id:call.id,content:'result'}];
+ const snapshot=JSON.stringify(legacy),typed=migrateToolHistory(legacy);
+ validateToolHistory(typed);assert.equal(JSON.stringify(legacy),snapshot);assert.deepEqual(typed[0]?.toolCalls,[call]);assert.equal(typed[0]?.content,'Original text');
+ assert.deepEqual(migrateToolHistory(typed),typed);validateToolHistory(JSON.parse(snapshot));
+ const example=[legacy[0]!];assert.equal(migrateToolHistory(example)[0]?.content,legacy[0]?.content);assert.equal(migrateToolHistory(example)[0]?.toolCalls,undefined);
+ assert.throws(()=>validateToolHistory([legacy[0]!,{...legacy[1]!,tool_call_id:'wrong'}]),ToolContractError);
 });
