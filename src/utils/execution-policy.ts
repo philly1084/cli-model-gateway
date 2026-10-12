@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+// Bounded attempts, explicit fallback control and arrival-based deadlines.
+// This does not assert observed tool compatibility or evidence freshness.
+export const EXECUTION_POLICY_VERSION = 1;
+
 export const gatewayPolicySchema = z.object({
   operationId: z.string().regex(/^[\w.-]{1,128}$/),
   allowFallback: z.boolean(),

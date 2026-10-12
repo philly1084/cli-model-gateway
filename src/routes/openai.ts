@@ -1,5 +1,6 @@
 import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
+import { EXECUTION_POLICY_VERSION } from "../utils/execution-policy";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -738,6 +739,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       owned_by: model.providerId,
       description: model.description,
       provider_model: model.providerModel,
+      execution_policy_version: EXECUTION_POLICY_VERSION,
       fallback_models: model.fallbackModels,
       capabilities: model.capabilities,
       benchmark: model.benchmark,
