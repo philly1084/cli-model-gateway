@@ -143,10 +143,46 @@ providers:
           - --json
         timeoutMs: 30000
 
+  - id: gemini-api
+    type: openai
+    description: Direct Google API models; explicit requests only
+    baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+    apiKeyEnv: GEMINI_API_KEY
+    models:
+      - id: gemini-4-argon
+        providerModel: gemini-4-argon
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: gemini-3.8-flash
+        providerModel: gemini-3.8-flash
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
   - id: codex-cli
     type: cli
     description: OpenAI Codex app-server bridge adapter
     models:
+      - id: gpt-6.1-sol
+        providerModel: gpt-6.1-sol
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: gpt-6-astra
+        providerModel: gpt-6-astra
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: gpt-6-sol
+        providerModel: gpt-6-sol
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: gpt-6-luna
+        providerModel: gpt-6-luna
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
       - id: gpt-image-2
         providerModel: codex-latest
         description: OpenAI Image 2.0 via Codex CLI image generation
@@ -385,6 +421,31 @@ providers:
     apiKeyEnv: OPENROUTER_API_KEY
     timeoutMs: 120000
     models:
+      - id: poolside/laguna-s-2.1:free
+        providerModel: poolside/laguna-s-2.1:free
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: nvidia/nemotron-3.5-lightning:free
+        providerModel: nvidia/nemotron-3.5-lightning:free
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: thinkingmachines/inkling-small:free
+        providerModel: thinkingmachines/inkling-small:free
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: cohere/north-mini-code:free
+        providerModel: cohere/north-mini-code:free
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: google/gemma-4-31b-it:free
+        providerModel: google/gemma-4-31b-it:free
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
       - id: openrouter-free
         providerModel: openrouter/free
         fallbackModels:
@@ -482,6 +543,16 @@ providers:
     apiKeyEnv: KIMI_CODE_API_KEY
     timeoutMs: 240000
     models:
+      - id: kimi-k3-256k
+        providerModel: k3-256k
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: kimi-code-standard
+        providerModel: kimi-for-coding
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
       - id: kimi-k3
         providerModel: k3
         description: Kimi K3 flagship reasoning model via Kimi Code API
@@ -630,6 +701,11 @@ providers:
     apiKeyEnv: DEEPSEEK_API_KEY
     timeoutMs: 120000
     models:
+      - id: deepseek-flash
+        providerModel: deepseek-flash
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
       - id: deepseek-chat
         providerModel: deepseek-chat
         description: Legacy non-thinking alias retired by DeepSeek on 2026-07-24; use deepseek-flash

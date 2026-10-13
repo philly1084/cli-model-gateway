@@ -79,6 +79,8 @@ interface ModelBinding {
   fallbackModelIds: string[];
   capabilities: ModelCapability[];
   autoEligible: boolean;
+  manualOnly: boolean;
+  routingIndex: number;
 }
 
 interface RegistryLogger {
@@ -135,6 +137,7 @@ export class ProviderRegistry {
 
   static async create(configs: ProviderConfig[]): Promise<ProviderRegistry> {
     const registry = new ProviderRegistry();
+    let routingIndex = 0;
     for (const config of configs) {
       const provider =
         config.type === "cli"
@@ -159,7 +162,9 @@ export class ProviderRegistry {
           description: model.description,
           fallbackModelIds: model.fallbackModels || [],
           capabilities: normalizeModelCapabilities(model.capabilities),
-          autoEligible: model.autoEligible !== false,
+          autoEligible: model.manualOnly !== true && model.autoEligible !== false,
+          manualOnly: model.manualOnly === true,
+          routingIndex: model.manualOnly === true ? -1 : routingIndex++,
         });
         registry.modelStats.registerModel({
           modelId: model.id,
@@ -172,7 +177,7 @@ export class ProviderRegistry {
           modelId: model.id,
           providerId: provider.id,
           providerModel: model.providerModel || model.id,
-          status: model.autoEligible === false ? "skipped" : "pending",
+          status: model.manualOnly === true || model.autoEligible === false ? "skipped" : "pending",
           score: 0,
         });
       }
@@ -234,7 +239,7 @@ export class ProviderRegistry {
     }
 
     for (const binding of this.models.values()) {
-      if (bindingSupportsImageGeneration(binding)) {
+      if (!binding.manualOnly && bindingSupportsImageGeneration(binding)) {
         return binding.modelId;
       }
     }
@@ -710,6 +715,9 @@ export class ProviderRegistry {
       if (!preferred) {
         return { error: `Quality evaluator model is not configured: ${preferredModelId}` };
       }
+      if (preferred.manualOnly) {
+        return { error: `Quality evaluator model ${preferredModelId} is manual-only.` };
+      }
       if (preferred.modelId === testedModelId) {
         return { error: `Quality evaluator model ${preferredModelId} is the model under test.` };
       }
@@ -720,7 +728,7 @@ export class ProviderRegistry {
     }
 
     const eligible = [...this.models.values()]
-      .filter((binding) => binding.modelId !== testedModelId && bindingCanEvaluateQuality(binding))
+      .filter((binding) => !binding.manualOnly && binding.modelId !== testedModelId && bindingCanEvaluateQuality(binding))
       .map((binding, index) => ({
         binding,
         index,
@@ -957,11 +965,13 @@ export class ProviderRegistry {
       binding.fallbackModelIds.find(
         (fallback) =>
           !visited.has(fallback) &&
+          this.models.get(fallback)?.manualOnly !== true &&
           this.modelSupportsRequest(fallback, request),
       ) ??
       autoFallbackModelIds.find(
         (fallback) =>
           !visited.has(fallback) &&
+          this.models.get(fallback)?.manualOnly !== true &&
           this.modelSupportsRequest(fallback, request),
       )
     );
@@ -1040,7 +1050,8 @@ export class ProviderRegistry {
   ): AutoRankedCandidate[] {
     const candidates: AutoRankedCandidate[] = [];
 
-    for (const [index, binding] of [...this.models.values()].entries()) {
+    for (const binding of this.models.values()) {
+      const index = binding.routingIndex;
       if (!binding.autoEligible) {
         continue;
       }

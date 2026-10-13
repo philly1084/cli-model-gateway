@@ -27,7 +27,7 @@ function offlineProviders(providers: CatalogProvider[]): CliProviderConfig[] {
   } }));
 }
 
-test("reference-only additions never enter either runtime catalog", () => {
+test("verified reference selectors are exposed only as manual models", () => {
   assert.equal(reference.status, "reference-only-not-loaded");
   assert.deepEqual(newIds, ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "deepseek-flash"]);
   for (const provider of reference.providers) for (const model of provider.models) {
@@ -35,15 +35,18 @@ test("reference-only additions never enter either runtime catalog", () => {
     assert.equal(model.providerModel, model.id);
   }
   for (const providers of [rancherProviders(), YAML.parse(readFileSync("config/providers.example.yaml", "utf8")).providers]) {
-    for (const provider of providers) for (const model of provider.models) assert.ok(!newIds.includes(model.id));
+    for (const id of newIds) {
+      const model = providers.flatMap((p: CatalogProvider) => p.models).find((m: ProviderModelConfig) => m.id === id);
+      assert.ok(model, id); assert.equal(model.manualOnly, true); assert.equal(model.autoEligible, false);
+    }
   }
 });
 
 test("existing routing positions, scores and selections match the pinned baseline", async () => {
   const current = rancherProviders();
   const routingShape = (providers: CatalogProvider[]) => providers.map(p => ({
-    id: p.id, models: p.models.map(({ description: _description, ...model }) => model),
-  }));
+    id: p.id, models: p.models.filter(m => !m.manualOnly).map(({ description: _description, ...model }) => model),
+  })).filter(p => p.models.length > 0);
   assert.deepEqual(routingShape(current), routingShape(baseline.providers));
   const before = await ProviderRegistry.create(offlineProviders(baseline.providers));
   const after = await ProviderRegistry.create(offlineProviders(current));

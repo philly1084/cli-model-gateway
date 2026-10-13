@@ -1,3 +1,5 @@
+> Historical audit/proposal at published commit843ec4a or earlier. The local runtime follow-up is described in [manual catalog implementation](manual-catalog-implementation.md); it now adds manual entries to the examples but is not published or deployed.
+
 # Catalog publication review — 2026-10-13
 
 This supplements [catalog evidence](model-catalog-2026-10-13.md). All work is

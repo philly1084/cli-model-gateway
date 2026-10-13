@@ -1,3 +1,5 @@
+> Historical audit/proposal at published commit843ec4a or earlier. The local runtime follow-up is described in [manual catalog implementation](manual-catalog-implementation.md); it now adds manual entries to the examples but is not published or deployed.
+
 # All-provider catalog follow-up — checked 2026-10-13
 
 This local follow-up completes the provider scope omitted from PR23's first pass. It covers all 18 provider IDs in the union of the repository examples and mounted production configuration. No runtime YAML, mapping, default, allowlist, cap, credential, or routing code is changed. The 13 new records in provider-candidates-2026-10-13.json supplement the original five reference records; none is loaded. Some describe selectors already mounted in production but missing from the repository.

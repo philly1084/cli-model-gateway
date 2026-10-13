@@ -1,3 +1,5 @@
+> Historical audit/proposal at published commit843ec4a or earlier. The local runtime follow-up is described in [manual catalog implementation](manual-catalog-implementation.md); it now adds manual entries to the examples but is not published or deployed.
+
 # Concrete catalog migration plan — 2026-10-13
 
 This is a proposed executable scope, not an applied migration. Current branch runtime remains unchanged.

@@ -1,3 +1,5 @@
+> Historical audit/proposal at published commit843ec4a or earlier. The local runtime follow-up is described in [manual catalog implementation](manual-catalog-implementation.md); it now adds manual entries to the examples but is not published or deployed.
+
 # Model catalog verification — 2026-10-13
 
 Prepared against `philly1084/cli-model-gateway` main commit
