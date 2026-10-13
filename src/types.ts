@@ -158,6 +158,8 @@ export interface ProviderModelConfig {
   fallbackModels?: string[];
   capabilities?: ModelCapability[];
   autoEligible?: boolean;
+  /** Exposed for explicit requests only; never an automatic route, fallback, or judge. */
+  manualOnly?: boolean;
 }
 
 export type ModelCapability =

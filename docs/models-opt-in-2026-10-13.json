@@ -1,0 +1,48 @@
+{
+  "status": "reference-only-not-loaded",
+  "checkedAt": "2026-10-13",
+  "note": "Not a providers configuration. Production-client model/list verified the four Codex IDs on 2026-10-13, but inference is unverified. Do not merge or activate without separate migration approval. autoEligible=false alone does not exclude automatic benchmark judges in the current runtime.",
+  "providers": [
+    {
+      "providerId": "codex-cli",
+      "models": [
+        {
+          "id": "gpt-6.1-sol",
+          "providerModel": "gpt-6.1-sol",
+          "description": "Latest workhorse model for coding and everyday work.",
+          "autoEligible": false
+        },
+        {
+          "id": "gpt-6-astra",
+          "providerModel": "gpt-6-astra",
+          "description": "Frontier intelligence for the most demanding work.",
+          "autoEligible": false
+        },
+        {
+          "id": "gpt-6-sol",
+          "providerModel": "gpt-6-sol",
+          "description": "Previous generation workhorse model.",
+          "autoEligible": false
+        },
+        {
+          "id": "gpt-6-luna",
+          "providerModel": "gpt-6-luna",
+          "description": "Fast and affordable model for easier tasks.",
+          "autoEligible": false
+        }
+      ]
+    },
+    {
+      "providerId": "deepseek-api",
+      "models": [
+        {
+          "id": "deepseek-flash",
+          "providerModel": "deepseek-flash",
+          "description": "DeepSeek-V4.1-Flash; current Flash selector",
+          "autoEligible": false
+        }
+      ]
+    }
+  ],
+  "productionDiscoveryEvidence": "production-model-discovery-2026-10-13.json"
+}

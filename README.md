@@ -332,7 +332,7 @@ The task stream is Server-Sent Events. It includes normal provider-session `outp
 
 Use `/api/codex-agent/*` when a trusted frontend service, such as Symphony, needs to run a local Codex app-server turn directly in a checked-out workspace. Requests must use a `FRONTEND_API_KEY`/`FRONTEND_API_KEYS` key or the admin key. The gateway validates `workspacePath` against `CODEX_AGENT_ALLOWED_WORKSPACE_ROOTS` and starts `codex app-server` with `cwd` set to that workspace.
 
-When a request omits `config.model`, the Codex agent defaults to `gpt-5.6-sol`; callers can still select another configured or account-entitled Codex model explicitly. The provider catalog exposes the complete GPT-5.6 family: `gpt-5.6-sol` for frontier capability, `gpt-5.6-terra` for balanced intelligence and cost, and `gpt-5.6-luna` for efficient high-volume work.
+When a request omits `config.model`, the Codex agent defaults to `gpt-5.6-sol`; callers can still select another configured or account-entitled Codex model explicitly. The examples expose newer verified selectors with `manualOnly: true`, preserving automatic ranking and excluding them from automatic judges and implicit fallbacks. Deploy the matching runtime before loading these entries; see the [implementation and rollout notes](docs/manual-catalog-implementation.md).
 
 ```http
 POST /api/codex-agent/run
@@ -1191,3 +1191,5 @@ The generated Groq models match the current Groq docs production/system IDs:
 - `llama-3.1-8b-instant`
 
 Do not import `kubernetes/groq-rancher-overlay.yaml` directly into Rancher as a standalone manifest. Rancher applies imported YAML as full Kubernetes resources, and that file is only suitable as a patch-style overlay, not a complete deployment object.
+
+The [all-provider audit](docs/provider-audit-2026-10-13.md) covers Gemini, Kimi, OpenRouter and every configured provider with dated discovery evidence and unloaded candidates.

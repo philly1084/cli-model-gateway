@@ -1,0 +1,213 @@
+{
+  "checkedAt": "2026-10-13T22:30:41.401Z",
+  "status": "reference-only-not-loaded",
+  "note": "Supplement to original five references. Proposed gateway aliases explicitly identified. Not imported by runtime.",
+  "models": [
+    {
+      "providerId": "gemini-api",
+      "id": "gemini-4-argon",
+      "providerModel": "gemini-4-argon",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://ai.google.dev/gemini-api/docs/models/gemini-4-argon",
+      "notes": "Unified input/thinking/output; synchronous output65536; API discovery verified; CLI separate.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "gemini-api",
+      "id": "gemini-3.8-flash",
+      "providerModel": "gemini-3.8-flash",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash",
+      "notes": "Output65536; minimal thinking rejected; API discovery verified.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "gemini-api",
+      "id": "gemini-3.6-flash",
+      "providerModel": "gemini-3.6-flash",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash",
+      "notes": "Already mounted; missing from repo.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "gemini-api",
+      "id": "gemini-3.5-flash-lite",
+      "providerModel": "gemini-3.5-flash-lite",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite",
+      "notes": "Already mounted; missing from repo.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "kimi-code-api",
+      "id": "kimi-k3-256k",
+      "providerModel": "k3-256k",
+      "contextTokens": 262144,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
+      "notes": "Already mounted; missing from repo. k3 also reports262144 for configured account.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "kimi-code-api",
+      "id": "kimi-code-standard",
+      "providerModel": "kimi-for-coding",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
+      "notes": "Proposed gateway alias for rolling model currentlyK2.8Preview; migrate mislabeled2.7 selector separately.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "kimi-api",
+      "id": "moonshot-kimi-k3",
+      "providerModel": "kimi-k3",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://platform.kimi.ai/docs/guide/kimi-k3-quickstart",
+      "notes": "Proposed distinct gateway alias avoids Code kimi-k3 collision; discovery401.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "groq-api",
+      "id": "qwen/qwen3.8-27b",
+      "providerModel": "qwen/qwen3.8-27b",
+      "contextTokens": 131072,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://console.groq.com/docs/model/qwen/qwen3.8-27b",
+      "notes": "Preview/output16384; discovery401; existing whitelist unchanged.",
+      "autoEligible": false
+    },
+    {
+      "providerId": "openrouter-free",
+      "id": "poolside/laguna-s-2.1:free",
+      "providerModel": "poolside/laguna-s-2.1:free",
+      "contextTokens": 262144,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://openrouter.ai/api/v1/models",
+      "notes": "Public catalog snapshot; not enabled; availability may change.",
+      "autoEligible": false,
+      "supportedParameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    },
+    {
+      "providerId": "openrouter-free",
+      "id": "nvidia/nemotron-3.5-lightning:free",
+      "providerModel": "nvidia/nemotron-3.5-lightning:free",
+      "contextTokens": 1000000,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://openrouter.ai/api/v1/models",
+      "notes": "Public catalog snapshot; not enabled; availability may change.",
+      "autoEligible": false,
+      "supportedParameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    },
+    {
+      "providerId": "openrouter-free",
+      "id": "thinkingmachines/inkling-small:free",
+      "providerModel": "thinkingmachines/inkling-small:free",
+      "contextTokens": 1048576,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://openrouter.ai/api/v1/models",
+      "notes": "Public catalog snapshot; not enabled; availability may change.",
+      "autoEligible": false,
+      "supportedParameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "seed",
+        "stop",
+        "temperature",
+        "tools",
+        "top_p"
+      ],
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    },
+    {
+      "providerId": "openrouter-free",
+      "id": "cohere/north-mini-code:free",
+      "providerModel": "cohere/north-mini-code:free",
+      "contextTokens": 256000,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://openrouter.ai/api/v1/models",
+      "notes": "Public catalog snapshot; not enabled; availability may change.",
+      "autoEligible": false,
+      "supportedParameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    },
+    {
+      "providerId": "openrouter-free",
+      "id": "google/gemma-4-31b-it:free",
+      "providerModel": "google/gemma-4-31b-it:free",
+      "contextTokens": 262144,
+      "tools": "upstream-supported; gateway inference unverified",
+      "source": "https://openrouter.ai/api/v1/models",
+      "notes": "Public catalog snapshot; not enabled; availability may change.",
+      "autoEligible": false,
+      "supportedParameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    }
+  ]
+}
