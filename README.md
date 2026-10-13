@@ -1191,3 +1191,5 @@ The generated Groq models match the current Groq docs production/system IDs:
 - `llama-3.1-8b-instant`
 
 Do not import `kubernetes/groq-rancher-overlay.yaml` directly into Rancher as a standalone manifest. Rancher applies imported YAML as full Kubernetes resources, and that file is only suitable as a patch-style overlay, not a complete deployment object.
+
+The [all-provider audit](docs/provider-audit-2026-10-13.md) covers Gemini, Kimi, OpenRouter and every configured provider with dated discovery evidence and unloaded candidates.

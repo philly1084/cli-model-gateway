@@ -66,3 +66,36 @@ test("existing routing positions, scores and selections match the pinned baselin
     }
   }
 });
+
+test("all-provider evidence covers every configured surface without enabling candidates", () => {
+  const inventory = JSON.parse(readFileSync("docs/provider-inventory-2026-10-13.json", "utf8"));
+  const candidates = JSON.parse(readFileSync("docs/provider-candidates-2026-10-13.json", "utf8"));
+  const openrouter = JSON.parse(readFileSync("docs/openrouter-discovery-2026-10-13.json", "utf8"));
+  assert.equal(candidates.status, "reference-only-not-loaded");
+  const covered = new Set(inventory.providers.map((p: { id: string }) => p.id));
+  const example = YAML.parse(readFileSync("config/providers.example.yaml", "utf8")).providers;
+  for (const p of [...example, ...rancherProviders()]) assert.ok(covered.has(p.id), p.id);
+  assert.equal(covered.size, 18);
+  const keys = new Set<string>();
+  for (const m of candidates.models) {
+    assert.ok(covered.has(m.providerId));
+    assert.equal(m.autoEligible, false);
+    assert.match(m.source, /^https:\/\//);
+    const key = `${m.providerId}:${m.id}`;
+    assert.ok(!keys.has(key)); keys.add(key);
+    if (m.providerId === "openrouter-free") {
+      const evidence = openrouter.models.find((e: { id: string }) => e.id === m.providerModel);
+      assert.ok(evidence, m.providerModel);
+      assert.equal(evidence.pricing.prompt, "0");
+      assert.equal(evidence.pricing.completion, "0");
+      assert.ok(evidence.supported_parameters.includes("tools"));
+      assert.equal(m.contextTokens, evidence.context_length);
+      assert.ok(!m.providerModel.endsWith(":batch"));
+    }
+  }
+  const code = inventory.providers.find((p: { id: string }) => p.id === "kimi-code-api").discovery;
+  assert.equal(code.httpStatus, 200);
+  for (const m of candidates.models.filter((m: { providerId: string }) => m.providerId === "kimi-code-api")) {
+    assert.ok(code.models.some((e: { id: string }) => e.id === m.providerModel));
+  }
+});

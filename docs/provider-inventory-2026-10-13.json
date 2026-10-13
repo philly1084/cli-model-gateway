@@ -1,0 +1,1850 @@
+{
+  "checkedAt": "2026-10-13T22:30:41.401Z",
+  "status": "reference-only-not-loaded",
+  "inferencePerformed": false,
+  "providers": [
+    {
+      "id": "gemini-cli",
+      "repositoryExample": {
+        "id": "gemini-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gemini-3.1-pro-preview",
+            "providerModel": "gemini-3.1-pro-preview"
+          },
+          {
+            "id": "gemini-3.5-flash",
+            "providerModel": "gemini-3.5-flash"
+          },
+          {
+            "id": "gemini-3-flash-preview",
+            "providerModel": "gemini-3-flash-preview"
+          },
+          {
+            "id": "gemini-3.1-flash-lite",
+            "providerModel": "gemini-3.1-flash-lite"
+          },
+          {
+            "id": "gemini-2.5-pro",
+            "providerModel": "gemini-2.5-pro"
+          },
+          {
+            "id": "gemini-2.5-flash",
+            "providerModel": "gemini-2.5-flash"
+          },
+          {
+            "id": "gemini-2.5-flash-lite",
+            "providerModel": "gemini-2.5-flash-lite"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "gemini-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gemini-3.1-pro-preview",
+            "providerModel": "gemini-3.1-pro-preview"
+          },
+          {
+            "id": "gemini-3.5-flash",
+            "providerModel": "gemini-3.5-flash"
+          },
+          {
+            "id": "gemini-3-flash-preview",
+            "providerModel": "gemini-3-flash-preview"
+          },
+          {
+            "id": "gemini-3.1-flash-lite",
+            "providerModel": "gemini-3.1-flash-lite"
+          },
+          {
+            "id": "gemini-2.5-pro",
+            "providerModel": "gemini-2.5-pro"
+          },
+          {
+            "id": "gemini-2.5-flash",
+            "providerModel": "gemini-2.5-flash"
+          },
+          {
+            "id": "gemini-2.5-flash-lite",
+            "providerModel": "gemini-2.5-flash-lite"
+          }
+        ]
+      },
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "antigravity-cli",
+      "repositoryExample": {
+        "id": "antigravity-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "antigravity-default",
+            "providerModel": "default"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "codex-cli",
+      "repositoryExample": {
+        "id": "codex-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gpt-image-2",
+            "providerModel": "codex-latest"
+          },
+          {
+            "id": "gpt-5.6-sol",
+            "providerModel": "gpt-5.6-sol"
+          },
+          {
+            "id": "gpt-5.6-terra",
+            "providerModel": "gpt-5.6-terra"
+          },
+          {
+            "id": "gpt-5.6-luna",
+            "providerModel": "gpt-5.6-luna"
+          },
+          {
+            "id": "codex-latest",
+            "providerModel": "codex-latest"
+          },
+          {
+            "id": "gpt-5.5",
+            "providerModel": "gpt-5.5"
+          },
+          {
+            "id": "gpt-5.5-pro",
+            "providerModel": "gpt-5.5-pro"
+          },
+          {
+            "id": "gpt-5.4",
+            "providerModel": "gpt-5.4"
+          },
+          {
+            "id": "gpt-5.4-pro",
+            "providerModel": "gpt-5.4-pro"
+          },
+          {
+            "id": "gpt-5.4-mini",
+            "providerModel": "gpt-5.4-mini"
+          },
+          {
+            "id": "gpt-5.4-nano",
+            "providerModel": "gpt-5.4-nano"
+          },
+          {
+            "id": "gpt-5.3-instant",
+            "providerModel": "gpt-5.3-instant"
+          },
+          {
+            "id": "gpt-5.3-chat-latest",
+            "providerModel": "gpt-5.3-chat-latest"
+          },
+          {
+            "id": "gpt-4.1",
+            "providerModel": "gpt-4.1"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "codex-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gpt-image-2",
+            "providerModel": "codex-latest"
+          },
+          {
+            "id": "gpt-5.6-sol",
+            "providerModel": "gpt-5.6-sol"
+          },
+          {
+            "id": "gpt-5.6-terra",
+            "providerModel": "gpt-5.6-terra"
+          },
+          {
+            "id": "gpt-5.6-luna",
+            "providerModel": "gpt-5.6-luna"
+          },
+          {
+            "id": "gpt-5.5",
+            "providerModel": "gpt-5.5"
+          },
+          {
+            "id": "gpt-5.5-pro",
+            "providerModel": "gpt-5.5-pro"
+          },
+          {
+            "id": "gpt-5.4",
+            "providerModel": "gpt-5.4"
+          },
+          {
+            "id": "gpt-5.4-pro",
+            "providerModel": "gpt-5.4-pro"
+          },
+          {
+            "id": "gpt-5.4-mini",
+            "providerModel": "gpt-5.4-mini"
+          },
+          {
+            "id": "gpt-5.4-nano",
+            "providerModel": "gpt-5.4-nano"
+          },
+          {
+            "id": "gpt-5.3-instant",
+            "providerModel": "gpt-5.3-instant"
+          },
+          {
+            "id": "gpt-5.3-chat-latest",
+            "providerModel": "gpt-5.3-chat-latest"
+          },
+          {
+            "id": "gpt-4.1",
+            "providerModel": "gpt-4.1"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "codex-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gpt-image-2",
+            "providerModel": "codex-latest"
+          },
+          {
+            "id": "gpt-5.6-sol",
+            "providerModel": "gpt-5.6-sol"
+          },
+          {
+            "id": "gpt-5.6-terra",
+            "providerModel": "gpt-5.6-terra"
+          },
+          {
+            "id": "gpt-5.6-luna",
+            "providerModel": "gpt-5.6-luna"
+          },
+          {
+            "id": "gpt-5.5",
+            "providerModel": "gpt-5.5"
+          },
+          {
+            "id": "gpt-5.4",
+            "providerModel": "gpt-5.4"
+          },
+          {
+            "id": "gpt-5.4-mini",
+            "providerModel": "gpt-5.4-mini"
+          },
+          {
+            "id": "gpt-6-astra",
+            "providerModel": "gpt-6-astra"
+          },
+          {
+            "id": "gpt-6.1-sol",
+            "providerModel": "gpt-6.1-sol"
+          }
+        ]
+      },
+      "discovery": null
+    },
+    {
+      "id": "ollama-local",
+      "repositoryExample": {
+        "id": "ollama-local",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "llama3.2",
+            "providerModel": "llama3.2"
+          },
+          {
+            "id": "mistral",
+            "providerModel": "mistral"
+          },
+          {
+            "id": "codellama",
+            "providerModel": "codellama"
+          },
+          {
+            "id": "phi4",
+            "providerModel": "phi4"
+          },
+          {
+            "id": "qwen2.5",
+            "providerModel": "qwen2.5"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "groq-api",
+      "repositoryExample": {
+        "id": "groq-api",
+        "type": "openai",
+        "discovery": {
+          "enabled": true
+        },
+        "models": [
+          {
+            "id": "groq/compound",
+            "providerModel": "groq/compound"
+          },
+          {
+            "id": "groq/compound-mini",
+            "providerModel": "groq/compound-mini"
+          },
+          {
+            "id": "openai/gpt-oss-120b",
+            "providerModel": "openai/gpt-oss-120b"
+          },
+          {
+            "id": "openai/gpt-oss-20b",
+            "providerModel": "openai/gpt-oss-20b"
+          },
+          {
+            "id": "llama-3.3-70b-versatile",
+            "providerModel": "llama-3.3-70b-versatile"
+          },
+          {
+            "id": "llama-3.1-8b-instant",
+            "providerModel": "llama-3.1-8b-instant"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "groq-api",
+        "type": "openai",
+        "discovery": {
+          "enabled": true,
+          "include": [
+            "qwen/qwen3-32b",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "groq/compound",
+            "groq/compound-mini",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
+          ]
+        },
+        "models": [
+          {
+            "id": "groq/compound",
+            "providerModel": "groq/compound"
+          },
+          {
+            "id": "groq/compound-mini",
+            "providerModel": "groq/compound-mini"
+          },
+          {
+            "id": "openai/gpt-oss-120b",
+            "providerModel": "openai/gpt-oss-120b"
+          },
+          {
+            "id": "openai/gpt-oss-20b",
+            "providerModel": "openai/gpt-oss-20b"
+          },
+          {
+            "id": "llama-3.3-70b-versatile",
+            "providerModel": "llama-3.3-70b-versatile"
+          },
+          {
+            "id": "llama-3.1-8b-instant",
+            "providerModel": "llama-3.1-8b-instant"
+          },
+          {
+            "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "providerModel": "meta-llama/llama-4-scout-17b-16e-instruct"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "groq-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "groq/compound",
+            "providerModel": "groq/compound"
+          },
+          {
+            "id": "groq/compound-mini",
+            "providerModel": "groq/compound-mini"
+          },
+          {
+            "id": "openai/gpt-oss-120b",
+            "providerModel": "openai/gpt-oss-120b"
+          },
+          {
+            "id": "openai/gpt-oss-20b",
+            "providerModel": "openai/gpt-oss-20b"
+          },
+          {
+            "id": "qwen/qwen3.6-27b",
+            "providerModel": "qwen/qwen3.6-27b"
+          }
+        ]
+      },
+      "discovery": {
+        "id": "groq-api",
+        "discovery": {
+          "enabled": true,
+          "include": [
+            "qwen/qwen3.6-27b",
+            "groq/compound",
+            "groq/compound-mini",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b"
+          ]
+        },
+        "configuredModels": [
+          {
+            "id": "groq/compound",
+            "providerModel": "groq/compound"
+          },
+          {
+            "id": "groq/compound-mini",
+            "providerModel": "groq/compound-mini"
+          },
+          {
+            "id": "openai/gpt-oss-120b",
+            "providerModel": "openai/gpt-oss-120b"
+          },
+          {
+            "id": "openai/gpt-oss-20b",
+            "providerModel": "openai/gpt-oss-20b"
+          },
+          {
+            "id": "qwen/qwen3.6-27b",
+            "providerModel": "qwen/qwen3.6-27b"
+          }
+        ],
+        "httpStatus": 401
+      }
+    },
+    {
+      "id": "openrouter-free",
+      "repositoryExample": {
+        "id": "openrouter-free",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "openrouter-free",
+            "providerModel": "openrouter/free"
+          },
+          {
+            "id": "openrouter/pareto-code",
+            "providerModel": "openrouter/pareto-code"
+          },
+          {
+            "id": "qwen/qwen3-coder:free",
+            "providerModel": "qwen/qwen3-coder:free"
+          },
+          {
+            "id": "moonshotai/kimi-k2.6:free",
+            "providerModel": "moonshotai/kimi-k2.6:free"
+          },
+          {
+            "id": "nvidia/nemotron-3-super-120b-a12b:free",
+            "providerModel": "nvidia/nemotron-3-super-120b-a12b:free"
+          },
+          {
+            "id": "openai/gpt-oss-120b:free",
+            "providerModel": "openai/gpt-oss-120b:free"
+          },
+          {
+            "id": "openai/gpt-oss-20b:free",
+            "providerModel": "openai/gpt-oss-20b:free"
+          },
+          {
+            "id": "meta-llama/llama-3.3-70b-instruct:free",
+            "providerModel": "meta-llama/llama-3.3-70b-instruct:free"
+          },
+          {
+            "id": "qwen/qwen3-next-80b-a3b-instruct:free",
+            "providerModel": "qwen/qwen3-next-80b-a3b-instruct:free"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "openrouter-free",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "openrouter-free",
+            "providerModel": "openrouter/free"
+          },
+          {
+            "id": "openrouter/pareto-code",
+            "providerModel": "openrouter/pareto-code"
+          },
+          {
+            "id": "qwen/qwen3-coder:free",
+            "providerModel": "qwen/qwen3-coder:free"
+          },
+          {
+            "id": "moonshotai/kimi-k2.6:free",
+            "providerModel": "moonshotai/kimi-k2.6:free"
+          },
+          {
+            "id": "nvidia/nemotron-3-super-120b-a12b:free",
+            "providerModel": "nvidia/nemotron-3-super-120b-a12b:free"
+          },
+          {
+            "id": "openai/gpt-oss-120b:free",
+            "providerModel": "openai/gpt-oss-120b:free"
+          },
+          {
+            "id": "openai/gpt-oss-20b:free",
+            "providerModel": "openai/gpt-oss-20b:free"
+          },
+          {
+            "id": "meta-llama/llama-3.3-70b-instruct:free",
+            "providerModel": "meta-llama/llama-3.3-70b-instruct:free"
+          },
+          {
+            "id": "qwen/qwen3-next-80b-a3b-instruct:free",
+            "providerModel": "qwen/qwen3-next-80b-a3b-instruct:free"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "openrouter-free",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "openrouter-free",
+            "providerModel": "openrouter/free"
+          },
+          {
+            "id": "openrouter/pareto-code",
+            "providerModel": "openrouter/pareto-code"
+          },
+          {
+            "id": "z-ai/glm-5.3-flash",
+            "providerModel": "z-ai/glm-5.3-flash"
+          },
+          {
+            "id": "poolside/laguna-s-2.1:free",
+            "providerModel": "poolside/laguna-s-2.1:free"
+          },
+          {
+            "id": "nvidia/nemotron-3-super-120b-a12b:free",
+            "providerModel": "nvidia/nemotron-3-super-120b-a12b:free"
+          },
+          {
+            "id": "z-ai/glm-5.2:free",
+            "providerModel": "z-ai/glm-5.2:free"
+          }
+        ]
+      },
+      "discovery": {
+        "id": "openrouter-free",
+        "discovery": null,
+        "configuredModels": [
+          {
+            "id": "openrouter-free",
+            "providerModel": "openrouter/free"
+          },
+          {
+            "id": "openrouter/pareto-code",
+            "providerModel": "openrouter/pareto-code"
+          },
+          {
+            "id": "z-ai/glm-5.3-flash",
+            "providerModel": "z-ai/glm-5.3-flash"
+          },
+          {
+            "id": "poolside/laguna-s-2.1:free",
+            "providerModel": "poolside/laguna-s-2.1:free"
+          },
+          {
+            "id": "nvidia/nemotron-3-super-120b-a12b:free",
+            "providerModel": "nvidia/nemotron-3-super-120b-a12b:free"
+          },
+          {
+            "id": "z-ai/glm-5.2:free",
+            "providerModel": "z-ai/glm-5.2:free"
+          }
+        ],
+        "httpStatus": 200,
+        "models": [
+          {
+            "id": "google/gemini-4-argon",
+            "contextLength": 1048576,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "google/gemini-4-argon:batch",
+            "contextLength": 1048576,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "dots-studio/dots-3-note-preview:free",
+            "contextLength": 512000,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "response_format",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "liquid/lfm-2.5-2.6b:free",
+            "contextLength": 65536,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logprobs",
+              "max_completion_tokens",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_logprobs"
+            ]
+          },
+          {
+            "id": "nvidia/nemotron-3.5-lightning:free",
+            "contextLength": 1000000,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "seed",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "thinkingmachines/inkling-small:free",
+            "contextLength": 1048576,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "max_tokens",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "seed",
+              "stop",
+              "temperature",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "poolside/laguna-s-2.1:free",
+            "contextLength": 262144,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "temperature",
+              "tool_choice",
+              "tools"
+            ]
+          },
+          {
+            "id": "thinkingmachines/inkling:free",
+            "contextLength": 1048576,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "max_tokens",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "seed",
+              "stop",
+              "temperature",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "moonshotai/kimi-k3",
+            "contextLength": 1048576,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "logprobs",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_logprobs",
+              "top_p"
+            ]
+          },
+          {
+            "id": "moonshotai/kimi-k3:batch",
+            "contextLength": 1048576,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_p"
+            ]
+          },
+          {
+            "id": "poolside/laguna-xs-2.1:free",
+            "contextLength": 262144,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "temperature",
+              "tool_choice",
+              "tools"
+            ]
+          },
+          {
+            "id": "cohere/north-mini-code:free",
+            "contextLength": 256000,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "max_tokens",
+              "presence_penalty",
+              "reasoning",
+              "seed",
+              "stop",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_p"
+            ]
+          },
+          {
+            "id": "nvidia/nemotron-3.5-content-safety:free",
+            "contextLength": 128000,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "seed",
+              "temperature",
+              "top_p"
+            ]
+          },
+          {
+            "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "contextLength": 1000000,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "seed",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "contextLength": 256000,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "seed",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "openrouter/pareto-code",
+            "contextLength": 2000000,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "logprobs",
+              "max_completion_tokens",
+              "max_tokens",
+              "min_p",
+              "parallel_tool_calls",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_a",
+              "top_k",
+              "top_logprobs",
+              "top_p",
+              "verbosity"
+            ]
+          },
+          {
+            "id": "google/gemma-4-26b-a4b-it:free",
+            "contextLength": 262144,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "response_format",
+              "seed",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "google/gemma-4-31b-it:free",
+            "contextLength": 262144,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "response_format",
+              "seed",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "nvidia/nemotron-3-super-120b-a12b:free",
+            "contextLength": 262144,
+            "supportedParameters": [
+              "include_reasoning",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "response_format",
+              "seed",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_p"
+            ]
+          },
+          {
+            "id": "openrouter/free",
+            "contextLength": 200000,
+            "supportedParameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logprobs",
+              "max_completion_tokens",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_logprobs",
+              "top_p"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "kimi-api",
+      "repositoryExample": {
+        "id": "kimi-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "kimi-k2.6",
+            "providerModel": "kimi-k2.6"
+          },
+          {
+            "id": "kimi-k2.5",
+            "providerModel": "kimi-k2.5"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "kimi-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "kimi-k2.6",
+            "providerModel": "kimi-k2.6"
+          },
+          {
+            "id": "kimi-k2.5",
+            "providerModel": "kimi-k2.5"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "kimi-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "kimi-k2.6",
+            "providerModel": "kimi-k2.6"
+          },
+          {
+            "id": "kimi-k2.5",
+            "providerModel": "kimi-k2.5"
+          }
+        ]
+      },
+      "discovery": {
+        "id": "kimi-api",
+        "discovery": null,
+        "configuredModels": [
+          {
+            "id": "kimi-k2.6",
+            "providerModel": "kimi-k2.6"
+          },
+          {
+            "id": "kimi-k2.5",
+            "providerModel": "kimi-k2.5"
+          }
+        ],
+        "httpStatus": 401
+      }
+    },
+    {
+      "id": "kimi-code-api",
+      "repositoryExample": {
+        "id": "kimi-code-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "kimi-k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-k2.7-code",
+            "providerModel": "kimi-k2.7-code"
+          },
+          {
+            "id": "kimi-k2.7-code-highspeed",
+            "providerModel": "kimi-k2.7-code-highspeed"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "kimi-code-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "kimi-k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-k2.7-code",
+            "providerModel": "kimi-k2.7-code"
+          },
+          {
+            "id": "kimi-k2.7-code-highspeed",
+            "providerModel": "kimi-k2.7-code-highspeed"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "kimi-code-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "kimi-k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-k3-256k",
+            "providerModel": "k3-256k"
+          },
+          {
+            "id": "kimi-k2.7-code",
+            "providerModel": "kimi-for-coding"
+          },
+          {
+            "id": "kimi-k2.7-code-highspeed",
+            "providerModel": "kimi-for-coding-highspeed"
+          }
+        ]
+      },
+      "discovery": {
+        "id": "kimi-code-api",
+        "discovery": null,
+        "configuredModels": [
+          {
+            "id": "kimi-k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-k3-256k",
+            "providerModel": "k3-256k"
+          },
+          {
+            "id": "kimi-k2.7-code",
+            "providerModel": "kimi-for-coding"
+          },
+          {
+            "id": "kimi-k2.7-code-highspeed",
+            "providerModel": "kimi-for-coding-highspeed"
+          }
+        ],
+        "httpStatus": 200,
+        "models": [
+          {
+            "id": "kimi-for-coding",
+            "contextLength": 1048576,
+            "supportedParameters": null
+          },
+          {
+            "id": "kimi-for-coding-highspeed",
+            "contextLength": 262144,
+            "supportedParameters": null
+          },
+          {
+            "id": "k3-256k",
+            "contextLength": 262144,
+            "supportedParameters": null
+          },
+          {
+            "id": "k3",
+            "contextLength": 262144,
+            "supportedParameters": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "kimi-code-cli",
+      "repositoryExample": {
+        "id": "kimi-code-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-for-coding",
+            "providerModel": "kimi-for-coding"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "kimi-code-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-for-coding",
+            "providerModel": "kimi-for-coding"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "kimi-code-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "k3",
+            "providerModel": "k3"
+          },
+          {
+            "id": "kimi-for-coding",
+            "providerModel": "kimi-for-coding"
+          }
+        ]
+      },
+      "discovery": null
+    },
+    {
+      "id": "grok-build-cli",
+      "repositoryExample": {
+        "id": "grok-build-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "grok-build",
+            "providerModel": "grok-build"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "grok-build-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "grok-build",
+            "providerModel": "grok-build"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "grok-build-cli",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "grok-build",
+            "providerModel": "grok-build"
+          }
+        ]
+      },
+      "discovery": null
+    },
+    {
+      "id": "deepseek-api",
+      "repositoryExample": {
+        "id": "deepseek-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "deepseek-chat",
+            "providerModel": "deepseek-chat"
+          },
+          {
+            "id": "deepseek-v4-flash",
+            "providerModel": "deepseek-v4-flash"
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "providerModel": "deepseek-v4-pro"
+          },
+          {
+            "id": "deepseek-coder",
+            "providerModel": "deepseek-chat"
+          },
+          {
+            "id": "deepseek-reasoner",
+            "providerModel": "deepseek-reasoner"
+          }
+        ]
+      },
+      "rancherExample": {
+        "id": "deepseek-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "deepseek-v4-flash",
+            "providerModel": "deepseek-v4-flash"
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "providerModel": "deepseek-v4-pro"
+          },
+          {
+            "id": "deepseek-chat",
+            "providerModel": "deepseek-chat"
+          },
+          {
+            "id": "deepseek-coder",
+            "providerModel": "deepseek-chat"
+          },
+          {
+            "id": "deepseek-reasoner",
+            "providerModel": "deepseek-reasoner"
+          }
+        ]
+      },
+      "mountedProduction": {
+        "id": "deepseek-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "deepseek-v4-flash",
+            "providerModel": "deepseek-v4-flash"
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "providerModel": "deepseek-v4-pro"
+          }
+        ]
+      },
+      "discovery": {
+        "id": "deepseek-api",
+        "discovery": null,
+        "configuredModels": [
+          {
+            "id": "deepseek-v4-flash",
+            "providerModel": "deepseek-v4-flash"
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "providerModel": "deepseek-v4-pro"
+          }
+        ],
+        "httpStatus": 200,
+        "models": [
+          {
+            "id": "deepseek-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "contextLength": null,
+            "supportedParameters": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "huggingface-whisper",
+      "repositoryExample": {
+        "id": "huggingface-whisper",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "hf-whisper-large",
+            "providerModel": "openai/whisper-large-v3"
+          },
+          {
+            "id": "hf-whisper-base",
+            "providerModel": "openai/whisper-base"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "gemini-flash-free",
+      "repositoryExample": {
+        "id": "gemini-flash-free",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gemini-3-flash-preview",
+            "providerModel": "gemini-3-flash-preview"
+          },
+          {
+            "id": "gemini-3.5-flash",
+            "providerModel": "gemini-3.5-flash"
+          },
+          {
+            "id": "gemini-3.1-flash-lite",
+            "providerModel": "gemini-3.1-flash-lite"
+          },
+          {
+            "id": "gemini-2.5-flash",
+            "providerModel": "gemini-2.5-flash"
+          },
+          {
+            "id": "gemini-2.5-flash-lite",
+            "providerModel": "gemini-2.5-flash-lite"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "groq-whisper",
+      "repositoryExample": {
+        "id": "groq-whisper",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "groq-whisper-large-v3",
+            "providerModel": "whisper-large-v3"
+          },
+          {
+            "id": "groq-whisper-v3-turbo",
+            "providerModel": "whisper-v3-turbo"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "huggingface-tts",
+      "repositoryExample": {
+        "id": "huggingface-tts",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "hf-speecht5-tts",
+            "providerModel": "microsoft/speecht5_tts"
+          },
+          {
+            "id": "hf-bark",
+            "providerModel": "suno/bark"
+          },
+          {
+            "id": "hf-fastspeech2",
+            "providerModel": "facebook/fastspeech2-en-ljspeech"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "piper-tts-local",
+      "repositoryExample": {
+        "id": "piper-tts-local",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "piper-en-us",
+            "providerModel": "en_US-lessac-medium"
+          },
+          {
+            "id": "piper-en-gb",
+            "providerModel": "en_GB-alan-medium"
+          },
+          {
+            "id": "piper-de-de",
+            "providerModel": "de_DE-thorsten-medium"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "gemini-audio",
+      "repositoryExample": {
+        "id": "gemini-audio",
+        "type": "cli",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gemini-audio-flash",
+            "providerModel": "gemini-2.5-flash"
+          }
+        ]
+      },
+      "rancherExample": null,
+      "mountedProduction": null,
+      "discovery": null
+    },
+    {
+      "id": "gemini-api",
+      "repositoryExample": null,
+      "rancherExample": null,
+      "mountedProduction": {
+        "id": "gemini-api",
+        "type": "openai",
+        "discovery": null,
+        "models": [
+          {
+            "id": "gemini-3.7-flash",
+            "providerModel": "gemini-3.7-flash"
+          },
+          {
+            "id": "gemini-3.6-flash",
+            "providerModel": "gemini-3.6-flash"
+          },
+          {
+            "id": "gemini-3.1-pro-preview",
+            "providerModel": "gemini-3.1-pro-preview"
+          },
+          {
+            "id": "gemini-3.5-flash",
+            "providerModel": "gemini-3.5-flash"
+          },
+          {
+            "id": "gemini-3.5-flash-lite",
+            "providerModel": "gemini-3.5-flash-lite"
+          },
+          {
+            "id": "gemini-3-flash-preview",
+            "providerModel": "gemini-3-flash-preview"
+          },
+          {
+            "id": "gemini-3.1-flash-lite",
+            "providerModel": "gemini-3.1-flash-lite"
+          }
+        ]
+      },
+      "discovery": {
+        "id": "gemini-api",
+        "discovery": null,
+        "configuredModels": [
+          {
+            "id": "gemini-3.7-flash",
+            "providerModel": "gemini-3.7-flash"
+          },
+          {
+            "id": "gemini-3.6-flash",
+            "providerModel": "gemini-3.6-flash"
+          },
+          {
+            "id": "gemini-3.1-pro-preview",
+            "providerModel": "gemini-3.1-pro-preview"
+          },
+          {
+            "id": "gemini-3.5-flash",
+            "providerModel": "gemini-3.5-flash"
+          },
+          {
+            "id": "gemini-3.5-flash-lite",
+            "providerModel": "gemini-3.5-flash-lite"
+          },
+          {
+            "id": "gemini-3-flash-preview",
+            "providerModel": "gemini-3-flash-preview"
+          },
+          {
+            "id": "gemini-3.1-flash-lite",
+            "providerModel": "gemini-3.1-flash-lite"
+          }
+        ],
+        "httpStatus": 200,
+        "models": [
+          {
+            "id": "models/gemini-2.5-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-pro",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-flash-preview-tts",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-pro-preview-tts",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemma-4-26b-a4b-it",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemma-4-31b-it",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-flash-latest",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-flash-lite-latest",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-pro-latest",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-flash-lite",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-flash-image",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3-flash-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-pro-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-pro-preview-customtools",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-lite-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-lite",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3-pro-image-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3-pro-image",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/nano-banana-pro-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-image-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-image",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-lite-image",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-nano-banana-2.1",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.5-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.5-flash-lite",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-omni-flash-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-omni-1.1-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.5-transcribe",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.6-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.7-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.8-flash",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-4-argon",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/lyria-3-clip-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/lyria-3-pro-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/lyria-3.5",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-tts-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.8-flash-tts",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.8-flash-lite-tts",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-robotics-er-2-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-computer-use-preview-10-2025",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/antigravity-preview-05-2026",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/antigravity-preview-09-2026",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/antigravity-preview-latest",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/deep-research-max-preview-04-2026",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/deep-research-preview-04-2026",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/deep-research-pro-preview-12-2025",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-embedding-001",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-embedding-2-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-embedding-2",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/aqa",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/veo-3.1-generate-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/veo-3.1-fast-generate-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/veo-3.1-lite-generate-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.5-transcribe-live",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-flash-native-audio-latest",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-flash-native-audio-preview-09-2025",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-2.5-flash-native-audio-preview-12-2025",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.1-flash-live-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.8-live",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.8-live-extended-thinking",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-robotics-er-2-streaming-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/gemini-3.5-live-translate-preview",
+            "contextLength": null,
+            "supportedParameters": null
+          },
+          {
+            "id": "models/lyria-realtime-exp",
+            "contextLength": null,
+            "supportedParameters": null
+          }
+        ]
+      }
+    }
+  ]
+}
