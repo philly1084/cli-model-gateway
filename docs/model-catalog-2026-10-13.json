@@ -1,0 +1,43 @@
+{
+  "checkedAt": "2026-10-13",
+  "source": "Codex local model discovery cache",
+  "fetchedAt": "2026-10-13T21:40:54.392721700Z",
+  "clientVersion": "0.162.0",
+  "models": [
+    {
+      "id": "gpt-6.1-sol",
+      "description": "Latest workhorse model for coding and everyday work.",
+      "visibility": "list"
+    },
+    {
+      "id": "gpt-6-astra",
+      "description": "Frontier intelligence for the most demanding work.",
+      "visibility": "list"
+    },
+    {
+      "id": "gpt-6-sol",
+      "description": "Previous generation workhorse model.",
+      "visibility": "list"
+    },
+    {
+      "id": "gpt-6-luna",
+      "description": "Fast and affordable model for easier tasks.",
+      "visibility": "list"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "description": "Older generation workhorse model.",
+      "visibility": "list"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "description": "Older balanced model for straightforward work.",
+      "visibility": "list"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "description": "Older fast and efficient model.",
+      "visibility": "list"
+    }
+  ]
+}

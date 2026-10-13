@@ -132,7 +132,7 @@ data:
               - image_generation
           - id: gpt-5.6-sol
             providerModel: gpt-5.6-sol
-            description: GPT-5.6 frontier model for maximum capability
+            description: Older generation workhorse model.
             fallbackModels:
               - gpt-5.6-terra
               - gpt-5.6-luna
@@ -140,7 +140,7 @@ data:
               - gpt-5.4
           - id: gpt-5.6-terra
             providerModel: gpt-5.6-terra
-            description: GPT-5.6 model balancing intelligence and cost
+            description: Older balanced model for straightforward work.
             fallbackModels:
               - gpt-5.6-sol
               - gpt-5.6-luna
@@ -148,7 +148,7 @@ data:
               - gpt-5.4
           - id: gpt-5.6-luna
             providerModel: gpt-5.6-luna
-            description: GPT-5.6 model for efficient high-volume workloads
+            description: Older fast and efficient model.
             fallbackModels:
               - gpt-5.6-terra
               - gpt-5.6-sol
@@ -588,27 +588,29 @@ data:
         models:
           - id: deepseek-v4-flash
             providerModel: deepseek-v4-flash
+            description: Legacy selector now served by DeepSeek-V4.1-Flash
             fallbackModels:
               - deepseek-v4-pro
           - id: deepseek-v4-pro
             providerModel: deepseek-v4-pro
+            description: DeepSeek-V4-Pro-0813
             fallbackModels:
               - deepseek-v4-flash
           - id: deepseek-chat
             providerModel: deepseek-chat
-            description: Backward-compatible DeepSeek non-thinking alias; use deepseek-v4-flash for new traffic
+            description: Legacy non-thinking alias retired by DeepSeek on 2026-07-24; use deepseek-flash
             fallbackModels:
               - deepseek-v4-flash
               - deepseek-v4-pro
           - id: deepseek-coder
             providerModel: deepseek-chat
-            description: Backward-compatible DeepSeek coding alias mapped to deepseek-chat; use deepseek-v4-flash for new traffic
+            description: Legacy coding alias mapped to retired deepseek-chat; use deepseek-flash
             fallbackModels:
               - deepseek-v4-flash
               - deepseek-v4-pro
           - id: deepseek-reasoner
             providerModel: deepseek-reasoner
-            description: Backward-compatible DeepSeek thinking alias; use deepseek-v4-pro for new traffic
+            description: Legacy thinking alias retired by DeepSeek on 2026-07-24; use deepseek-v4-pro
             fallbackModels:
               - deepseek-v4-pro
               - deepseek-v4-flash

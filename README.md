@@ -332,7 +332,7 @@ The task stream is Server-Sent Events. It includes normal provider-session `outp
 
 Use `/api/codex-agent/*` when a trusted frontend service, such as Symphony, needs to run a local Codex app-server turn directly in a checked-out workspace. Requests must use a `FRONTEND_API_KEY`/`FRONTEND_API_KEYS` key or the admin key. The gateway validates `workspacePath` against `CODEX_AGENT_ALLOWED_WORKSPACE_ROOTS` and starts `codex app-server` with `cwd` set to that workspace.
 
-When a request omits `config.model`, the Codex agent defaults to `gpt-5.6-sol`; callers can still select another configured or account-entitled Codex model explicitly. The provider catalog exposes the complete GPT-5.6 family: `gpt-5.6-sol` for frontier capability, `gpt-5.6-terra` for balanced intelligence and cost, and `gpt-5.6-luna` for efficient high-volume work.
+When a request omits `config.model`, the Codex agent defaults to `gpt-5.6-sol`; callers can still select another configured or account-entitled Codex model explicitly. The runtime provider catalog retains its existing selectors. Newly documented Codex and DeepSeek selectors are listed separately in the [opt-in catalog reference](docs/models-opt-in-2026-10-13.json); it is not loaded by the gateway. See the [dated verification and rollout notes](docs/model-catalog-2026-10-13.md).
 
 ```http
 POST /api/codex-agent/run
