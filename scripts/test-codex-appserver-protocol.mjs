@@ -8,6 +8,29 @@ import { join, resolve } from 'node:path';
 // The fake executable uses a POSIX shebang. CI runs these checks on Linux.
 const protocolTest = (name, fn) => test(name, { skip: process.platform === 'win32' }, fn);
 
+protocolTest('Kimi real bridge passes request-scoped generation cap to its child without changing inherited process env', async () => {
+ const dir=mkdtempSync(join(tmpdir(),'kimi-output-limit-'));
+ writeFileSync(join(dir,'kimi'), `#!/usr/bin/env node
+const readline=require('node:readline');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const m=JSON.parse(line); if(m.method==='initialize') {
+ process.stdout.write(JSON.stringify({id:m.id,error:{message:'OFFLINE_CAP='+process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS}})+'\\n');
+ }
+});
+process.stdin.on('end',()=>process.exit(0));
+`, {mode:0o700});
+ const child=spawn(process.execPath,[resolve('dist/scripts/kimi-acp-bridge.js'),'k3'],{
+  env:{PATH:dir+':'+process.env.PATH,HOME:dir,KIMI_MODEL_MAX_COMPLETION_TOKENS:'1024'},stdio:['pipe','pipe','pipe']
+ });
+ let stdout='',stderr='';child.stdout.on('data',d=>stdout+=d);child.stderr.on('data',d=>stderr+=d);
+ const safety=setTimeout(()=>child.kill('SIGKILL'),8000);
+ child.stdin.end(JSON.stringify({metadata:{max_output_tokens:512},messages:[{role:'user',content:'offline'}],tools:[]}));
+ try {
+  const code=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
+  assert.equal(code,1);assert.equal(stdout,'');assert.match(stderr,/OFFLINE_CAP=512/);
+ } finally {clearTimeout(safety);child.kill();rmSync(dir,{recursive:true,force:true});}
+});
+
 // Real bridge process with a fake app-server, offline and credential-free.
 const fake = `#!/usr/bin/env node
 const readline = require('node:readline');
