@@ -4,3 +4,4 @@ dist/
 config/providers.yaml
 router-config-rollbacks/
 *.log
+/agent-data/
