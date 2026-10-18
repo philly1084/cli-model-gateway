@@ -1193,3 +1193,11 @@ The generated Groq models match the current Groq docs production/system IDs:
 Do not import `kubernetes/groq-rancher-overlay.yaml` directly into Rancher as a standalone manifest. Rancher applies imported YAML as full Kubernetes resources, and that file is only suitable as a patch-style overlay, not a complete deployment object.
 
 The [all-provider audit](docs/provider-audit-2026-10-13.md) covers Gemini, Kimi, OpenRouter and every configured provider with dated discovery evidence and unloaded candidates.
+
+## Unified agent (experimental, off by default)
+
+An experimental coordinator lives in `src/agent/`. It adds sealed state, leases,
+approval inboxes, router decisions and checker receipts behind `AGENT_ENABLED=true`.
+The phase 1 runtime is model-only; container execution and side-effect backends
+remain off. See [phase 1 setup and limits](docs/unified-agent/PHASE1.md) and the
+[sanitized design](docs/unified-agent/DESIGN.md).
