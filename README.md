@@ -1199,5 +1199,6 @@ The [all-provider audit](docs/provider-audit-2026-10-13.md) covers Gemini, Kimi,
 An experimental coordinator lives in `src/agent/`. It adds sealed state, leases,
 approval inboxes, router decisions and checker receipts behind `AGENT_ENABLED=true`.
 The phase 1 runtime is model-only; container execution and side-effect backends
-remain off. See [phase 1 setup and limits](docs/unified-agent/PHASE1.md) and the
+remain off. See the [enablement runbook](docs/unified-agent/ENABLE.md),
+[phase 1 setup and limits](docs/unified-agent/PHASE1.md) and the
 [sanitized design](docs/unified-agent/DESIGN.md).

@@ -15,6 +15,10 @@ import type { AgentMemory } from "../memory/index.js";
 import type { Artifact, Receipt } from "../checker/checker.js";
 import { isDone } from "../checker/gate.js";
 import type { CheckerClient } from "../checker/client.js";
+export const budgetSchema = z.object({
+  maxCalls: z.number().int().min(1).max(8),
+  deadlineMs: z.number().int().min(1).max(600000),
+}).strict();
 export const submitSchema = z
   .object({
     goal: z.string().min(1),
@@ -34,6 +38,7 @@ export const submitSchema = z
       ])
       .default("read"),
     tier: z.enum(["R0", "R1", "R2", "R3", "R4"]).default("R0"),
+    budget: budgetSchema.optional(),
   })
   .strict();
 export interface CoordinatorJob {
@@ -108,7 +113,7 @@ export class Coordinator {
       const decision = await this.router.decide({
         kind: "plan",
         requestId: job.jobId,
-        budget: { maxCalls: 2, deadlineMs: 30000 },
+        budget: spec.budget ?? { maxCalls: 2, deadlineMs: 30000 },
         messages: [
           {
             role: "system",
@@ -173,6 +178,7 @@ export class Coordinator {
         if (step.kind === "delegate") {
           const child = this.delegate.start({
             ...step.spec,
+            ...(job.spec.budget ? { budget: job.spec.budget } : {}),
             effect: risk.effect,
             tier: risk.tier,
             parentJobId: jobId,
