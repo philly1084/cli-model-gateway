@@ -1,4 +1,7 @@
 import Fastify from "fastify";
+import { loadAgentConfig } from "./agent/config.js";
+import { createAgentRuntime } from "./agent/runtime.js";
+import { agentRoutes } from "./agent/routes/agent.js";
 import type { AppConfig, RemoteCliTargetConfig } from "./types";
 import { adminRoutes } from "./routes/admin";
 import { openAiRoutes } from "./routes/openai";
@@ -78,7 +81,10 @@ function checkRateLimit(
 export function buildServer(
   config: AppConfig,
   registry: ProviderRegistry,
-  options: { remoteCliTargets?: RemoteCliTargetConfig[] } = {},
+  options: {
+    remoteCliTargets?: RemoteCliTargetConfig[];
+    agentRuntimeFactory?: typeof createAgentRuntime;
+  } = {},
 ) {
   const app = Fastify({
     logger: {
@@ -208,6 +214,19 @@ export function buildServer(
     jobManager,
     adminApiKey: config.adminApiKey,
   });
+
+  if (process.env.AGENT_ENABLED === "true") {
+    app.register(async agentApp => {
+      const factory = options.agentRuntimeFactory ?? createAgentRuntime;
+      const runtime = await factory(loadAgentConfig(), registry);
+      agentApp.addHook("onClose", async () => runtime.close());
+      await agentApp.register(agentRoutes, {
+        prefix: "/admin/agent",
+        adminApiKey: config.adminApiKey,
+        ...runtime,
+      });
+    });
+  }
 
   app.register(providerSessionRoutes, {
     prefix: "/admin",
