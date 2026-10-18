@@ -22,6 +22,9 @@ No write-capable tool backend is implemented.
 
 ## Configuration
 
+See the [operator enablement runbook](ENABLE.md) for key generation, the opt-in
+Deployment patch, the test console, verification and rollback.
+
 | Environment variable        | Default               |
 | --------------------------- | --------------------- |
 | AGENT_ENABLED               | false                 |

@@ -5,3 +5,11 @@ config/providers.yaml
 router-config-rollbacks/
 *.log
 /agent-data/
+*.agent-keys/
+agent-keys/
+!scripts/agent-keys/
+*.sops.json
+*.age
+age-key.txt
+keys.json
+checker.json

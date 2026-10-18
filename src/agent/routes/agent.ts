@@ -3,6 +3,7 @@ import type { Coordinator } from "../coordinator/coordinator.js";
 import type { DelegateTool } from "../delegate/delegate-tool.js";
 import type { ApprovalInbox } from "../approvals/inbox.js";
 import type { Sealer } from "../crypto/sealed.js";
+import { hasAdminKey } from "./auth.js";
 export interface AgentRoutesOptions {
   adminApiKey: string;
   coordinator: Coordinator;
@@ -15,10 +16,7 @@ export const agentRoutes: FastifyPluginAsync<AgentRoutesOptions> = async (
   options,
 ) => {
   app.addHook("preHandler", async (request, reply) => {
-    const key =
-      request.headers["x-admin-key"] ??
-      request.headers.authorization?.replace(/^Bearer\s+/i, "");
-    if (key !== options.adminApiKey)
+    if (!hasAdminKey(request, options.adminApiKey))
       return reply.code(401).send({ error: "Unauthorized" });
   });
   app.setErrorHandler((_error, _request, reply) => {

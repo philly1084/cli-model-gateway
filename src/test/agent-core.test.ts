@@ -575,13 +575,16 @@ test("agent coordinator: router plan/steer/summary, R3 once, R4 fresh, replay an
     );
   try {
     const coordinator = create();
-    const job = await coordinator.submit({ goal: "offline plan" });
+    const budget = { maxCalls: 1, deadlineMs: 1000 };
+    const job = await coordinator.submit({ goal: "offline plan", budget });
+    assert.deepEqual(router.calls[0]?.budget, budget);
     assert.equal(job.state, "awaiting_approval");
     assert.equal(delegate.list().length, 0);
     let pending = inbox.list().find((i) => i.state === "pending")!;
     inbox.approve(pending.id);
     await coordinator.advance(job.jobId);
     assert.equal(delegate.list().length, 1);
+    assert.deepEqual(delegate.list()[0]?.spec.budget, budget);
     assert.equal(inbox.consume(pending.actionDigest), false);
     await coordinator.advance(job.jobId);
     assert.equal(delegate.list().length, 1); // first R4 is still parked
@@ -731,6 +734,23 @@ test("agent routes: off is 404, authenticated enabled access and sealed submit",
       401,
     );
     const headers = { "x-admin-key": adminApiKey };
+    for (const budget of [
+      { maxCalls: 9, deadlineMs: 1000 },
+      { maxCalls: 1, deadlineMs: 600001 },
+      { maxCalls: 1, deadlineMs: 1000, extra: true },
+      { maxCalls: 0, deadlineMs: 1000 },
+      { maxCalls: 1.5, deadlineMs: 1000 },
+      { maxCalls: 1, deadlineMs: 0 },
+      { maxCalls: 1, deadlineMs: 1.5 },
+    ]) {
+      const rejected = await app.inject({
+        method: "POST", url: "/admin/agent/submit", headers,
+        payload: f.sealer.seal({ goal: "invalid budget", budget }, "agent:submit"),
+      });
+      assert.equal(rejected.statusCode, 400, JSON.stringify(budget));
+    }
+    assert.equal(router.calls.length, 0);
+    assert.equal(coordinator.list().length, 0);
     assert.equal(
       (await app.inject({ method: "GET", url: "/admin/agent/inbox", headers }))
         .statusCode,
@@ -843,14 +863,20 @@ test("agent SOPS provider: mocked spawn only, stdout stays in memory", async () 
     });
     return child;
   }) as unknown as typeof spawn;
-  const provider = await SopsKeyProvider.load(
-    "data.sops.json",
-    "checker.sops.json",
-    spawnFn,
-  );
+  const previousAgeFile = process.env.SOPS_AGE_KEY_FILE;
+  process.env.SOPS_AGE_KEY_FILE = "age-key-example.txt";
+  let provider: SopsKeyProvider;
+  try {
+    provider = await SopsKeyProvider.load("data.sops.json", "checker.sops.json", spawnFn);
+  } finally {
+    if (previousAgeFile === undefined) delete process.env.SOPS_AGE_KEY_FILE;
+    else process.env.SOPS_AGE_KEY_FILE = previousAgeFile;
+  }
   assert.deepEqual(provider.getDataKey("data"), data);
   assert.deepEqual(provider.getMacKey(), mac);
   assert.equal(calls.length, 2);
+  for (const call of calls)
+    assert.equal((call as { options: { env: NodeJS.ProcessEnv } }).options.env.SOPS_AGE_KEY_FILE, "age-key-example.txt");
   assert.deepEqual((calls[0] as { args: string[] }).args, [
     "-d",
     "--output-type",

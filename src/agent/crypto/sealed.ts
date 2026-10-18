@@ -53,6 +53,7 @@ export class SopsKeyProvider extends StaticKeyProvider {
     const decrypt = (source: string) =>
       new Promise<unknown>((resolve, reject) => {
         const child = spawnFn("sops", ["-d", "--output-type", "json", source], {
+          env: { ...process.env },
           stdio: ["pipe", "pipe", "pipe"],
           shell: false,
         });

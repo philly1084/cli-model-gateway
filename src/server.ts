@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { loadAgentConfig } from "./agent/config.js";
 import { createAgentRuntime } from "./agent/runtime.js";
 import { agentRoutes } from "./agent/routes/agent.js";
+import { agentUiRoutes } from "./agent/routes/ui.js";
 import type { AppConfig, RemoteCliTargetConfig } from "./types";
 import { adminRoutes } from "./routes/admin";
 import { openAiRoutes } from "./routes/openai";
@@ -222,6 +223,11 @@ export function buildServer(
       agentApp.addHook("onClose", async () => runtime.close());
       await agentApp.register(agentRoutes, {
         prefix: "/admin/agent",
+        adminApiKey: config.adminApiKey,
+        ...runtime,
+      });
+      await agentApp.register(agentUiRoutes, {
+        prefix: "/admin/agent/ui",
         adminApiKey: config.adminApiKey,
         ...runtime,
       });
