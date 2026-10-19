@@ -1202,3 +1202,9 @@ The phase 1 runtime is model-only; container execution and side-effect backends
 remain off. See the [enablement runbook](docs/unified-agent/ENABLE.md),
 [phase 1 setup and limits](docs/unified-agent/PHASE1.md) and the
 [sanitized design](docs/unified-agent/DESIGN.md).
+
+## Embeddings
+
+Optional authenticated embeddings forwarding is available at `/v1/embeddings`
+and `/openai/v1/embeddings`. It uses a separate model catalog and leaves chat
+model discovery unchanged. See [embeddings configuration and API](docs/embeddings.md).

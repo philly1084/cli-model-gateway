@@ -224,7 +224,22 @@ export interface RemoteCliTargetConfig {
   maxOutputBytes?: number;
 }
 
+export interface EmbeddingModelConfig {
+  id: string;
+  aliases: string[];
+  upstreamModel: string;
+  dimensions: number;
+}
+
+export interface EmbeddingsConfig {
+  upstreamUrl: string;
+  apiKey?: string;
+  timeoutMs: number;
+  models: EmbeddingModelConfig[];
+}
+
 export interface AppConfig {
+  embeddings?: EmbeddingsConfig;
   host: string;
   port: number;
   n8nApiKeys: Set<string>;

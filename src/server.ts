@@ -85,8 +85,15 @@ export function buildServer(
   options: {
     remoteCliTargets?: RemoteCliTargetConfig[];
     agentRuntimeFactory?: typeof createAgentRuntime;
+    embeddingsFetch?: typeof fetch;
   } = {},
 ) {
+  if (config.embeddings) {
+    const chatModelIds = new Set(registry.listModels().map(model => model.id));
+    if (config.embeddings.models.some(model => [model.id, ...model.aliases].some(id => chatModelIds.has(id)))) {
+      throw new Error("Embedding ids and aliases must not overlap chat model ids.");
+    }
+  }
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -200,6 +207,8 @@ export function buildServer(
     registry,
     n8nApiKeys: config.n8nApiKeys,
     defaultReasoningEffort: config.defaultReasoningEffort,
+    embeddings: config.embeddings,
+    embeddingsFetch: options.embeddingsFetch,
   });
 
   app.register(openAiRoutes, {
@@ -207,6 +216,8 @@ export function buildServer(
     registry,
     n8nApiKeys: config.n8nApiKeys,
     defaultReasoningEffort: config.defaultReasoningEffort,
+    embeddings: config.embeddings,
+    embeddingsFetch: options.embeddingsFetch,
   });
 
   app.register(adminRoutes, {
