@@ -225,6 +225,42 @@ function parseIntegerEnv(name: string, defaultValue: number, minValue: number): 
   return value;
 }
 
+export function loadEmbeddingsConfig(): AppConfig["embeddings"] {
+  const rawUrl = process.env.EMBEDDINGS_UPSTREAM_URL?.trim();
+  if (!rawUrl) return undefined;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+        rawUrl.includes("?") || rawUrl.includes("#")) throw new Error();
+  } catch {
+    throw new Error("Invalid EMBEDDINGS_UPSTREAM_URL: expected HTTP(S) without credentials, query or fragment.");
+  }
+  const schema = z.array(z.object({
+    id: z.string().trim().min(1),
+    aliases: z.array(z.string().trim().min(1)).default([]),
+    upstreamModel: z.string().trim().min(1),
+    dimensions: z.number().int().positive(),
+  }).strict()).min(1);
+  let models;
+  try {
+    models = schema.parse(process.env.EMBEDDINGS_MODELS === undefined ? [{
+      id: "sentence-transformers/all-MiniLM-L6-v2",
+      aliases: ["all-minilm-l6-v2"], upstreamModel: "all-minilm:l6-v2", dimensions: 384,
+    }] : JSON.parse(process.env.EMBEDDINGS_MODELS));
+    const names = models.flatMap(model => [model.id, ...model.aliases]);
+    if (names.includes("auto") || new Set(names).size !== names.length) throw new Error();
+  } catch {
+    throw new Error("Invalid EMBEDDINGS_MODELS: expected unique ids/aliases (excluding auto), upstreamModel and positive integer dimensions.");
+  }
+  return {
+    upstreamUrl: url.toString().replace(/\/+$/, ""),
+    apiKey: process.env.EMBEDDINGS_UPSTREAM_API_KEY?.trim() || undefined,
+    timeoutMs: parseIntegerEnv("EMBEDDINGS_TIMEOUT_MS", 15000, 1),
+    models,
+  };
+}
+
 export function loadAppConfig(): AppConfig {
   const adminApiKey = process.env.ADMIN_API_KEY?.trim();
   if (!adminApiKey) {
@@ -350,6 +386,7 @@ export function loadAppConfig(): AppConfig {
     rateLimitMax,
     rateLimitWindowMs,
     maxRequestBodySize,
+    embeddings: loadEmbeddingsConfig(),
     defaultReasoningEffort,
     autoRouterBenchmarkOnStart,
     autoRouterBenchmarkTimeoutMs,

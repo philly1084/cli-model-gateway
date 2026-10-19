@@ -1,4 +1,6 @@
 import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
+import { registerEmbeddingsRoutes } from "./embeddings.js";
+import type { EmbeddingsConfig } from "../types.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
 import { EXECUTION_POLICY_VERSION } from "../utils/execution-policy";
 import { createHash } from "node:crypto";
@@ -703,6 +705,8 @@ function filterToolsByFrontendAllowlist(
 }
 
 interface OpenAiRoutesOptions {
+  embeddings?: EmbeddingsConfig;
+  embeddingsFetch?: typeof fetch;
   registry: ProviderRegistry;
   n8nApiKeys: Set<string>;
   defaultReasoningEffort?: ReasoningEffort;
@@ -729,6 +733,8 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       return reply;
     }
   });
+
+  registerEmbeddingsRoutes(app, options.embeddings, options.embeddingsFetch);
 
   app.get("/models", async () => ({
     object: "list",
