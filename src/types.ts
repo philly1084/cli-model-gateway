@@ -366,6 +366,7 @@ export interface AutoRouterDecisionSnapshot {
   selectedProviderModel: string;
   promptProfile: AutoRouterPromptProfile;
   candidates: AutoRouterCandidateSnapshot[];
+  filteredCandidates?: Array<{ modelId: string; providerId: string; reason: string }>;
 }
 
 export interface AuthStatusResult {

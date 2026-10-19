@@ -111,6 +111,9 @@ providers:
       #     - --json
       #   timeoutMs: 30000
 
+  # CLI models default to no function calling. Opt in only for a verified tool
+  # contract with model capabilities: [chat, responses, tools]. JSON output alone
+  # does not establish tool support. OpenAI providers retain their API defaults.
   - id: antigravity-cli
     type: cli
     description: Antigravity CLI adapter
