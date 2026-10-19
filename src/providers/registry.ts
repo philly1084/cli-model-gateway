@@ -1,4 +1,5 @@
 import { ExecutionPolicy } from "../utils/execution-policy";
+import { RequestCapabilityError, requestRequiresTools } from "../utils/request-capability.js";
 import type {
   AutoRouterBenchmarkMeasurement,
   AutoRouterBenchmarkPromptKind,
@@ -161,7 +162,7 @@ export class ProviderRegistry {
           provider,
           description: model.description,
           fallbackModelIds: model.fallbackModels || [],
-          capabilities: normalizeModelCapabilities(model.capabilities),
+          capabilities: normalizeModelCapabilities(model.capabilities, config.type),
           autoEligible: model.manualOnly !== true && model.autoEligible !== false,
           manualOnly: model.manualOnly === true,
           routingIndex: model.manualOnly === true ? -1 : routingIndex++,
@@ -283,6 +284,9 @@ export class ProviderRegistry {
     const candidates = this.rankAutoCandidatesWithProfile(normalizedRequest, profile);
     const selected = candidates[0];
     if (!selected) {
+      if (requestRequiresTools(normalizedRequest)) {
+        throw new RequestCapabilityError("Auto routing could not find a tool-capable model.", "no_tool_capable_model");
+      }
       throw new Error("Auto routing could not find a compatible model.");
     }
 
@@ -291,6 +295,9 @@ export class ProviderRegistry {
       selectedProviderId: selected.binding.provider.id,
       selectedProviderModel: selected.binding.providerModel,
       promptProfile: profile,
+      filteredCandidates: [...this.models.values()]
+        .filter(binding => binding.autoEligible && requestRequiresTools(normalizedRequest) && !bindingSupportsCapability(binding, "tools"))
+        .map(binding => ({ modelId: binding.modelId, providerId: binding.provider.id, reason: "filtered: tools unsupported" })),
       candidates: candidates.map((candidate) => ({
         modelId: candidate.binding.modelId,
         providerId: candidate.binding.provider.id,
@@ -845,12 +852,12 @@ export class ProviderRegistry {
       try {
         const requiredCapability = requiredCapabilityForRequest(request);
         if (requiredCapability && !bindingSupportsCapability(binding, requiredCapability)) {
-          throw new Error(
+          throw new RequestCapabilityError(
             `Model ${binding.modelId} does not support ${requiredCapability} requests.`,
           );
         }
-        if (request.tools.length > 0 && !bindingSupportsCapability(binding, "tools")) {
-          throw new Error(`Model ${binding.modelId} does not support tools requests.`);
+        if (requestRequiresTools(request) && !bindingSupportsCapability(binding, "tools")) {
+          throw new RequestCapabilityError(`Model ${binding.modelId} does not support tools requests.`);
         }
 
         request.execution?.attempt(binding.modelId, binding.provider.id);
@@ -911,7 +918,7 @@ export class ProviderRegistry {
       }
     }
 
-    if (attempted.length <= 1) {
+    if (attempted.length <= 1 || lastError instanceof RequestCapabilityError) {
       throw lastError instanceof Error
         ? lastError
         : new Error("Model execution failed with an unknown provider error.");
@@ -947,7 +954,7 @@ export class ProviderRegistry {
     if (!binding) {
       return false;
     }
-    if (request.tools.length > 0 && !bindingSupportsCapability(binding, "tools")) {
+    if (requestRequiresTools(request) && !bindingSupportsCapability(binding, "tools")) {
       return false;
     }
 
@@ -1026,6 +1033,9 @@ export class ProviderRegistry {
     const candidates = this.rankAutoCandidates(request);
     const selected = candidates[0];
     if (!selected) {
+      if (requestRequiresTools(request)) {
+        throw new RequestCapabilityError("Auto routing could not find a tool-capable model.", "no_tool_capable_model");
+      }
       throw new Error("Auto routing could not find a compatible model.");
     }
 
@@ -1587,12 +1597,16 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function normalizeModelCapabilities(
   capabilities: ModelCapability[] | undefined,
+  providerType: ProviderConfig["type"],
 ): ModelCapability[] {
   if (capabilities && capabilities.length > 0) {
     return [...new Set(capabilities)];
   }
 
-  return ["chat", "responses", "tools", "reasoning", "structured_outputs"];
+  // A CLI JSON output mode alone does not establish a function-calling contract.
+  return providerType === "cli"
+    ? ["chat", "responses", "reasoning", "structured_outputs"]
+    : ["chat", "responses", "tools", "reasoning", "structured_outputs"];
 }
 
 function requiredCapabilityForRequest(
@@ -1768,7 +1782,7 @@ function buildAutoRouterPromptProfile(
   const tokenEstimate = estimateTokensFromText(promptText);
   const complexity = scorePromptComplexity(promptText);
   const codingSignal = hasCodingSignal(promptText, request.metadata);
-  const hasTools = request.tools.length > 0;
+  const hasTools = requestRequiresTools(request);
   const wantsStrongReasoning =
     request.reasoningEffort === "high" || request.reasoningEffort === "xhigh";
   const requiredCapability = requiredCapabilityForRequest(request);

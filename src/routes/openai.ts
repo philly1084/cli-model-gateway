@@ -3,6 +3,7 @@ import { registerEmbeddingsRoutes } from "./embeddings.js";
 import type { EmbeddingsConfig } from "../types.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
 import { EXECUTION_POLICY_VERSION } from "../utils/execution-policy";
+import { RequestCapabilityError } from "../utils/request-capability.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -2370,17 +2371,21 @@ function sendOpenAiError(
   statusCode: number,
   message: string,
   type = "invalid_request_error",
+  code: string | number = statusCode,
 ): FastifyReply {
   return reply.status(statusCode).send({
     error: {
       message,
       type,
-      code: statusCode,
+      code,
     },
   });
 }
 
 function handleModelError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof RequestCapabilityError) {
+    return sendOpenAiError(reply, 400, error.message, "invalid_request_error", error.code);
+  }
   if (error instanceof Error && error.message.startsWith("Unknown model:")) {
     return sendOpenAiError(reply, 404, error.message, "invalid_model");
   }

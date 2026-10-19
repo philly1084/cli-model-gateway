@@ -1,5 +1,6 @@
 import { strictToolCalls, migrateToolHistory, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
 import { createHash } from "node:crypto";
+import { RequestCapabilityError } from "../utils/request-capability.js";
 import { parseOpenAiStream } from "../utils/openai-stream";
 import type { JobManager } from "../jobs/job-manager";
 import type {
@@ -164,7 +165,7 @@ export class OpenAiCompatibleProvider implements Provider {
       providerModel,
     );
     if (shouldRejectGroqToolTurn(this.config.baseUrl, providerModel, request)) {
-      throw new Error(
+      throw new RequestCapabilityError(
         `Model ${providerModel} does not reliably support gateway-managed tool calling. Retry with a fallback model.`,
       );
     }
