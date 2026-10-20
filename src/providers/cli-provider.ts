@@ -84,7 +84,9 @@ export class CliProvider implements Provider {
 
   async run(request: UnifiedRequest): Promise<ProviderResult> {
     request.signal?.throwIfAborted();
-    const prepared = await this.prepareCommandExecution(request);
+    // run() always parses one JSON contract. A client-level stream flag (auto routing
+    // pseudo-streams the buffered result) must not switch the bridge to JSONL events.
+    const prepared = await this.prepareCommandExecution({ ...request, stream: false });
     try {
       request.signal?.throwIfAborted(); request.execution?.dispatch();
       const output = await runCommand(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent));
