@@ -19,6 +19,7 @@ import { REMOTE_AGENT_HANDOFF_VERSION } from "./jobs/agent-handoff-store";
 import { ProviderRegistry } from "./providers/registry";
 import { LruMap } from "./utils/lru-map";
 import { makeId } from "./utils/ids";
+import { installRequestCompletionLogging } from "./utils/request-completion.js";
 import { metrics, trackRequest } from "./metrics";
 
 // Rate limit configuration constants
@@ -95,6 +96,7 @@ export function buildServer(
     }
   }
   const app = Fastify({
+    disableRequestLogging: true,
     logger: {
       level: config.logLevel,
     },
@@ -105,6 +107,8 @@ export function buildServer(
     keepAliveTimeout: config.requestTimeoutMs,
     requestTimeout: config.requestTimeoutMs,
   });
+
+  installRequestCompletionLogging(app);
 
   const jobManager = new JobManager(config.maxJobLogLines);
   const providerSessionManager = new ProviderSessionManager({

@@ -6,6 +6,8 @@ import { openAiRoutes } from "../routes/openai.js";
 import { RequestCapabilityError } from "../utils/request-capability.js";
 import type { ExecutionReceipt } from "../utils/execution-policy.js";
 import type { ModelCapability, UnifiedRequest } from "../types.js";
+import { Writable } from "node:stream";
+import { installRequestCompletionLogging } from "../utils/request-completion.js";
 
 const weather = {
   type: "function" as const,
@@ -18,11 +20,11 @@ const weather = {
 const call = { id: "weather-call", name: "get_weather", arguments: '{"city":"Halifax"}' };
 const messages = [{ role: "user" as const, content: "What's the weather in Halifax? Use the tool." }];
 
-async function fixture(options: { api?: boolean; cliCapabilities?: ModelCapability[] } = {}) {
+async function fixture(options: { api?: boolean; cliCapabilities?: ModelCapability[]; modelId?: string } = {}) {
   const registry = await ProviderRegistry.create([
     {
       id: "cli-fixture", type: "cli",
-      models: [{ id: "gpt-5.6-luna", capabilities: options.cliCapabilities }],
+      models: [{ id: options.modelId ?? "gpt-5.6-luna", capabilities: options.cliCapabilities }],
       responseCommand: { executable: process.execPath, args: [], input: "request_json_stdin", output: "json_contract", timeoutMs: 1000 },
     },
     ...(options.api === false ? [] : [{
@@ -47,13 +49,46 @@ async function fixture(options: { api?: boolean; cliCapabilities?: ModelCapabili
     request.execution?.dispatch();
     return { outputText: "", toolCalls: [call], finishReason: "tool_calls" };
   };
-  const app = Fastify({ logger: false });
+  const logs: Record<string, any>[] = [];
+  const sink = new Writable({ write(chunk, _encoding, done) {
+    logs.push(JSON.parse(String(chunk)));
+    done();
+  } });
+  const app = Fastify({ disableRequestLogging: true, logger: { level: "info", stream: sink } });
+  installRequestCompletionLogging(app);
   await app.register(openAiRoutes, { prefix: "/v1", registry, n8nApiKeys: new Set(["dummy-key-for-tests"]) });
   const inject = (payload: Record<string, unknown>, url = "/v1/chat/completions") => app.inject({
     method: "POST", url, headers: { authorization: "Bearer dummy-key-for-tests" }, payload,
   });
   const request = { requestId: "auto-tools", messages, tools: [weather], requestKind: "chat_completions" as const, receipt: (value: ExecutionReceipt) => receipts.push(value) };
-  return { registry, app, inject, seen, receipts, request };
+  return { registry, app, inject, seen, receipts, request, logs };
+}
+
+for (const modelId of ["fixture:free", "fixture/free", "fixture-paid"]) {
+  for (const stream of [false, true]) test(`auto selection warning for ${modelId} (stream=${stream})`, async () => {
+    const f = await fixture({ api: false, modelId });
+    try {
+      const response = await f.inject({ model: "auto", messages, stream });
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(f.seen, [modelId]);
+      const warnings = f.logs.filter(log => log.msg === "auto_selected_free_model");
+      assert.equal(warnings.length, modelId === "fixture-paid" ? 0 : 1);
+      if (warnings.length) {
+        assert.equal(warnings[0]!.level, 40);
+        assert.equal(warnings[0]!.selectedModel, modelId);
+      }
+      const completion = f.logs.find(log => log.msg === "request completed")!;
+      if (stream) {
+        assert.equal(completion.outcome, "ok");
+        assert.equal(completion.requestedModel, "auto");
+        assert.equal(completion.selectedModel, modelId);
+        assert.equal(completion.bytesSent, Buffer.byteLength(response.body));
+        assert.match(response.body, /data: \[DONE\]/);
+      }
+      await f.inject({ model: modelId, messages, stream });
+      assert.equal(f.logs.filter(log => log.msg === "auto_selected_free_model").length, warnings.length);
+    } finally { await f.app.close(); }
+  });
 }
 
 test("reproduces the old optimistic CLI contract: uncertain execution prevents tool-capable fallback", async () => {

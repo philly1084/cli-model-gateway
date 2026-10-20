@@ -2,6 +2,7 @@ import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
 import { registerEmbeddingsRoutes } from "./embeddings.js";
 import type { EmbeddingsConfig } from "../types.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
+import { trackChatStream, markStreamToken, failChatStream, recordExecution } from "../utils/request-completion.js";
 import { EXECUTION_POLICY_VERSION } from "../utils/execution-policy";
 import { RequestCapabilityError } from "../utils/request-capability.js";
 import { createHash } from "node:crypto";
@@ -720,7 +721,15 @@ function executionTransport(reply: FastifyReply) {
   const cleanup = () => { reply.raw.off("close", close); reply.raw.off("finish", cleanup); };
   reply.raw.once("close", close); reply.raw.once("finish", cleanup);
   if (reply.raw.destroyed) close();
-  return { signal: controller.signal, receivedAt: requestArrivals.get(reply.request) ?? Date.now(), receipt: (value: ExecutionReceipt) => reply.log.info(value, "Gateway execution receipt") };
+  return { signal: controller.signal, receivedAt: requestArrivals.get(reply.request) ?? Date.now(), receipt: (value: ExecutionReceipt) => {
+    recordExecution(reply, value);
+    if (value.type === "gateway.execution.attempt" && value.model &&
+        (reply.request.body as { model?: string } | undefined)?.model === "auto" &&
+        typeof value.model === "string" && (value.model.includes(":free") || value.model.endsWith("/free"))) {
+      reply.log.warn({ event: "auto_selected_free_model", selectedModel: value.model }, "auto_selected_free_model");
+    }
+    reply.log.info(value, "Gateway execution receipt");
+  } };
 }
 
 export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
@@ -1533,6 +1542,7 @@ async function handleChatCompletionsRequest(
   defaultReasoningEffort?: ReasoningEffort,
 ) {
   const isStream = Boolean(body.stream);
+  if (isStream) trackChatStream(reply, body.model);
 
   const messages = normalizeChatMessages(body.messages);
   if (messages.length === 0) {
@@ -1645,6 +1655,10 @@ async function handleChatCompletionsRequest(
       reply.raw.once("close", disconnect);
       try {
         for await (const event of registry.runModelStream(body.model, { ...runRequest, signal: AbortSignal.any([runRequest.signal, streamAbort.signal]) })) {
+          if (((event.type === "output_text_delta" || event.type === "reasoning_delta") && event.delta) ||
+              event.type === "tool_call" || (event.type === "done" && (event.outputText || event.reasoningText))) {
+            markStreamToken(reply);
+          }
           if (event.type === "output_text_delta") {
             streamedResult.outputText += event.delta;
             await writeSseData(reply, {
@@ -1767,15 +1781,6 @@ async function handleChatCompletionsRequest(
             continue;
           }
         }
-      } catch (error) {
-        if (reply.raw.destroyed) return reply;
-        await writeSseData(reply, {
-          object: "error",
-          error: error instanceof Error ? error.message : String(error),
-        });
-        reply.raw.write("data: [DONE]\n\n");
-        reply.raw.end();
-        return reply;
       } finally { reply.raw.off("close", disconnect); streamAbort.abort(); }
 
       await writeSseData(reply, {
@@ -1844,6 +1849,7 @@ async function handleChatCompletionsRequest(
       };
 
       reply.raw.write(`data: ${JSON.stringify(chunkData)}\n\n`);
+      if (result.outputText || result.reasoningText || result.toolCalls.length) markStreamToken(reply);
       reply.raw.write("data: [DONE]\n\n");
       reply.raw.end();
       return reply;
@@ -1865,6 +1871,20 @@ async function handleChatCompletionsRequest(
       usage: buildChatUsage(result.usage),
     };
   } catch (error) {
+    if (isStream && reply.raw.headersSent) {
+      failChatStream(reply);
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+        try {
+          await writeSseData(reply, {
+            error: { message: "Upstream stream failed.", type: "upstream_stream_failed", code: "upstream_stream_failed" },
+          });
+          reply.raw.end();
+        } catch {
+          reply.raw.destroy();
+        }
+      }
+      return reply;
+    }
     return handleModelError(reply, error);
   }
 }
