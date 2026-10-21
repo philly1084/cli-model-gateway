@@ -31,10 +31,20 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
     if (chunk.choices === undefined && chunk.usage) return;
     if (!Array.isArray(chunk.choices)) throw Error("Invalid provider choices");
     if (chunk.choices.length === 0) return;
-    if (finish || chunk.choices.length !== 1) throw Error("Unexpected provider choice or data after finish");
+    if (chunk.choices.length !== 1) throw Error("Unexpected provider choice");
     const choice = object(chunk.choices[0]);
     if (choice.index !== undefined && choice.index !== 0) throw Error("Multiple provider choices unsupported");
     const delta = object(choice.delta ?? {});
+    if (finish) {
+      // OpenRouter repeats the terminal choice on its usage trailer. Accept only
+      // an identical finish with no additional output or tool fragments.
+      const repeatedFinish = choice.finish_reason === "stop" && calls.length ? "tool_calls" : choice.finish_reason;
+      if (repeatedFinish !== finish || Object.entries(delta).some(([key, value]) =>
+        key === "role" ? value !== "assistant" : value != null && value !== "")) {
+        throw Error("Unexpected provider data after finish");
+      }
+      return;
+    }
     if (delta.content != null) {
       if (typeof delta.content !== "string" || text.length + delta.content.length > 262144) throw Error("Invalid or oversized provider text");
       text += delta.content; if (delta.content) yield { type: "output_text_delta", delta: delta.content };
