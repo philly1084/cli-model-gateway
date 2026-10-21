@@ -77,31 +77,26 @@ if ! grep -q '^  - id: groq-api$' "$providers_file"; then
       - id: groq/compound
         providerModel: groq/compound
         fallbackModels:
-          - gpt-5.4
           - kimi-for-coding
           - openai/gpt-oss-20b
       - id: groq/compound-mini
         providerModel: groq/compound-mini
         fallbackModels:
-          - gpt-5.4
           - kimi-for-coding
           - openai/gpt-oss-20b
       - id: openai/gpt-oss-120b
         providerModel: openai/gpt-oss-120b
         fallbackModels:
-          - gpt-5.4
           - kimi-for-coding
           - openai/gpt-oss-20b
       - id: openai/gpt-oss-20b
         providerModel: openai/gpt-oss-20b
         fallbackModels:
-          - gpt-5.4
           - kimi-for-coding
           - llama-3.1-8b-instant
       - id: llama-3.3-70b-versatile
         providerModel: llama-3.3-70b-versatile
         fallbackModels:
-          - gpt-5.4
           - kimi-for-coding
       - id: llama-3.1-8b-instant
         providerModel: llama-3.1-8b-instant

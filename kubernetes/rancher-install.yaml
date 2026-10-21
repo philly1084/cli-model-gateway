@@ -34,8 +34,6 @@ data:
             fallbackModels:
               - gemini-3.5-flash
               - gemini-3-flash-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3.5-flash
@@ -43,8 +41,6 @@ data:
             fallbackModels:
               - gemini-3.1-pro-preview
               - gemini-3-flash-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3-flash-preview
@@ -52,8 +48,6 @@ data:
             fallbackModels:
               - gemini-3.5-flash
               - gemini-3.1-pro-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3.1-flash-lite
@@ -61,8 +55,6 @@ data:
             fallbackModels:
               - gemini-3.5-flash
               - gemini-3-flash-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-2.5-pro
@@ -70,16 +62,12 @@ data:
             fallbackModels:
               - gemini-3.1-pro-preview
               - gemini-3.5-flash
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-2.5-flash
             providerModel: gemini-2.5-flash
             fallbackModels:
               - gemini-2.5-flash-lite
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - gemini-3.5-flash
@@ -172,79 +160,37 @@ data:
             fallbackModels:
               - gpt-5.6-terra
               - gpt-5.6-luna
-              - gpt-5.5
-              - gpt-5.4
           - id: gpt-5.6-terra
             providerModel: gpt-5.6-terra
             description: Older balanced model for straightforward work.
             fallbackModels:
               - gpt-5.6-sol
               - gpt-5.6-luna
-              - gpt-5.5
-              - gpt-5.4
           - id: gpt-5.6-luna
             providerModel: gpt-5.6-luna
             description: Older fast and efficient model.
             fallbackModels:
               - gpt-5.6-terra
               - gpt-5.6-sol
-              - gpt-5.5
-              - gpt-5.4
-          - id: gpt-5.5
-            providerModel: gpt-5.5
-            fallbackModels:
-              - gpt-5.4
-              - gpt-5.4-mini
-              - kimi-k2.6
-              - kimi-for-coding
-              - gemini-3.5-flash
-              - gemini-3-flash-preview
           - id: gpt-5.5-pro
             providerModel: gpt-5.5-pro
             fallbackModels:
-              - gpt-5.5
               - gpt-5.4-pro
               - kimi-k2.6
               - gemini-3.1-pro-preview
-          - id: gpt-5.4
-            providerModel: gpt-5.4
-            fallbackModels:
-              - gpt-5.5
-              - gpt-5.4-mini
-              - gpt-5.4-nano
-              - kimi-k2.6
-              - kimi-for-coding
-              - gemini-3.5-flash
-              - gemini-3-flash-preview
           - id: gpt-5.4-pro
             providerModel: gpt-5.4-pro
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
-              - gemini-3.1-pro-preview
-          - id: gpt-5.4-mini
-            providerModel: gpt-5.4-mini
-            fallbackModels:
-              - gpt-5.4
-              - gpt-5.5
-              - gpt-5.4-nano
-              - kimi-k2.6
-              - kimi-for-coding
-              - gemini-3.5-flash
               - gemini-3.1-pro-preview
           - id: gpt-5.4-nano
             providerModel: gpt-5.4-nano
             fallbackModels:
-              - gpt-5.4-mini
-              - gpt-5.4
               - gemini-3.1-flash-lite
               - llama-3.1-8b-instant
           - id: gpt-5.3-instant
             providerModel: gpt-5.3-instant
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - gemini-3.5-flash
@@ -252,8 +198,6 @@ data:
           - id: gpt-5.3-chat-latest
             providerModel: gpt-5.3-chat-latest
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - gemini-3.5-flash
           - id: gpt-4.1
@@ -315,8 +259,6 @@ data:
             fallbackModels:
               - kimi-k2.7-code
               - kimi-k2.6
-              - gpt-5.5
-              - gpt-5.4
         responseCommand:
           executable: node
           args:
@@ -394,8 +336,6 @@ data:
               - kimi-for-coding
               - kimi-k2.6
               - kimi-k2.5
-              - gpt-5.5
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
           - id: kimi-k2.7-code-highspeed
@@ -405,8 +345,6 @@ data:
               - kimi-for-coding
               - kimi-k2.6
               - kimi-k2.5
-              - gpt-5.5
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
       - id: grok-build-cli
@@ -417,8 +355,6 @@ data:
             providerModel: grok-build
             description: xAI Grok Build coding and reasoning agent
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - deepseek-v4-flash
         responseCommand:
@@ -470,15 +406,12 @@ data:
             providerModel: kimi-k2.6
             fallbackModels:
               - kimi-k2.5
-              - gpt-5.5
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
           - id: kimi-k2.5
             providerModel: kimi-k2.5
             fallbackModels:
               - kimi-k2.6
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
 
@@ -503,47 +436,35 @@ data:
           - id: groq/compound
             providerModel: groq/compound
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: groq/compound-mini
             providerModel: groq/compound-mini
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: openai/gpt-oss-120b
             providerModel: openai/gpt-oss-120b
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: openai/gpt-oss-20b
             providerModel: openai/gpt-oss-20b
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - llama-3.1-8b-instant
           - id: llama-3.3-70b-versatile
             providerModel: llama-3.3-70b-versatile
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: llama-3.1-8b-instant
             providerModel: llama-3.1-8b-instant
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: meta-llama/llama-4-scout-17b-16e-instruct
@@ -551,7 +472,6 @@ data:
             fallbackModels:
               - llama-3.3-70b-versatile
               - openai/gpt-oss-20b
-              - gpt-5.4
 
       - id: openrouter-free
         type: openai

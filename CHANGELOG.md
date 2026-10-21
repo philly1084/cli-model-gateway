@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retire four dead router selectors and their fallback references from checked-in catalogs and deployment helpers. Remove the Codex bridge's dead implicit fallback by using the existing GPT-5.6 Sol selector. Add a local-only, byte-preserving retirement snapshot tool with router-schema, unchanged-model and fallback-resolution guards, immutable promotion manifests, regression tests, and [promotion/rollback instructions](docs/model-retirement.md).
+
 - Detect Codex CLI unsupported-model diagnostics and JSON `model_not_found`/404 errors on stdout or stderr immediately, stop the rejected attempt, and record sanitized upstream status/codes. Classify these as `model_unavailable` with a ten-minute model cooldown so configured fallbacks continue and subsequent requests skip rejected models.
 - After configured chat fallbacks are exhausted before output, try one healthy, untried text model using the existing `auto` ranking. Preserve explicit no-fallback settings, attempt/deadline limits, stateful/tool restrictions, partial-output protection, and the model catalog. Add mocked CLI and buffered/SSE route regressions; no dependencies, unified-agent, or deployment changes.
 

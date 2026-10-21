@@ -2,6 +2,16 @@
 
 # Catalog publication review — 2026-10-13
 
+## Approved retirement follow-up — 2026-10-21
+
+The owner-approved retirement removes `gpt-5.5`, `gpt-5.4`,
+`gpt-5.4-mini`, and `z-ai/glm-5.2:free` from active model catalogs and
+fallback references. The current examples, Rancher bundle and routing baseline
+reflect those removals; the bridge's implicit fallback uses the existing
+`gpt-5.6-sol`. See [the local snapshot and promotion flow](model-retirement.md).
+The dated evidence and exposure counts below describe the earlier state and are
+superseded by this follow-up. This change does not deploy or certify inference.
+
 This supplements [catalog evidence](model-catalog-2026-10-13.md). All work is
 local. Publication, model calls, CI runs, and production upgrades remain outside
 this change.
