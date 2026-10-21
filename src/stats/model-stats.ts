@@ -581,6 +581,7 @@ function computeCooldown(
     quota_exhausted: 3600,
     timeout: 30,
     auth: 600,
+    model_unavailable: 600,
     config: 3600,
   };
 

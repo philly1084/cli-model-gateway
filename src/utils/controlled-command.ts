@@ -2,11 +2,12 @@ import { spawn } from "node:child_process";
 import type { ResolvedCommand, CommandStreamEvent } from "./command";
 
 // Each controlled request owns a new POSIX process group. Never signal a shared group.
-export async function* controlledCommand(command: ResolvedCommand, input: string | undefined, signal: AbortSignal, cleanup?: (absent: boolean) => void): AsyncGenerator<CommandStreamEvent> {
+export async function* controlledCommand(command: ResolvedCommand, input: string | undefined, signal: AbortSignal, cleanup?: (absent: boolean) => void, detectError?: (stream: "stdout" | "stderr", chunk: string) => Error | undefined): AsyncGenerator<CommandStreamEvent> {
   signal.throwIfAborted();
   const grouped = process.platform !== "win32";
   const child = spawn(command.executable, command.args, { env: { ...process.env, ...command.env }, cwd: command.cwd, stdio: "pipe", detached: grouped });
   let closed = false, stopping = false, overflow = false, code: number | null = null, failure: Error | undefined, bytes = 0;
+  let upstreamFailure: Error | undefined;
   const queue: CommandStreamEvent[] = [];
   let wake: (() => void) | undefined, escalation: ReturnType<typeof setTimeout> | undefined;
   const notify = () => { wake?.(); wake = undefined; };
@@ -20,6 +21,7 @@ export async function* controlledCommand(command: ResolvedCommand, input: string
   child.on("close", value => { closed = true; code = value; notify(); });
   for (const stream of ["stdout", "stderr"] as const) child[stream].setEncoding("utf8").on("data", (chunk: string) => {
     bytes += Buffer.byteLength(chunk); if (bytes > 10 * 1024 * 1024) { overflow = true; stop(); return; }
+    if (!stopping && detectError) { upstreamFailure = detectError(stream, chunk); if (upstreamFailure) { stop(); return; } }
     if (!stopping) queue.push({ stream, chunk }); notify();
   });
   child.stdin.on("error", () => {}); child.stdin.end(input);
@@ -41,7 +43,9 @@ export async function* controlledCommand(command: ResolvedCommand, input: string
       if (!closed) { child.stdout.destroy(); child.stderr.destroy(); child.stdin.destroy(); child.unref(); }
     }
   }
-  if (signal.aborted || stopping || overflow) throw Object.assign(Error("Provider execution stopped; remote outcome is uncertain"), { uncertain: true });
+  if (signal.aborted) throw Object.assign(Error("Provider execution stopped; remote outcome is uncertain"), { uncertain: true });
+  if (upstreamFailure) throw upstreamFailure;
+  if (stopping || overflow) throw Object.assign(Error("Provider execution stopped; remote outcome is uncertain"), { uncertain: true });
   if (failure) throw failure;
   if (code !== 0) throw Error("Provider command failed");
 }

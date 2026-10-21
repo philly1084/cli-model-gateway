@@ -63,10 +63,11 @@ export async function runCommand(
   stdinData?: string,
   signal?: AbortSignal,
   cleanup?: (absent: boolean) => void,
+  detectError?: (stream: "stdout" | "stderr", chunk: string) => Error | undefined,
 ): Promise<CommandOutput> {
   if (signal) {
     let stdout = "", stderr = "";
-    for await (const event of controlledCommand(command, stdinData, signal, cleanup)) { if (event.stream === "stdout") stdout += event.chunk; else stderr += event.chunk; }
+    for await (const event of controlledCommand(command, stdinData, signal, cleanup, detectError)) { if (event.stream === "stdout") stdout += event.chunk; else stderr += event.chunk; }
     return { stdout, stderr, exitCode: 0, signal: null, timedOut: false };
   }
   const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB cap per stream
@@ -85,7 +86,17 @@ export async function runCommand(
     let stderr = "";
     let finished = false;
     let timedOut = false;
+    let upstreamFailure: Error | undefined;
     let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
+    const inspect = (stream: "stdout" | "stderr", chunk: string) => {
+      if (upstreamFailure) return;
+      upstreamFailure = detectError?.(stream, chunk);
+      if (upstreamFailure) {
+        clearTimeout(timer);
+        child.kill("SIGTERM");
+        sigkillTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
+      }
+    };
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -97,12 +108,14 @@ export async function runCommand(
     child.stderr.setEncoding("utf8");
 
     child.stdout.on("data", (chunk: string) => {
+      inspect("stdout", chunk);
       if (stdout.length < MAX_OUTPUT_BYTES) {
         stdout += chunk;
       }
     });
 
     child.stderr.on("data", (chunk: string) => {
+      inspect("stderr", chunk);
       if (stderr.length < MAX_OUTPUT_BYTES) {
         stderr += chunk;
       }
@@ -126,6 +139,7 @@ export async function runCommand(
       finished = true;
       clearTimeout(timer);
       if (sigkillTimer) clearTimeout(sigkillTimer);
+      if (upstreamFailure) { reject(upstreamFailure); return; }
       resolve({
         stdout,
         stderr,
@@ -150,8 +164,9 @@ export async function* runCommandStream(
   stdinData?: string,
   requestSignal?: AbortSignal,
   cleanup?: (absent: boolean) => void,
+  detectError?: (stream: "stdout" | "stderr", chunk: string) => Error | undefined,
 ): AsyncGenerator<CommandStreamEvent, void, void> {
-  if (requestSignal) { yield* controlledCommand(command, stdinData, requestSignal, cleanup); return; }
+  if (requestSignal) { yield* controlledCommand(command, stdinData, requestSignal, cleanup, detectError); return; }
   const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB cap per stream
   const child = spawn(command.executable, command.args, {
     env: {
@@ -172,6 +187,16 @@ export async function* runCommandStream(
   let streamError: Error | null = null;
   let wake: (() => void) | undefined;
   let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
+  const inspect = (stream: "stdout" | "stderr", chunk: string): boolean => {
+    if (streamError) return true;
+    const error = detectError?.(stream, chunk);
+    if (!error) return false;
+    streamError = error;
+    clearTimeout(timer);
+    child.kill("SIGTERM");
+    sigkillTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
+    return true;
+  };
 
   const notify = () => {
     const resolver = wake;
@@ -189,6 +214,7 @@ export async function* runCommandStream(
   child.stderr.setEncoding("utf8");
 
   child.stdout.on("data", (chunk: string) => {
+    if (inspect("stdout", chunk)) return;
     if (stdout.length < MAX_OUTPUT_BYTES) {
       stdout += chunk;
     }
@@ -200,6 +226,7 @@ export async function* runCommandStream(
   });
 
   child.stderr.on("data", (chunk: string) => {
+    if (inspect("stderr", chunk)) return;
     if (stderr.length < MAX_OUTPUT_BYTES) {
       stderr += chunk;
     }
