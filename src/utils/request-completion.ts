@@ -35,6 +35,7 @@ export function failChatStream(reply: FastifyReply, errorType = "upstream_stream
 }
 
 export function recordExecution(reply: FastifyReply, receipt: ExecutionReceipt): void {
+  if (receipt.type === "gateway.upstream.failure") reply.log.warn(receipt, "Upstream request failed");
   const state = streams.get(reply.request);
   if (!state) return;
   if (typeof receipt.model === "string") state.selectedModel = receipt.model;

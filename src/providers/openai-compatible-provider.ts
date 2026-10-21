@@ -18,6 +18,7 @@ import { normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { extractTextContent } from "../utils/prompt";
 import type { Provider } from "./provider";
 import { normalizeProviderUsage } from "../utils/usage";
+import { UpstreamError, hasUpstreamError } from "../utils/upstream-error.js";
 
 const DEFAULT_TIMEOUT_MS = 240000;
 const DEFAULT_KIMI_CODE_MAX_TOKENS = 8192;
@@ -273,8 +274,16 @@ export class OpenAiCompatibleProvider implements Provider {
       request.execution?.dispatch();
       const response = await fetch(buildProviderUrl(this.config.baseUrl, "/chat/completions"), {
         method: "POST", headers: buildRequestHeaders(key), body: JSON.stringify(body), signal,
-      });
-      if (!response.ok) { await response.body?.cancel(); throw Error(`Provider stream request failed (${response.status})`); }
+      }).catch(error => { throw Object.assign(error, { uncertain: true }); });
+      if (!response.ok) throw new UpstreamError(response.status, tryParseJson(await response.text()));
+      if (response.headers.get("content-type")?.includes("application/json")) {
+        const payload = tryParseJson(await response.text());
+        if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload);
+        const result = validateToolResult(parseChatCompletionResponse(payload), request);
+        for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call };
+        yield { type: "done", ...result };
+        return;
+      }
       // No implicit retry: remote tools/session metadata can have side effects even before text.
       const offered = new Set(request.tools.map(t => t.function.name));
       const toolEvents: ProviderStreamEvent[] = [];
@@ -1111,16 +1120,14 @@ async function requestProviderJson(
     const payload = tryParseJson(text);
 
     if (!response.ok) {
-      const message =
-        extractApiErrorMessage(payload) ||
-        text.trim() ||
-        `${response.status} ${response.statusText}`;
-      throw new Error(`Provider API request failed (${response.status}): ${message}`);
+      throw new UpstreamError(response.status, payload);
     }
 
     if (payload === null) {
       throw new Error("Provider API returned invalid JSON.");
     }
+
+    if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload);
 
     return payload;
   } catch (error) {
@@ -1460,20 +1467,6 @@ function isGroqGptOssModel(providerModel: string): boolean {
 function isGroqQwen3Model(providerModel: string): boolean {
   return /(^|\/)qwen3[-/]/i.test(providerModel.trim()) ||
     /(^|\/)qwen\/qwen3[-/]/i.test(providerModel.trim());
-}
-
-function extractApiErrorMessage(payload: unknown): string {
-  if (!payload || typeof payload !== "object") {
-    return "";
-  }
-
-  const error = (payload as { error?: unknown }).error;
-  if (!error || typeof error !== "object") {
-    return "";
-  }
-
-  const message = (error as { message?: unknown }).message;
-  return typeof message === "string" ? message.trim() : "";
 }
 
 function tryParseJson(value: string): unknown | null {
