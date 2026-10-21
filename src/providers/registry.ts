@@ -771,6 +771,7 @@ export class ProviderRegistry {
     const visited = new Set<string>();
     const authFailedProviders = new Set<string>();
     const pendingFallbacks: string[] = [];
+    const emergency = { used: false };
     let currentModelId: string | undefined = autoSelection?.modelId ?? modelId;
     const autoFallbackModelIds = autoSelection?.fallbackModelIds ?? [];
     let lastError: unknown;
@@ -816,6 +817,7 @@ export class ProviderRegistry {
           request,
           authFailedProviders,
           pendingFallbacks,
+          emergency,
         );
         const stats = this.modelStats.snapshotModel(binding.modelId);
         const unavailableState =
@@ -872,7 +874,7 @@ export class ProviderRegistry {
         try {
           rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
         } catch (error) {
-          if (!(error instanceof UpstreamError) || !error.transient || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
+          if (emergency.used || !(error instanceof UpstreamError) || !error.transient || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
           recordUpstreamFailure(request, binding, error);
           await retryDelay(150, undefined, { signal: request.signal });
           request.execution.attempt(binding.modelId, binding.provider.id);
@@ -919,6 +921,7 @@ export class ProviderRegistry {
           request,
           authFailedProviders,
           pendingFallbacks,
+          emergency,
         );
         if (!nextModelId) {
           break;
@@ -984,8 +987,9 @@ export class ProviderRegistry {
     request: Omit<UnifiedRequest, "model" | "providerModel">,
     authFailedProviders: Set<string>,
     pendingFallbacks: string[],
+    emergency: { used: boolean },
   ): string | undefined {
-    if (request.execution && !request.execution.canFallback()) return undefined;
+    if (emergency.used || (request.execution && !request.execution.canFallback())) return undefined;
     for (const id of [...binding.fallbackModelIds, ...autoFallbackModelIds]) {
       if (!pendingFallbacks.includes(id)) pendingFallbacks.push(id);
     }
@@ -1002,7 +1006,17 @@ export class ProviderRegistry {
       }
       return id;
     }
-    return undefined;
+    if (!replaySafeChat(request) || this.models.get([...visited][0] ?? "")?.manualOnly) return undefined;
+    // Reuse auto's ranking, restricted to healthy, untried text candidates. This
+    // final attempt never expands another configured or automatic fallback chain.
+    const selected = this.selectAutoModel(request, candidate =>
+      !visited.has(candidate.modelId) && !authFailedProviders.has(candidate.provider.id) &&
+      !this.getModelSkipReason(candidate, candidate.modelId) &&
+      this.modelStats.snapshotModel(candidate.modelId)?.suggestedState === "healthy",
+    );
+    if (!selected) return undefined;
+    emergency.used = true;
+    return selected.modelId;
   }
 
   private getModelSkipReason(
@@ -1051,10 +1065,12 @@ export class ProviderRegistry {
 
   private selectAutoModel(
     request: Omit<UnifiedRequest, "model" | "providerModel">,
-  ): { modelId: string; fallbackModelIds: string[] } {
-    const candidates = this.rankAutoCandidates(request);
+    eligible?: (binding: ModelBinding) => boolean,
+  ): { modelId: string; fallbackModelIds: string[] } | undefined {
+    const candidates = this.rankAutoCandidates(request).filter(candidate => !eligible || eligible(candidate.binding));
     const selected = candidates[0];
     if (!selected) {
+      if (eligible) return undefined;
       if (requestRequiresTools(request)) {
         throw new RequestCapabilityError("Auto routing could not find a tool-capable model.", "no_tool_capable_model");
       }
@@ -1144,6 +1160,7 @@ export class ProviderRegistry {
     const visited = new Set<string>();
     const authFailedProviders = new Set<string>();
     const pendingFallbacks: string[] = [];
+    const emergency = { used: false };
     let currentModelId: string | undefined = modelId;
     let attemptIndex = 0;
     let emitted = false;
@@ -1155,7 +1172,7 @@ export class ProviderRegistry {
       const skipped = this.getModelSkipReason(binding, modelId);
       if (skipped) {
         if (skipped === "auth") authFailedProviders.add(binding.provider.id);
-        const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks);
+        const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks, emergency);
         if (!next) throw lastError ?? (skipped === "auth" ? new UpstreamError(401) : new Error(`Model ${binding.modelId} is temporarily unavailable (${skipped}).`));
         this.modelStats.recordFallback({ requestedModelId: modelId, fromModelId: binding.modelId, toModelId: next, reason: skipped });
         trackFallback(binding.provider.id, next, skipped);
@@ -1201,13 +1218,13 @@ export class ProviderRegistry {
           recordUpstreamFailure(request, binding, error);
           const failureKind = this.modelStats.recordFailure({ ...stats, durationMs: Date.now() - startedAt, error });
           trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
-          if (emitted || !(binding.provider instanceof OpenAiCompatibleProvider) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw error;
-          if (!retry && error instanceof UpstreamError && error.transient && request.execution?.canFallback()) {
+          if (emitted || (!(binding.provider instanceof OpenAiCompatibleProvider) && !(error instanceof UpstreamError && error.code === "model_unavailable")) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw error;
+          if (!emergency.used && !retry && error instanceof UpstreamError && error.transient && request.execution?.canFallback()) {
             retry = true;
             await retryDelay(150, undefined, { signal: request.signal });
             continue;
           }
-          const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks);
+          const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks, emergency);
           if (!next) throw error;
           this.modelStats.recordFallback({ requestedModelId: modelId, fromModelId: binding.modelId, toModelId: next, reason: failureKind });
           trackFallback(binding.provider.id, next, failureKind);

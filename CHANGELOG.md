@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Detect Codex CLI unsupported-model diagnostics and JSON `model_not_found`/404 errors on stdout or stderr immediately, stop the rejected attempt, and record sanitized upstream status/codes. Classify these as `model_unavailable` with a ten-minute model cooldown so configured fallbacks continue and subsequent requests skip rejected models.
+- After configured chat fallbacks are exhausted before output, try one healthy, untried text model using the existing `auto` ranking. Preserve explicit no-fallback settings, attempt/deadline limits, stateful/tool restrictions, partial-output protection, and the model catalog. Add mocked CLI and buffered/SSE route regressions; no dependencies, unified-agent, or deployment changes.
+
 - Accept OpenRouter's repeated terminal choice on usage trailers when the finish matches and no new output is present. Preserve usage and emit one client finish followed by `[DONE]`; continue rejecting changed finishes, post-finish output and incomplete streams. Add the captured 50-chunk/double-stop shape as a mocked `/v1/chat/completions` regression.
 - Remember auth-failed providers for the entire request in both buffered and streaming fallback paths. Skip their sibling models without dispatch, retain the original model's remaining fallback candidates across failed branches, and follow blocked siblings' fallback edges. Auth failures have no same-provider retry; mocked Moonshot 401 tests prove recovery through a working provider even after shared cooldown expiry.
 

@@ -21,6 +21,7 @@ import { strictToolCalls, migrateToolHistory, requireOfferedTool, ToolContractEr
 import { normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { normalizeProviderUsage } from "../utils/usage";
 import type { Provider } from "./provider";
+import { cliModelErrorDetector } from "../utils/upstream-error.js";
 
 interface JsonContract {
   output_text?: string;
@@ -89,7 +90,7 @@ export class CliProvider implements Provider {
     const prepared = await this.prepareCommandExecution({ ...request, stream: false });
     try {
       request.signal?.throwIfAborted(); request.execution?.dispatch();
-      const output = await runCommand(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent));
+      const output = await runCommand(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent), cliModelErrorDetector());
       if (isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC) && output.stderr.trim()) {
         process.stderr.write(output.stderr);
       }
@@ -142,7 +143,7 @@ export class CliProvider implements Provider {
         return event;
       };
       request.signal?.throwIfAborted(); request.execution?.dispatch();
-      for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent))) {
+      for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent), cliModelErrorDetector())) {
         if (event.stream !== "stdout") {
           if (isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC) && event.chunk) {
             process.stderr.write(event.chunk);
