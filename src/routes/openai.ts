@@ -1,3 +1,4 @@
+import { UpstreamError } from "../utils/upstream-error.js";
 import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
 import { registerEmbeddingsRoutes } from "./embeddings.js";
 import type { EmbeddingsConfig } from "../types.js";
@@ -1876,7 +1877,7 @@ async function handleChatCompletionsRequest(
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         try {
           await writeSseData(reply, {
-            error: { message: "Upstream stream failed.", type: "upstream_stream_failed", code: "upstream_stream_failed" },
+            error: { message: "Upstream stream failed.", type: "upstream_stream_failed", code: error instanceof UpstreamError ? error.code : "upstream_stream_failed" },
           });
           reply.raw.end();
         } catch {
