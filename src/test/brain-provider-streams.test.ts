@@ -6,7 +6,7 @@ import { ProviderRegistry } from "../providers/registry.js";
 import { openAiRoutes } from "../routes/openai.js";
 import { installRequestCompletionLogging } from "../utils/request-completion.js";
 import type { ExecutionReceipt } from "../utils/execution-policy.js";
-import type { UnifiedRequest } from "../types.js";
+import type { ProviderModelConfig, UnifiedRequest } from "../types.js";
 
 const sse = (value: unknown) => `data: ${typeof value === "string" ? value : JSON.stringify(value)}\r\n\r\n`;
 const chunk = (content: string, finish_reason: string | null = null) => ({ model: "upstream", choices: [{ index: 0, delta: { content }, finish_reason }] });
@@ -21,14 +21,15 @@ const stream = (source = sse(chunk("answer", "stop")) + sse("[DONE]")) => {
 const buffered = () => new Response(JSON.stringify({ choices: [{ message: { content: "answer", extra_content: { google: { thought_signature: "opaque" } } }, finish_reason: "stop" }] }), { headers: { "content-type": "application/json" } });
 const messages: UnifiedRequest["messages"] = [{ role: "system", content: "Be helpful" }, { role: "user", content: "Hello" }];
 
-async function fixture(upstream: typeof fetch, baseUrl = "https://openrouter.invalid/api/v1") {
+async function fixture(upstream: typeof fetch, baseUrl = "https://openrouter.invalid/api/v1", models: ProviderModelConfig[] = [{ id: "chosen", fallbackModels: ["same-provider", "gpt-5.6-luna"] }, { id: "same-provider", fallbackModels: ["gpt-5.6-luna"] }], providerId = "api") {
   const original = globalThis.fetch;
   globalThis.fetch = upstream;
   // Use an existing synthetic environment value, restoring it after every test.
   const previous = process.env.BRAIN_STREAM_FIXTURE;
   process.env.BRAIN_STREAM_FIXTURE = "synthetic";
   const registry = await ProviderRegistry.create([
-    { id: "api", type: "openai", baseUrl, apiKeyEnv: "BRAIN_STREAM_FIXTURE", discovery: { enabled: false }, models: [{ id: "chosen", fallbackModels: ["same-provider", "gpt-5.6-luna"] }, { id: "same-provider", fallbackModels: ["gpt-5.6-luna"] }] },
+    { id: providerId, type: "openai", baseUrl, apiKeyEnv: "BRAIN_STREAM_FIXTURE", discovery: { enabled: false }, models },
+    { id: "other-api", type: "openai", baseUrl: "https://other.invalid/v1", apiKeyEnv: "BRAIN_STREAM_FIXTURE", discovery: { enabled: false }, models: [{ id: "other-key", fallbackModels: ["same-provider"] }] },
     { id: "codex-fixture", type: "cli", models: [{ id: "gpt-5.6-luna" }], responseCommand: { executable: process.execPath, args: [], timeoutMs: 1000, input: "request_json_stdin", output: "json_contract" } },
   ]);
   let fallbackCalls = 0;
@@ -64,6 +65,78 @@ test("Brain OpenRouter SSE ignores vendor extensions, keepalives and empty/usage
   const f = await fixture((async () => stream(source)) as typeof fetch);
   try { const reply = await f.inject(); assert.equal(brainText(reply.body), "Hello world"); assert.doesNotMatch(reply.body, /reasoning_details|opaque|OpenInference/); assert.equal(f.fallbackCalls(), 0); }
   finally { await f.close(); }
+});
+
+test("captured OpenRouter double-stop usage trailer completes through the real chat route", async () => {
+  const envelope = { id: "gen-fixture", object: "chat.completion.chunk", created: 1792584000, model: "z-ai/glm-5.3-flash", provider: "InferenceNet" };
+  const parts = Array.from({ length: 50 }, (_, index) => `redacted-${index} `);
+  const terminal = { index: 0, delta: { content: "", role: "assistant", reasoning: null }, finish_reason: "stop", native_finish_reason: "stop" };
+  const source = parts.map((content, index) => sse({ ...envelope, choices: [{ index: 0,
+    delta: index % 2 ? { content, role: "assistant" } : { content, role: "assistant", reasoning: null, reasoning_details: [] },
+    finish_reason: null, native_finish_reason: null }] })).join("")
+    + sse({ ...envelope, choices: [terminal] })
+    + sse({ ...envelope, service_tier: null, choices: [{ ...terminal, delta: { content: "", role: "assistant" } }],
+      usage: { prompt_tokens: 19, completion_tokens: 140, total_tokens: 159, cost: 0.0000566, is_byok: false,
+        prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 0 } } })
+    + sse("[DONE]");
+  const f = await fixture((async () => stream(source)) as typeof fetch);
+  try {
+    const reply = await f.inject({ stream_options: { include_usage: true } });
+    assert.equal(reply.statusCode, 200);
+    assert.equal(brainText(reply.body), parts.join(""));
+    assert.equal((reply.body.match(/"finish_reason":"stop"/g) ?? []).length, 1);
+    assert.equal((reply.body.match(/data: \[DONE\]/g) ?? []).length, 1);
+    assert.match(reply.body, /"total_tokens":159/);
+    assert.equal(f.fallbackCalls(), 0);
+  } finally { await f.close(); }
+});
+
+for (const streamed of [false, true]) test(`Moonshot auth skips provider siblings and retains original fallbacks (stream=${streamed})`, async () => {
+  const seen: string[] = [];
+  const clock = Date.now;
+  let now = clock();
+  Date.now = () => now;
+  const f = await fixture((async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    seen.push(body.model);
+    if (body.model === "other-key") {
+      // Expire shared health cooldowns: this request must still remember the bad key.
+      now += 601000;
+      return new Response('{}', { status: 404 });
+    }
+    return new Response('{"error":{"type":"invalid_authentication_error"}}', { status: 401 });
+  }) as typeof fetch, "https://api.moonshot.ai/v1", [
+    { id: "kimi-k2.6", fallbackModels: ["other-key", "same-provider", "gpt-5.6-luna"] },
+    { id: "same-provider", fallbackModels: ["kimi-k2.6"] },
+  ], "kimi-api");
+  try {
+    const reply = await f.inject({ model: "kimi-k2.6", stream: streamed });
+    assert.equal(reply.statusCode, 200);
+    assert.equal(streamed ? brainText(reply.body) : reply.json().choices[0].message.content, "fallback answer");
+    assert.deepEqual(seen, ["kimi-k2.6", "other-key"]);
+    assert.equal(f.fallbackCalls(), 1);
+    assert.ok(f.logs.some(log => log.errorCode === "auth" && log.upstreamStatus === 401));
+  } finally { Date.now = clock; await f.close(); }
+});
+
+for (const streamed of [false, true]) test(`Moonshot auth reaches fallback through blocked sibling within two attempts (stream=${streamed})`, async () => {
+  let count = 0;
+  const f = await fixture((async () => {
+    count++;
+    return new Response('{"error":{"type":"invalid_authentication_error"}}', { status: 401 });
+  }) as typeof fetch, "https://api.moonshot.ai/v1", [
+    { id: "kimi-k2.6", fallbackModels: ["same-provider"] },
+    { id: "same-provider", fallbackModels: ["kimi-k2.6", "gpt-5.6-luna"] },
+  ], "kimi-api");
+  try {
+    const reply = await f.inject({ model: "kimi-k2.6", stream: streamed, metadata: {
+      gateway_policy: { operationId: "auth-fallback", allowFallback: true, maxAttempts: 2, maxLatencyMs: 1000 },
+    } });
+    assert.equal(reply.statusCode, 200);
+    assert.equal(streamed ? brainText(reply.body) : reply.json().choices[0].message.content, "fallback answer");
+    assert.equal(count, 1);
+    assert.equal(f.fallbackCalls(), 1);
+  } finally { await f.close(); }
 });
 
 for (const base of ["https://generativelanguage.googleapis.com/v1beta/openai", "https://api.deepseek.com/v1", "https://api.moonshot.ai/v1"]) {

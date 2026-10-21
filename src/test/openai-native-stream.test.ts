@@ -25,6 +25,24 @@ test("fragments assemble tools only after terminal confirmation", async () => {
   const events = await parse(sse(delta({ tool_calls: [{ index: 0, id: 'call1', type: 'function', function: { name: 'calculate', arguments: '{"a":' } }] })) + sse(delta({ tool_calls: [{ index: 0, function: { arguments: '6}' } }] }, 'tool_calls')) + sse('[DONE]'));
   assert.deepEqual(events[0], { type: 'tool_call', toolCall: { id: 'call1', name: 'calculate', arguments: '{"a":6}' } }); assert.equal(events[1]?.type, 'done');
 });
+
+for (const [name, trailer] of Object.entries({
+  changed_finish: delta({}, "length"),
+  extra_content: delta({ content: "unexpected" }, "stop"),
+  extra_reasoning: delta({ reasoning_content: "unexpected" }, "stop"),
+  extra_tools: delta({ tool_calls: [] }, "stop"),
+  missing_finish: delta({ content: "" }),
+  upstream_error: { error: { code: 503 } },
+  changed_model: { ...delta({}, "stop"), model: "other" },
+})) {
+  test(`duplicate finish rejects ${name}`, async () => {
+    await assert.rejects(parse(sse(delta({ content: "answer" }, "stop")) + sse(trailer) + sse("[DONE]")));
+  });
+}
+
+test("duplicate finish still requires DONE", async () => {
+  await assert.rejects(parse(sse(delta({ content: "answer" }, "stop")) + sse(delta({ content: "", role: "assistant", reasoning: null }, "stop"))));
+});
 for (const [name, source] of Object.entries({ missing_done: sse(delta({ content: 'partial' }, 'stop')), missing_finish: sse(delta({ content: 'partial' })) + sse('[DONE]'), upstream_error: sse({ error: { message: 'not forwarded' } }), changed_model: sse(delta({ content: 'a' })) + sse({ ...delta({ content: 'b' }), model: 'other' }), invalid_json: 'data: {\n\n', oversized: sse(delta({ content: 'x'.repeat(262145) })), unfinished_tool: sse(delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'x', arguments: '{' } }] }, 'tool_calls')) + sse('[DONE]') })) {
   test(`stream rejects ${name} without releasing tools`, async () => { const events: ProviderStreamEvent[] = []; await assert.rejects(async () => { for await (const e of parseOpenAiStream(response(source, 2048), new AbortController().signal)) events.push(e); }); assert.equal(events.some(e => e.type === 'tool_call' || e.type === 'done'), false); });
 }
