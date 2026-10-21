@@ -40,7 +40,9 @@ function unsupportedModel(message: string): boolean {
 export class UpstreamError extends Error {
   readonly code: string;
   readonly upstreamCode?: string;
-  constructor(readonly status?: number, payload?: unknown, decodeArrayErrors = true) {
+  readonly quotaExhausted: boolean;
+  readonly retryAfterMs?: number;
+  constructor(readonly status?: number, payload?: unknown, decodeArrayErrors = true, retryAfter?: string | null) {
     const value = Array.isArray(payload) ? (decodeArrayErrors ? payload.find(item => item?.error)?.error : undefined) : (payload as { error?: unknown } | undefined)?.error;
     const error = value && typeof value === "object" ? value as Record<string, unknown> : {};
     const upstreamCode = error.code ?? error.status ?? error.type;
@@ -53,6 +55,15 @@ export class UpstreamError extends Error {
     super(`Provider API request failed (${status ?? "stream"}): ${code}`);
     this.code = code;
     this.status = status;
+    // Retain classification and timing only; diagnostics can contain credentials.
+    this.quotaExhausted = /exceeded your current quota/i.test(String(error.message ?? "")) ||
+      (code === "rate_limited" && /per.?day|daily|requestsperday|billing/i.test(JSON.stringify(error)));
+    const details = Array.isArray(error.details) ? error.details : [];
+    const delay = details.find(item => item && typeof item === "object" && typeof item.retryDelay === "string")?.retryDelay;
+    const seconds = typeof delay === "string" && /^\d+(\.\d+)?s$/.test(delay) ? Number(delay.slice(0, -1)) * 1000 : undefined;
+    const headerMs = retryAfter ? (/^\d+(\.\d+)?$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : undefined;
+    const delays = [seconds, headerMs].filter((value): value is number => value !== undefined && Number.isFinite(value) && value >= 0);
+    if (delays.length) this.retryAfterMs = Math.max(...delays);
     if (typeof upstreamCode === "string" && /^(UNAVAILABLE|RESOURCE_EXHAUSTED|NOT_FOUND|UNAUTHENTICATED|PERMISSION_DENIED|invalid_authentication_error|invalid_api_key|invalid_request_error|model_not_found|rate_limit_exceeded)$/.test(upstreamCode)) this.upstreamCode = upstreamCode;
   }
   get transient(): boolean { return this.code === "rate_limited" || this.code === "capacity_exhausted"; }

@@ -432,7 +432,8 @@ export function loadProvidersFile(providersPath: string): ProvidersFile {
       if (!profile) throw Error("Unknown provider profile: " + String(provider.profile));
       if (provider.type !== profile.type) throw Error("Provider profile type mismatch: " + profile.id);
       return profile.type === "cli"
-        ? { responseCommand: { ...profile.command, timeoutMs: profile.quirks.timeouts.total }, ...provider }
+        ? { responseCommand: { ...profile.command, timeoutMs: profile.quirks.timeouts.total },
+            ...(profile.auth.statusCommand ? { auth: { statusCommand: profile.auth.statusCommand } } : {}), ...provider }
         : { baseUrl: profile.baseUrl, apiKeyEnv: profile.auth.env, timeoutMs: profile.quirks.timeouts.total, ...provider };
     });
   }

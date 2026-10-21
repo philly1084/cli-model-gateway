@@ -883,7 +883,7 @@ export class ProviderRegistry {
         } catch (error) {
           if (emergency.used || !(error instanceof UpstreamError) || !profileRetryAllowed(binding.provider.config, error) || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
           recordUpstreamFailure(request, binding, error);
-          await retryDelay(profileBackoff(binding.provider.config), undefined, { signal: request.signal });
+          await retryDelay(profileBackoff(binding.provider.config, error), undefined, { signal: request.signal });
           request.execution.attempt(binding.modelId, binding.provider.id);
           rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
         }
@@ -1230,7 +1230,7 @@ export class ProviderRegistry {
           if (emitted || (!(binding.provider instanceof OpenAiCompatibleProvider) && !(error instanceof UpstreamError && error.code === "model_unavailable")) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw error;
           if (!emergency.used && !retry && error instanceof UpstreamError && profileRetryAllowed(binding.provider.config, error) && request.execution?.canFallback()) {
             retry = true;
-            await retryDelay(profileBackoff(binding.provider.config), undefined, { signal: request.signal });
+            await retryDelay(profileBackoff(binding.provider.config, error), undefined, { signal: request.signal });
             continue;
           }
           const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks, emergency);
@@ -2100,9 +2100,18 @@ function recordUpstreamFailure(request: Omit<UnifiedRequest, "model" | "provider
     upstreamStatus: error.status ?? 200, errorCode: error.code, ...(error.upstreamCode ? { upstreamCode: error.upstreamCode } : {}) });
 }
 
-function profileRetryAllowed(config: ProviderConfig, error: UpstreamError): boolean {
+export function profileRetryAllowed(config: ProviderConfig, error: UpstreamError): boolean {
+  if (resolveProviderProfile(config)?.id === "gemini-api") {
+    if (error.quotaExhausted || (error.retryAfterMs !== undefined && error.retryAfterMs > 10000)) return false;
+    if (error.code === "rate_limited") return error.retryAfterMs !== undefined;
+    return error.status === 503 || (error.status === undefined && error.code === "capacity_exhausted");
+  }
   return config.profile ? resolveProviderProfile(config)!.quirks.retry_on.includes(error.status ?? (error.code === "rate_limited" ? 429 : error.code === "capacity_exhausted" ? 503 : 0)) : error.transient;
 }
-function profileBackoff(config: ProviderConfig): number { return config.profile ? resolveProviderProfile(config)!.quirks.backoff_ms : 150; }
+export function profileBackoff(config: ProviderConfig, error?: UpstreamError): number {
+  const profile = resolveProviderProfile(config);
+  if (profile?.id === "gemini-api") return Math.max(profile.quirks.backoff_ms, error?.retryAfterMs ?? 0);
+  return config.profile ? profile!.quirks.backoff_ms : 150;
+}
 
 function profileAuthFailFast(config: ProviderConfig): boolean { return config.profile ? resolveProviderProfile(config)!.quirks.auth_fail_fast : true; }

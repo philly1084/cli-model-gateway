@@ -14,7 +14,10 @@ export const providerProfileSchema = z.object({
   type: z.enum(["cli", "openai"]),
   baseUrl: z.string().url().optional(),
   endpoint: z.string().startsWith("/").optional(),
-  auth: z.object({ env: z.string().regex(/^[A-Z_][A-Z0-9_]*$/) }).strict(),
+  auth: z.object({
+    env: z.string().regex(/^[A-Z_][A-Z0-9_]*$/),
+    statusCommand: z.object({ executable: z.string().min(1), args: z.array(z.string()), timeoutMs: milliseconds }).strict().optional(),
+  }).strict(),
   command: z.object({
     executable: z.string().min(1), args: z.array(z.string()),
     input: z.enum(["prompt_stdin", "request_json_stdin"]),
