@@ -1,3 +1,4 @@
+import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,7 +22,7 @@ import { strictToolCalls, migrateToolHistory, requireOfferedTool, ToolContractEr
 import { normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { normalizeProviderUsage } from "../utils/usage";
 import type { Provider } from "./provider";
-import { cliModelErrorDetector } from "../utils/upstream-error.js";
+import { UpstreamError, cliModelErrorDetector } from "../utils/upstream-error.js";
 
 interface JsonContract {
   output_text?: string;
@@ -76,7 +77,7 @@ export class CliProvider implements Provider {
   }
 
   supportsStreaming(): boolean {
-    return this.usesCodexAppServerBridge();
+    return this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "cli-jsonl" : this.usesCodexAppServerBridge();
   }
 
   prefersImageGeneration(): boolean {
@@ -84,13 +85,14 @@ export class CliProvider implements Provider {
   }
 
   async run(request: UnifiedRequest): Promise<ProviderResult> {
+    request = prepareProfileRequest(this.config, request);
     request.signal?.throwIfAborted();
     // run() always parses one JSON contract. A client-level stream flag (auto routing
     // pseudo-streams the buffered result) must not switch the bridge to JSONL events.
     const prepared = await this.prepareCommandExecution({ ...request, stream: false });
     try {
       request.signal?.throwIfAborted(); request.execution?.dispatch();
-      const output = await runCommand(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent), cliModelErrorDetector());
+      const output = await runCommand(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent), cliModelErrorDetector(this.config.profile ? resolveProviderProfile(this.config)?.quirks.unsupported_model_patterns : undefined));
       if (isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC) && output.stderr.trim()) {
         process.stderr.write(output.stderr);
       }
@@ -110,6 +112,8 @@ export class CliProvider implements Provider {
         );
       }
       const parsed = this.parseOutput(output.stdout);
+      const profile = this.config.profile ? resolveProviderProfile(this.config) : undefined;
+      if (profile?.quirks.refusal_patterns.some(pattern => new RegExp(pattern, "i").test(parsed.outputText))) throw new UpstreamError(404);
       return normalizeResultToolCalls(parsed, request.tools);
     } finally {
       await rm(prepared.tmpDir, { recursive: true, force: true });
@@ -117,6 +121,7 @@ export class CliProvider implements Provider {
   }
 
   async *runStream(request: UnifiedRequest): AsyncIterable<ProviderStreamEvent> {
+    request = prepareProfileRequest(this.config, request);
     if (!this.supportsStreaming()) {
       throw new Error(`Provider ${this.id} does not support live streaming.`);
     }
@@ -130,12 +135,17 @@ export class CliProvider implements Provider {
       stream: true,
     });
 
+    const controller = new AbortController();
+    const profile = this.config.profile ? resolveProviderProfile(this.config) : undefined;
+    const firstTokenTimer = profile ? setTimeout(() => controller.abort(Error("Provider first-token timeout")), profile.quirks.timeouts.first_token) : undefined;
+    request = { ...request, signal: request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal };
     try {
       let pendingStdout = "";
       let bytes = 0;
       let terminal: Extract<ProviderStreamEvent, {type:"done"}> | undefined;
       const calls: ProviderToolCall[] = [];
       const accept = (event: ProviderStreamEvent): ProviderStreamEvent | undefined => {
+        if (event.type !== "reasoning_delta") clearTimeout(firstTokenTimer);
         if (terminal) throw new ToolContractError("data_after_done", event);
         normalizeStreamToolEvent(event, allowedTools);
         if (event.type === "tool_call") { calls.push(event.toolCall); strictToolCalls(calls); return; }
@@ -143,7 +153,7 @@ export class CliProvider implements Provider {
         return event;
       };
       request.signal?.throwIfAborted(); request.execution?.dispatch();
-      for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent), cliModelErrorDetector())) {
+      for await (const event of runCommandStream(prepared.resolved, prepared.stdinPayload, request.signal, absent => request.execution?.cleanup(absent), cliModelErrorDetector(this.config.profile ? resolveProviderProfile(this.config)?.quirks.unsupported_model_patterns : undefined))) {
         if (event.stream !== "stdout") {
           if (isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC) && event.chunk) {
             process.stderr.write(event.chunk);
@@ -173,10 +183,13 @@ export class CliProvider implements Provider {
       request.signal?.throwIfAborted();
       if (!terminal) throw new ToolContractError("stream_missing_done", calls);
       const final = terminal as Extract<ProviderStreamEvent, {type:"done"}>;
+      if (profile?.quirks.refusal_patterns.some(pattern => new RegExp(pattern, "i").test(final.outputText ?? ""))) throw new UpstreamError(404);
       if ((calls.length > 0) !== (final.finishReason === "tool_calls")) throw new ToolContractError("finish_reason_mismatch", final);
       for (const call of calls) yield {type:"tool_call",toolCall:call};
       yield final;
     } finally {
+      clearTimeout(firstTokenTimer);
+      controller.abort();
       await rm(prepared.tmpDir, { recursive: true, force: true });
     }
   }
@@ -193,6 +206,9 @@ export class CliProvider implements Provider {
       throw new Error(`Provider ${this.id} does not expose model ${request.model}.`);
     }
 
+    const profile = this.config.profile ? resolveProviderProfile(this.config) : undefined;
+    const systemText = request.messages.filter(message => message.role === "system").map(message => message.content).join("\n\n");
+    if (profile?.capabilities.system_prompt === "cli_flag") request = { ...request, messages: request.messages.filter(message => message.role !== "system") };
     const basePrompt = buildPrompt(request.messages);
     const prompt =
       this.config.responseCommand.input === "prompt_stdin"
@@ -227,6 +243,9 @@ export class CliProvider implements Provider {
     );
 
     let commandSpec = this.config.responseCommand;
+    if (profile?.capabilities.system_prompt === "cli_flag" && systemText) {
+      commandSpec = { ...commandSpec, args: [...commandSpec.args, profile.capabilities.system_flag!, systemText] };
+    }
     if (argsUsePrompt && Buffer.byteLength(prompt, "utf8") > MAX_ARG_PROMPT_BYTES) {
       const isShellCommand =
         this.config.responseCommand.executable === "sh" ||
@@ -758,7 +777,7 @@ function normalizeSingleToolCall(value: unknown): ProviderToolCall | null {
 }
 
 function normalizeFinishReasonValue(value: unknown): ProviderResult["finishReason"] {
-  if (value !== "stop" && value !== "tool_calls" && value !== "length" && value !== "error") throw new ToolContractError("finish_reason_invalid", value);
+  if (value !== "stop" && value !== "tool_calls" && value !== "length" && value !== "content_filter" && value !== "error") throw new ToolContractError("finish_reason_invalid", value);
   return value;
 }
 

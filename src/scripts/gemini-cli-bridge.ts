@@ -5,7 +5,7 @@ import { buildPrompt, extractTextContent } from "../utils/prompt.js";
 import { resolveReasoningEffort } from "../utils/reasoning.js";
 import { normalizeToolAlias, normalizeToolName } from "../utils/tools.js";
 
-type FinishReason = "stop" | "tool_calls" | "length" | "error";
+type FinishReason = "stop" | "tool_calls" | "length" | "content_filter" | "error";
 
 interface GatewayMessage {
   role?: unknown;

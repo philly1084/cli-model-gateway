@@ -6,7 +6,8 @@ export function hasUpstreamError(payload: unknown): boolean {
 }
 
 // Inspect diagnostic lines only; never retain upstream messages in the thrown error.
-export function cliModelErrorDetector(): (stream: "stdout" | "stderr", chunk: string) => UpstreamError | undefined {
+export function cliModelErrorDetector(patterns?: string[]): (stream: "stdout" | "stderr", chunk: string) => UpstreamError | undefined {
+  const matches = (message: string) => patterns ? patterns.some(pattern => new RegExp(pattern, "i").test(message)) : unsupportedModel(message);
   const pending = { stdout: "", stderr: "" };
   return (stream, chunk) => {
     pending[stream] += chunk;
@@ -20,11 +21,11 @@ export function cliModelErrorDetector(): (stream: "stdout" | "stderr", chunk: st
         const status = payload.status ?? payload.statusCode ?? payload.error?.status;
         const code = payload.error?.code ?? payload.error?.type;
         const message = payload.error?.message;
-        if (status === 404 || code === "model_not_found" || (typeof message === "string" && unsupportedModel(message))) {
+        if (status === 404 || code === "model_not_found" || (typeof message === "string" && matches(message))) {
           return new UpstreamError(status === 400 || status === 404 ? status : code === "model_not_found" ? 404 : 400, payload);
         }
       } catch { /* Incomplete JSON or a plain CLI diagnostic. */ }
-      if ((stream === "stderr" || /^(?:ERROR:\s*|error\b|(?:the\s+)?(?:['"][^'"]{1,128}['"]\s+)?model\b)/i.test(line.trim())) && unsupportedModel(diagnostic)) {
+      if ((stream === "stderr" || /^(?:ERROR:\s*|error\b|(?:the\s+)?(?:['"][^'"]{1,128}['"]\s+)?model\b)/i.test(line.trim())) && matches(diagnostic)) {
         return new UpstreamError(400, { error: { message: diagnostic } });
       }
     }
@@ -39,8 +40,8 @@ function unsupportedModel(message: string): boolean {
 export class UpstreamError extends Error {
   readonly code: string;
   readonly upstreamCode?: string;
-  constructor(readonly status?: number, payload?: unknown) {
-    const value = Array.isArray(payload) ? payload.find(item => item?.error)?.error : (payload as { error?: unknown } | undefined)?.error;
+  constructor(readonly status?: number, payload?: unknown, decodeArrayErrors = true) {
+    const value = Array.isArray(payload) ? (decodeArrayErrors ? payload.find(item => item?.error)?.error : undefined) : (payload as { error?: unknown } | undefined)?.error;
     const error = value && typeof value === "object" ? value as Record<string, unknown> : {};
     const upstreamCode = error.code ?? error.status ?? error.type;
     status ??= typeof error.code === "number" ? error.code : undefined;

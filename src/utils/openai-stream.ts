@@ -1,3 +1,4 @@
+import type { ProviderProfile } from "../provider-profiles.js";
 import type { ProviderStreamEvent, ProviderToolCall, ProviderResult } from "../types";
 import { normalizeProviderUsage } from "./usage";
 import { UpstreamError } from "./upstream-error.js";
@@ -8,7 +9,7 @@ const object = (value: unknown): Record<string, unknown> => {
 };
 
 // Pull-based, bounded SSE decoding. Tools are released only after a complete valid turn.
-export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void): AsyncGenerator<ProviderStreamEvent> {
+export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void, quirks?: ProviderProfile["quirks"], onModel?: (model: string) => void): AsyncGenerator<ProviderStreamEvent> {
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw Error("Provider did not return an SSE stream");
   const reader = response.body.getReader();
   const abort = () => { void reader.cancel().catch(() => {}); };
@@ -21,12 +22,12 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
   function* event(payload: string): Generator<ProviderStreamEvent> {
     if (done) throw Error("Data after provider completion");
     if (payload === "[DONE]") { if (!finish) throw Error("Provider stream missing finish reason"); done = true; return; }
-    if (eventType === "error") throw new UpstreamError(undefined, JSON.parse(payload));
+    if (eventType === "error") throw new UpstreamError(undefined, JSON.parse(payload), quirks?.json_array_errors);
     const parsed: unknown = JSON.parse(payload);
-    if (Array.isArray(parsed) && parsed.some(item => item?.error)) throw new UpstreamError(undefined, parsed);
+    if (Array.isArray(parsed) && parsed.some(item => item?.error)) throw new UpstreamError(undefined, parsed, quirks?.json_array_errors);
     const chunk = object(parsed);
     if (chunk.error) throw new UpstreamError(undefined, chunk);
-    if (typeof chunk.model === "string") { if (model && model !== chunk.model) throw Error("Provider model changed mid-stream"); model = chunk.model; }
+    if (typeof chunk.model === "string") { if (model && model !== chunk.model) throw Error("Provider model changed mid-stream"); model = chunk.model; onModel?.(model); }
     if (chunk.usage) usage = normalizeProviderUsage(chunk.usage, "provider");
     if (chunk.choices === undefined && chunk.usage) return;
     if (!Array.isArray(chunk.choices)) throw Error("Invalid provider choices");
@@ -36,6 +37,7 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
     if (choice.index !== undefined && choice.index !== 0) throw Error("Multiple provider choices unsupported");
     const delta = object(choice.delta ?? {});
     if (finish) {
+      if (quirks?.duplicate_finish_trailer === false) throw Error("Duplicate provider finish");
       // OpenRouter repeats the terminal choice on its usage trailer. Accept only
       // an identical finish with no additional output or tool fragments.
       const repeatedFinish = choice.finish_reason === "stop" && calls.length ? "tool_calls" : choice.finish_reason;
@@ -99,7 +101,7 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
     }
     if (choice.finish_reason != null) {
       if (choice.finish_reason === "error") throw new UpstreamError();
-      if (!["stop", "tool_calls", "length"].includes(String(choice.finish_reason))) throw Error("Provider stream failed");
+      if (!["stop", "tool_calls", "length", "content_filter"].includes(String(choice.finish_reason))) throw Error("Provider stream failed");
       finish = choice.finish_reason === "stop" && calls.length ? "tool_calls" : choice.finish_reason as ProviderResult["finishReason"];
       if (calls.length && finish !== "tool_calls") throw Error("Incomplete provider tool call");
       if (!calls.length && finish === "tool_calls") throw Error("Missing provider tool call");

@@ -467,8 +467,8 @@ providers:
           - openrouter-free
   - id: kimi-api
     type: openai
-    description: Kimi API via Moonshot OpenAI-compatible endpoint
-    baseUrl: https://api.moonshot.ai/v1
+    description: Kimi API via Kimi Code endpoint
+    baseUrl: https://api.kimi.com/coding/v1
     apiKeyEnv: MOONSHOT_API_KEY
     timeoutMs: 240000
     models:

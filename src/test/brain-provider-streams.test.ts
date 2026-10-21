@@ -52,6 +52,12 @@ function brainText(body: string): string {
   return lines.slice(0, -1).map(line => {
     const event = JSON.parse(line.slice(5));
     assert.equal(event.error, undefined);
+    if (event.choices?.[0]?.finish_reason) {
+      assert.ok(event.usage, "Brain requires usage on the finish chunk");
+      for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+        assert.ok(Number.isInteger(event.usage[key]), `Brain requires integer ${key}`);
+      }
+    }
     assert.equal(["error", "length", "tool_calls"].includes(event.choices?.[0]?.finish_reason), false);
     return event.choices?.[0]?.delta?.content ?? "";
   }).join("");
@@ -183,7 +189,7 @@ for (const partial of [false, true]) test(`OpenRouter error chunk is terminal an
   const f = await fixture((async () => { count++; return stream(source); }) as typeof fetch);
   try {
     const reply = await f.inject();
-    if (partial) { assert.match(reply.body, /"code":"auth"/); assert.doesNotMatch(reply.body, /\[DONE\]|sensitive upstream text/); assert.equal(f.fallbackCalls(), 0); }
+    if (partial) { assert.match(reply.body, /"code":"auth"/); assert.match(reply.body, /data: \[DONE\]\n\n$/); assert.doesNotMatch(reply.body, /sensitive upstream text/); assert.equal(f.fallbackCalls(), 0); }
     else { assert.equal(brainText(reply.body), "fallback answer"); assert.equal(f.fallbackCalls(), 1); }
     assert.equal(count, 1);
   } finally { await f.close(); }
@@ -212,7 +218,7 @@ test("stream retry/fallback obeys attempt budgets and records one terminal recei
 test("stream transport loss stays uncertain and is not replayed", async () => {
   let count = 0;
   const f = await fixture((async () => { count++; throw TypeError("mock connection lost"); }) as typeof fetch);
-  try { const reply = await f.inject(); assert.doesNotMatch(reply.body, /\[DONE\]/); assert.equal(count, 1); assert.equal(f.fallbackCalls(), 0); }
+  try { const reply = await f.inject(); assert.match(reply.body, /"error":/); assert.match(reply.body, /data: \[DONE\]\n\n$/); assert.equal(count, 1); assert.equal(f.fallbackCalls(), 0); }
   finally { await f.close(); }
 });
 
@@ -220,7 +226,7 @@ for (const ending of ["", sse({ choices: [{ delta: {}, finish_reason: "error" }]
   test(`partial upstream ${ending ? "terminal error" : "truncation"} never becomes a completed chat`, async () => {
     let count = 0;
     const f = await fixture((async () => { count++; return stream(sse(chunk("partial")) + ending); }) as typeof fetch);
-    try { const reply = await f.inject(); assert.match(reply.body, /"error":/); assert.doesNotMatch(reply.body, /\[DONE\]/); assert.equal(count, 1); assert.equal(f.fallbackCalls(), 0); }
+    try { const reply = await f.inject(); assert.match(reply.body, /"error":/); assert.match(reply.body, /data: \[DONE\]\n\n$/); assert.equal(count, 1); assert.equal(f.fallbackCalls(), 0); }
     finally { await f.close(); }
   });
 }

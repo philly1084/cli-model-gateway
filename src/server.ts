@@ -1,3 +1,4 @@
+import { gatewayError } from "./utils/output-normalization.js";
 import Fastify from "fastify";
 import { loadAgentConfig } from "./agent/config.js";
 import { createAgentRuntime } from "./agent/runtime.js";
@@ -169,13 +170,7 @@ export function buildServer(
 
     if (!result.allowed) {
       reply.header("Retry-After", result.retryAfter?.toString() ?? "60");
-      return reply.status(429).send({
-        error: {
-          message: "Rate limit exceeded. Please try again later.",
-          type: "rate_limit_error",
-          code: 429,
-        },
-      });
+      return reply.status(429).send(gatewayError("Rate limit exceeded. Please try again later.", "rate_limit_error", 429));
     }
   });
 
@@ -292,22 +287,13 @@ export function buildServer(
       ? (error as { statusCode?: number }).statusCode
       : undefined;
     if (statusCode === 413) {
-      return reply.status(413).send({
-        error: {
-          message: "Request body too large.",
-          type: "invalid_request_error",
-          code: 413,
-          requestId,
-        },
-      });
+      return reply.status(413).send(gatewayError("Request body too large.", "invalid_request_error", 413));
     }
 
-    reply.status(500).send({
-      error: {
-        message: "Internal server error.",
-        requestId,
-      },
-    });
+    if (statusCode && statusCode >= 400 && statusCode < 500) {
+      return reply.status(statusCode).send(gatewayError("Invalid request.", "invalid_request_error", statusCode));
+    }
+    reply.status(500).send(gatewayError("Internal server error.", "server_error", 500));
   });
 
   return {

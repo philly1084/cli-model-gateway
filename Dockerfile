@@ -69,6 +69,7 @@ RUN npm ci --omit=dev \
 
 COPY --from=build /app/dist ./dist
 COPY config/providers.example.yaml ./config/providers.example.yaml
+COPY config/provider-profiles ./config/provider-profiles
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin gateway \
   && mkdir -p /var/lib/gateway-home /tmp \

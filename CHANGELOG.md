@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add seven strict YAML provider profiles, optional provider references, inferred normalization policies, and mocked profile/transport regressions. Normalize chat roles, finish reasons, think blocks, reasoning opt-in, estimated usage, standard errors, and serving-model/fallback metadata. Streams always carry real or estimated usage on the single finish chunk for Brain compatibility; `stream_options.include_usage` additionally requests an empty-choices usage trailer. Errors terminate with `[DONE]`. Preserve legacy transport/routing behavior unless a profile opts in. Align the example `kimi-api` URL with the supplied live snapshot and document local comparison commands in [provider profiles](docs/provider-profiles.md).
+
 - Retire four dead router selectors and their fallback references from checked-in catalogs and deployment helpers. Remove the Codex bridge's dead implicit fallback by using the existing GPT-5.6 Sol selector. Add a local-only, byte-preserving retirement snapshot tool with router-schema, unchanged-model and fallback-resolution guards, immutable promotion manifests, regression tests, and [promotion/rollback instructions](docs/model-retirement.md).
 
 - Detect Codex CLI unsupported-model diagnostics and JSON `model_not_found`/404 errors on stdout or stderr immediately, stop the rejected attempt, and record sanitized upstream status/codes. Classify these as `model_unavailable` with a ten-minute model cooldown so configured fallbacks continue and subsequent requests skip rejected models.
