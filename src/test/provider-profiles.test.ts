@@ -57,6 +57,51 @@ test("all seven profile YAMLs and example provider config validate", () => {
   assert.throws(() => providerProfileSchema.parse({ ...codex, quirks: { ...codex.quirks, unsupported_model_patterns: ["["] } }));
 });
 
+for (const stream of [false, true]) test(`Gemini quota exhaustion immediately falls back (stream=${stream})`, async () => {
+  const primary = config("gemini-api");
+  primary.models = [{ id: "chosen", fallbackModels: ["backup"] }];
+  const backup = { ...config("deepseek"), models: [{ id: "backup" }] };
+  const seen: string[] = [];
+  const f = await fixture([primary, backup], (async (_url, init) => {
+    const model = JSON.parse(String(init?.body)).model;
+    seen.push(model);
+    if (model === "chosen") return new Response(JSON.stringify([{ error: { status: "RESOURCE_EXHAUSTED", message: "You exceeded your current quota", details: [{ retryDelay: "2s" }] } }]), { status: 429, headers: { "retry-after": "2" } });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "PONG" }, finish_reason: "stop" }] }), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch);
+  try {
+    const response = await f.post({ stream, gateway_policy: { operationId: "quota-fixture", maxAttempts: 3, maxLatencyMs: 5000, allowFallback: true } });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(seen, ["chosen", "backup"]);
+  } finally { await f.close(); }
+});
+
+for (const stream of [false, true]) test(`Gemini caps 503 retries at one (stream=${stream})`, async () => {
+  let calls = 0;
+  const f = await fixture([config("gemini-api")], (async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: { code: 503 } }), { status: 503 });
+  }) as typeof fetch);
+  try {
+    await f.post({ stream, gateway_policy: { operationId: "retry-cap", maxAttempts: 4, maxLatencyMs: 10000, allowFallback: true } });
+    assert.equal(calls, 2);
+  } finally { await f.close(); }
+});
+
+for (const stream of [false, true]) test(`Gemini minute 429 honors Retry-After before its single retry (stream=${stream})`, async () => {
+  const times: number[] = [];
+  const f = await fixture([config("gemini-api")], (async () => {
+    times.push(Date.now());
+    if (times.length === 1) return new Response(JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED", message: "per-minute limit" } }), { status: 429, headers: { "retry-after": "2.1" } });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "PONG" }, finish_reason: "stop" }] }), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch);
+  try {
+    const response = await f.post({ stream, gateway_policy: { operationId: "minute-fixture", maxAttempts: 2, maxLatencyMs: 10000, allowFallback: true } });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(times.length, 2);
+    assert.ok(times[1]! - times[0]! >= 2050);
+  } finally { await f.close(); }
+});
+
 test("profile-only provider config expands defaults and rejects unknown references/type mismatch", () => {
   mkdirSync(path.resolve(".scratch"), { recursive: true });
   const directory = mkdtempSync(path.resolve(".scratch/profile-config-"));
@@ -66,7 +111,10 @@ test("profile-only provider config expands defaults and rejects unknown referenc
       writeFileSync(file, YAML.stringify({ providers: [{ id: "fixture", type: profile.type, profile: profile.id, models: [{ id: "chosen" }] }] }));
       const provider = loadProvidersFile(file).providers[0]!;
       if (provider.type === "openai") { assert.equal(provider.baseUrl, profile.baseUrl); assert.equal(provider.apiKeyEnv, profile.auth.env); }
-      else assert.deepEqual(provider.responseCommand.args, profile.command!.args);
+      else {
+        assert.deepEqual(provider.responseCommand.args, profile.command!.args);
+        if (profile.auth.statusCommand) assert.deepEqual(provider.auth?.statusCommand, profile.auth.statusCommand);
+      }
     }
     writeFileSync(file, YAML.stringify({ providers: [{ id: "fixture", type: "cli", profile: "unknown", models: [{ id: "chosen" }] }] }));
     assert.throws(() => loadProvidersFile(file), /Unknown provider profile/);

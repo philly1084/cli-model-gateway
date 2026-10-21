@@ -21,24 +21,28 @@ providers:
       - id: gemini-3.1-pro-preview
         providerModel: gemini-3.1-pro-preview
         fallbackModels:
-          - gemini-3.5-flash
           - gemini-3-flash-preview
+          - gemini-3.5-flash-lite
+          - gpt-5.6-sol
       - id: gemini-3.5-flash
         providerModel: gemini-3.5-flash
         fallbackModels:
-          - gemini-3.1-pro-preview
+          - gemini-3.5-flash-lite
+          - gemini-3.1-flash-lite
           - gemini-3-flash-preview
-          - kimi-k2.6
+          - gpt-5.6-luna
       - id: gemini-3-flash-preview
         providerModel: gemini-3-flash-preview
         fallbackModels:
-          - gemini-3.5-flash
-          - gemini-3.1-pro-preview
+          - gemini-3.5-flash-lite
+          - gemini-3.1-flash-lite
+          - gpt-5.6-luna
       - id: gemini-3.1-flash-lite
         providerModel: gemini-3.1-flash-lite
         fallbackModels:
-          - gemini-3.5-flash
+          - gemini-3.5-flash-lite
           - gemini-3-flash-preview
+          - gpt-5.6-luna
       - id: gemini-2.5-pro
         providerModel: gemini-2.5-pro
         fallbackModels:
@@ -146,6 +150,26 @@ providers:
     baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
     apiKeyEnv: GEMINI_API_KEY
     models:
+      - id: gemini-3.7-flash
+        providerModel: gemini-3.7-flash
+        fallbackModels:
+          - gemini-3.5-flash-lite
+          - gemini-3.1-flash-lite
+          - gemini-3-flash-preview
+          - gpt-5.6-luna
+      - id: gemini-3.6-flash
+        providerModel: gemini-3.6-flash
+        fallbackModels:
+          - gemini-3.5-flash-lite
+          - gemini-3.1-flash-lite
+          - gemini-3-flash-preview
+          - gpt-5.6-luna
+      - id: gemini-3.5-flash-lite
+        providerModel: gemini-3.5-flash-lite
+        fallbackModels:
+          - gemini-3.1-flash-lite
+          - gemini-3-flash-preview
+          - gpt-5.6-luna
       - id: gemini-4-argon
         providerModel: gemini-4-argon
         capabilities: [chat, responses, tools]
@@ -565,28 +589,14 @@ providers:
       maxLifetimeMs: 14400000
       ptyMode: pipe
     auth:
-      loginCommand:
-        executable: sh
-        args:
-          - -c
-          - |
-            echo "Kimi CLI login is interactive."
-            echo "Run in a TTY shell: kimi"
-            echo "Then run: /login and complete auth."
-            echo "If your installed minor version still uses /setup, use that instead."
-            exit 1
-        timeoutMs: 900000
       statusCommand:
-        executable: sh
+        executable: node
         args:
-          - -c
-          - |
-            if [ -f "$HOME/.kimi/config.toml" ] || [ -f "$HOME/.kimi/config.json" ]; then
-              echo '{"ok":true,"source":"~/.kimi/config.toml"}'
-              exit 0
-            fi
-            echo '{"ok":false,"error":"missing ~/.kimi/config.toml or ~/.kimi/config.json (run kimi then /login, or /setup on older releases)"}'
-            exit 1
+          - -e
+          - >-
+            const {spawnSync}=require('node:child_process');
+            const ok=Boolean(process.env.KIMI_CODE_API_KEY)&&spawnSync('kimi-code',['--version'],{stdio:'ignore'}).status===0;
+            console.log(JSON.stringify({ok}));process.exit(ok?0:1);
         timeoutMs: 30000
 
   - id: grok-build-cli
@@ -718,10 +728,23 @@ providers:
     models:
       - id: gemini-3-flash-preview
         providerModel: gemini-3-flash-preview
+        fallbackModels:
+          - gemini-3.5-flash-lite
+          - gemini-3.1-flash-lite
+          - gpt-5.6-luna
       - id: gemini-3.5-flash
         providerModel: gemini-3.5-flash
+        fallbackModels:
+          - gemini-3.5-flash-lite
+          - gemini-3.1-flash-lite
+          - gemini-3-flash-preview
+          - gpt-5.6-luna
       - id: gemini-3.1-flash-lite
         providerModel: gemini-3.1-flash-lite
+        fallbackModels:
+          - gemini-3.5-flash-lite
+          - gemini-3-flash-preview
+          - gpt-5.6-luna
       - id: gemini-2.5-flash
         providerModel: gemini-2.5-flash
       - id: gemini-2.5-flash-lite

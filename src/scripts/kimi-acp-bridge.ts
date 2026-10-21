@@ -1,6 +1,7 @@
 import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import process from "node:process";
 import { normalizeToolName } from "../utils/tools";
 import { resolveReasoningEffort } from "../utils/reasoning";
@@ -86,6 +87,8 @@ class JsonRpcStdioClient {
   private readonly child: ReturnType<typeof spawn>;
   private buffer = "";
   private ended = false;
+  private failure: Error | undefined;
+  private diagnostic = "";
 
   constructor(child: ReturnType<typeof spawn>) {
     this.child = child;
@@ -97,21 +100,26 @@ class JsonRpcStdioClient {
     child.stdout.on("data", (chunk: Buffer | string) => {
       const data = typeof chunk === "string" ? chunk : chunk.toString("utf8");
       this.buffer += data;
+      if (!this.buffer.trimStart().startsWith("{")) this.inspectDiagnostic(data);
       this.drainBuffer();
     });
+
+    child.stderr?.on("data", (chunk: Buffer | string) => this.inspectDiagnostic(chunk.toString()));
+    child.stdin.on("error", () => this.rejectAll(new Error("Kimi ACP input closed before a response.")));
 
     child.on("error", (error) => {
       const err = error instanceof Error ? error : new Error(String(error));
       this.rejectAll(err);
     });
 
-    child.on("close", () => {
+    child.on("close", (code, signal) => {
       this.ended = true;
-      this.rejectAll(new Error("Kimi ACP process closed."));
+      this.rejectAll(this.failure ?? new Error(`Kimi ACP process exited before completing requests (code ${code}, signal ${signal}).`));
     });
   }
 
   async request(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
+    if (this.failure) throw this.failure;
     const id = this.nextId++;
     return await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -183,6 +191,7 @@ class JsonRpcStdioClient {
       try {
         parsed = JSON.parse(line);
       } catch {
+        this.inspectDiagnostic(line);
         continue;
       }
 
@@ -199,15 +208,8 @@ class JsonRpcStdioClient {
         this.pending.delete(maybeResponse.id);
         clearTimeout(pending.timer);
         if (maybeResponse.error) {
-          const message =
-            typeof maybeResponse.error.message === "string"
-              ? maybeResponse.error.message
-              : "Unknown JSON-RPC error.";
-          const detail =
-            typeof maybeResponse.error.data === "undefined"
-              ? ""
-              : ` data=${normalizeValue(maybeResponse.error.data)}`;
-          pending.reject(new Error(`ACP ${pending.method} failed: ${message}${detail}`));
+          const code = typeof maybeResponse.error.code === "number" ? maybeResponse.error.code : "unknown";
+          pending.reject(new Error(`ACP ${pending.method} failed (upstream JSON-RPC code ${code}).`));
         } else {
           pending.resolve(maybeResponse.result);
         }
@@ -228,6 +230,7 @@ class JsonRpcStdioClient {
   }
 
   private rejectAll(error: Error): void {
+    this.failure = error;
     for (const [id, pending] of this.pending.entries()) {
       clearTimeout(pending.timer);
       pending.reject(error);
@@ -236,6 +239,14 @@ class JsonRpcStdioClient {
     while (this.waiters.length > 0) {
       const waiter = this.waiters.shift();
       waiter?.(null);
+    }
+  }
+
+  private inspectDiagnostic(chunk: string): void {
+    this.diagnostic = (this.diagnostic + chunk).slice(-8192);
+    if (/kimi-cli is no longer maintained|please use the new Kimi Code CLI/i.test(this.diagnostic)) {
+      this.rejectAll(new Error("Upstream Kimi CLI is an EOL stub; install Kimi Code CLI and use kimi-code acp (KIMI_ACP_COMMAND overrides the command)."));
+      this.child.kill();
     }
   }
 }
@@ -533,13 +544,23 @@ function getWorkingDirectory(): string {
   return process.cwd();
 }
 
-function candidateCommands(): Array<{ args: string[] }> {
-  return [{ args: ["acp"] }];
+export function kimiAcpCommand(): string {
+  return process.env.KIMI_ACP_COMMAND?.trim() || "kimi-code acp";
 }
 
-function formatSpawnError(args: string[], stderr: string): string {
-  const suffix = stderr.trim() ? `\nstderr: ${stderr.trim()}` : "";
-  return `Failed to start Kimi ACP command: kimi ${args.join(" ")}${suffix}`;
+export function kimiAcpEnvironment(model: string): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (env.KIMI_CODE_API_KEY) {
+    env.KIMI_MODEL_NAME = model;
+    env.KIMI_MODEL_API_KEY = env.KIMI_CODE_API_KEY;
+    env.KIMI_MODEL_BASE_URL = env.KIMI_CODE_BASE_URL || "https://api.kimi.com/coding/v1";
+    env.KIMI_CODE_HOME ||= "/tmp/kimi-code-home";
+    mkdirSync(env.KIMI_CODE_HOME, { recursive: true });
+    env.KIMI_DISABLE_TELEMETRY = "1";
+    env.KIMI_CODE_NO_AUTO_UPDATE = "1";
+    env.KIMI_CODE_TRUST_WORKSPACE = "1";
+  }
+  return env;
 }
 
 function extractSessionId(result: unknown): string {
@@ -793,22 +814,25 @@ export function mergeKimiAgentTextChunks(chunks: string[]): string {
 }
 
 function startKimiAcpProcess(
-  args: string[],
+  command: string,
+  env: NodeJS.ProcessEnv,
 ): {
   child: ReturnType<typeof spawn>;
   rpc: JsonRpcStdioClient;
   childStderrRef: { value: string };
 } {
-  const child = spawn("kimi", args, {
+  const child = spawn(command === "kimi-code acp" ? "kimi-code" : command, command === "kimi-code acp" ? ["acp"] : [], {
+    shell: command !== "kimi-code acp",
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env,
   });
 
   const childStderrRef = { value: "" };
   if (child.stderr) {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
-      childStderrRef.value += chunk;
+      // Do not forward raw provider diagnostics, which can contain credentials.
+      if (/kimi-cli is no longer maintained/i.test(chunk)) childStderrRef.value = "Legacy Kimi CLI EOL stub detected.";
     });
   }
 
@@ -838,6 +862,7 @@ function shutdownChild(child: ReturnType<typeof spawn>): void {
 
 async function initializeKimiAcp(
   initializeTimeoutMs: number,
+  model: string,
 ): Promise<{
   child: ReturnType<typeof spawn>;
   rpc: JsonRpcStdioClient;
@@ -845,8 +870,8 @@ async function initializeKimiAcp(
 }> {
   let lastError: Error | null = null;
 
-  for (const candidate of candidateCommands()) {
-    const { child, rpc, childStderrRef } = startKimiAcpProcess(candidate.args);
+  for (const command of [kimiAcpCommand()]) {
+    const { child, rpc, childStderrRef } = startKimiAcpProcess(command, kimiAcpEnvironment(model));
 
     try {
       const initialized = (await rpc.request(
@@ -876,7 +901,7 @@ async function initializeKimiAcp(
       shutdownChild(child);
       const suffix =
         error instanceof Error ? `\n${error.message}` : `\n${String(error)}`;
-      lastError = new Error(formatSpawnError(candidate.args, childStderrRef.value) + suffix);
+      lastError = new Error("Failed to start upstream Kimi ACP command (default: kimi-code acp; override: KIMI_ACP_COMMAND)." + suffix);
     }
   }
 
@@ -923,7 +948,7 @@ async function run(): Promise<void> {
   const prompt = buildPrompt(request);
   const reasoningEffort = resolveReasoningEffort(request);
 
-  const { child, rpc, childStderrRef } = await initializeKimiAcp(initializeTimeoutMs);
+  const { child, rpc, childStderrRef } = await initializeKimiAcp(initializeTimeoutMs, model);
 
   try {
     const sessionResult = await rpc.request(
@@ -952,7 +977,7 @@ async function run(): Promise<void> {
       sessionId,
       requestTimeoutMs,
       state,
-      findModelValue(state.configOptions, model),
+      process.env.KIMI_CODE_API_KEY ? null : findModelValue(state.configOptions, model),
     );
     await applyConfigOption(
       rpc,

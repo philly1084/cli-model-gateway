@@ -281,10 +281,10 @@ export class OpenAiCompatibleProvider implements Provider {
       const response = await fetch(buildProviderUrl(this.config.baseUrl, this.config.profile ? resolveProviderProfile(this.config)!.endpoint! : "/chat/completions"), {
         method: "POST", headers: buildRequestHeaders(key), body: JSON.stringify(body), signal,
       }).catch(error => { throw Object.assign(error, { uncertain: true }); });
-      if (!response.ok) throw new UpstreamError(response.status, tryParseJson(await response.text()), profile?.quirks.json_array_errors);
+      if (!response.ok) throw new UpstreamError(response.status, tryParseJson(await response.text()), profile?.quirks.json_array_errors, response.headers.get("retry-after"));
       if (response.headers.get("content-type")?.includes("application/json")) {
         const payload = tryParseJson(await response.text());
-        if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, profile?.quirks.json_array_errors);
+        if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, profile?.quirks.json_array_errors, response.headers.get("retry-after"));
         const result = validateToolResult(parseChatCompletionResponse(payload), request);
         for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel };
         yield { type: "done", ...result };
@@ -1129,14 +1129,14 @@ async function requestProviderJson(
     const payload = tryParseJson(text);
 
     if (!response.ok) {
-      throw new UpstreamError(response.status, payload, config.profile ? resolveProviderProfile(config)!.quirks.json_array_errors : true);
+      throw new UpstreamError(response.status, payload, config.profile ? resolveProviderProfile(config)!.quirks.json_array_errors : true, response.headers.get("retry-after"));
     }
 
     if (payload === null) {
       throw new Error("Provider API returned invalid JSON.");
     }
 
-    if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, config.profile ? resolveProviderProfile(config)!.quirks.json_array_errors : true);
+    if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, config.profile ? resolveProviderProfile(config)!.quirks.json_array_errors : true, response.headers.get("retry-after"));
 
     return payload;
   } catch (error) {

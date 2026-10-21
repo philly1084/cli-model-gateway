@@ -10,6 +10,10 @@ COPY src ./src
 RUN npm ci
 RUN npm run build
 
+FROM node:22-bookworm-slim AS kimi-code
+ARG KIMI_CODE_VERSION=2.3.0
+RUN npm install --prefix /opt/kimi-code --omit=optional --ignore-scripts @moonshot-ai/kimi-code@${KIMI_CODE_VERSION}
+
 FROM --platform=$TARGETPLATFORM node:20-bookworm-slim AS runtime
 
 ARG TARGETARCH
@@ -68,6 +72,10 @@ RUN npm ci --omit=dev \
   && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
+COPY --from=kimi-code /usr/local/bin/node /opt/node22/bin/node
+COPY --from=kimi-code /opt/kimi-code /opt/kimi-code
+RUN printf '%s\n' '#!/bin/sh' 'exec /opt/node22/bin/node /opt/kimi-code/node_modules/@moonshot-ai/kimi-code/dist/main.mjs "$@"' > /usr/local/bin/kimi-code \
+  && chmod 0755 /usr/local/bin/kimi-code
 COPY config/providers.example.yaml ./config/providers.example.yaml
 COPY config/provider-profiles ./config/provider-profiles
 

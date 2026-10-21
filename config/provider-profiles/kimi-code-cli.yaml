@@ -1,7 +1,16 @@
 id: kimi-code-cli
 type: cli
 auth:
-  env: KIMI_API_KEY
+  env: KIMI_CODE_API_KEY
+  statusCommand:
+    executable: node
+    args:
+      - -e
+      - >-
+        const {spawnSync}=require('node:child_process');
+        const ok=Boolean(process.env.KIMI_CODE_API_KEY)&&spawnSync('kimi-code',['--version'],{stdio:'ignore'}).status===0;
+        console.log(JSON.stringify({ok}));process.exit(ok?0:1);
+    timeoutMs: 30000
 command:
   executable: node
   args:
