@@ -178,6 +178,35 @@ for (const streamed of [false, true]) test(`fallback identity is explicit before
   } finally { await f.close(); }
 });
 
+for (const mode of ["buffered", "native-stream", "buffered-stream"]) for (const fallback of [false, true]) {
+  test(`fallback uses configured route rather than upstream model (${mode}, fallback=${fallback})`, async () => {
+    const primary = config("openrouter");
+    primary.models = [{ id: "openrouter-free", fallbackModels: fallback ? ["backup"] : [] }];
+    const backup = config("deepseek"); backup.models = [{ id: "backup" }];
+    const upstreamModel = fallback ? "minimax/model:free" : "openrouter/free";
+    const attempted: string[] = [];
+    const f = await fixture([primary, backup], (async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      attempted.push(body.model);
+      if (fallback && body.model === "openrouter-free") return new Response(JSON.stringify({ error: { message: "model not found" } }), { status: 404 });
+      return body.stream
+        ? new Response(data({ ...chunk({ content: "PONG" }, "stop"), model: upstreamModel }) + data("[DONE]"), { headers: { "content-type": "text/event-stream" } })
+        : new Response(JSON.stringify({ model: upstreamModel, choices: [{ message: { content: "PONG" }, finish_reason: "stop" }] }));
+    }) as typeof fetch);
+    if (mode === "buffered-stream") f.registry.canStreamModel = () => false;
+    try {
+      const response = await f.post({ model: "openrouter-free", stream: mode !== "buffered" });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.deepEqual(attempted, fallback ? ["openrouter-free", "backup"] : ["openrouter-free"]);
+      assert.equal(response.headers["x-gateway-served-model"], fallback ? "backup" : "openrouter-free");
+      assert.equal(response.headers["x-gateway-fallback"], String(fallback));
+      const first = mode === "buffered" ? response.json() : events(response.body)[0];
+      assert.equal(first.model, upstreamModel);
+      assert.equal(first.gateway_fallback, fallback);
+    } finally { await f.close(); }
+  });
+}
+
 for (const status of [401, 403, 404, 429, 503]) test(`Gemini array HTTP ${status} maps to a standard error without fallback`, async () => {
   let calls = 0;
   const f = await fixture([config("gemini-api")], (async () => { calls++; return new Response(JSON.stringify([{ error: { code: status } }]), { status }); }) as typeof fetch);
@@ -335,9 +364,12 @@ for (const streamed of [false, true]) test(`content_filter and upstream model id
   try {
     const response = await f.post({ stream: streamed });
     assert.equal(response.statusCode, 200, response.body);
-    assert.equal(response.headers["x-gateway-served-model"], "served-version");
-    assert.equal(response.headers["x-gateway-fallback"], "true");
+    assert.equal(response.headers["x-gateway-served-model"], "chosen");
+    assert.equal(response.headers["x-gateway-fallback"], "false");
     const parsed = streamed ? events(response.body) : [];
+    const first = streamed ? parsed[0] : response.json();
+    assert.equal(first.model, "served-version");
+    assert.equal(first.gateway_fallback, false);
     assert.equal(streamed ? parsed.at(-1).choices[0].finish_reason : response.json().choices[0].finish_reason, "content_filter");
   } finally { await f.close(); }
 });

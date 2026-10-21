@@ -81,6 +81,7 @@ export interface ProviderResult {
   reasoningContent?: unknown;
   usage?: ProviderTokenUsage;
   resolvedModel?: string;
+  servedModel?: string;
   normalization?: { strip_think: boolean; strip_fence: boolean };
   raw?: unknown;
 }
@@ -104,7 +105,7 @@ export type ProviderStreamEvent = (
     outputText?: string;
     reasoningText?: string;
     usage?: ProviderTokenUsage;
-  }) & { resolvedModel?: string; normalization?: { strip_think: boolean; strip_fence: boolean } };
+  }) & { resolvedModel?: string; servedModel?: string; normalization?: { strip_think: boolean; strip_fence: boolean } };
 
 export type CommandOutputMode =
   | "text"

@@ -1661,11 +1661,12 @@ async function handleChatCompletionsRequest(
           if (terminal) throw Error("Provider data after terminal event");
           if (!started) {
             servedModel = event.resolvedModel ?? body.model;
+            const servedRouteModel = event.servedModel ?? body.model;
             content = new ContentNormalizer(event.normalization ?? registry.getProfileForModel?.(servedModel)?.normalization);
-            setServingHeaders(reply, body.model, servedModel, true);
+            setServingHeaders(reply, body.model, servedRouteModel, true);
             startSseStream(reply);
             await writeSseData(reply, { id: respId, object: "chat.completion.chunk", created, model: servedModel,
-              gateway_fallback: servedModel !== body.model,
+              gateway_fallback: servedRouteModel !== body.model,
               choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] });
             started = true;
           }
@@ -1717,11 +1718,12 @@ async function handleChatCompletionsRequest(
 
     const result = normalizeNativeAssistantResult(await registry.runModel(body.model, runRequest));
     const returnedModel = resolveReturnedModel(body.model, result);
+    const servedRouteModel = result.servedModel ?? body.model;
     const rawOutputText = result.outputText;
     result.outputText = normalizeContent(result.outputText, result.normalization ?? registry.getProfileForModel?.(returnedModel)?.normalization);
     result.finishReason = normalizeFinishReason(result.finishReason, result.toolCalls.length > 0);
     const usage = completeUsage(result.usage, messages, rawOutputText + result.toolCalls.map(call => call.name + call.arguments).join(""));
-    setServingHeaders(reply, body.model, returnedModel, isStream);
+    setServingHeaders(reply, body.model, servedRouteModel, isStream);
     logBlankAssistantResult(reply.log.warn.bind(reply.log), returnedModel, result, "/chat/completions");
 
     // Log tool calls for debugging
@@ -1749,7 +1751,7 @@ async function handleChatCompletionsRequest(
         object: "chat.completion.chunk",
         created,
         model: returnedModel,
-        gateway_fallback: returnedModel !== body.model,
+        gateway_fallback: servedRouteModel !== body.model,
         choices: [
           {
             index: 0,
@@ -1779,7 +1781,7 @@ async function handleChatCompletionsRequest(
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
         model: returnedModel,
-        gateway_fallback: returnedModel !== body.model,
+        gateway_fallback: servedRouteModel !== body.model,
         choices: [
           {
             index: 0,

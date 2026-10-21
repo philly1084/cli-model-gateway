@@ -904,6 +904,7 @@ export class ProviderRegistry {
         return {
           ...result,
           resolvedModel: result.resolvedModel ?? binding.modelId,
+          servedModel: binding.modelId,
           normalization: resolveProviderProfile(binding.provider.config)?.normalization,
         };
       } catch (error) {
@@ -1205,7 +1206,7 @@ export class ProviderRegistry {
                 completed = true;
               }
               if ((event.type === "output_text_delta" || event.type === "reasoning_delta") ? !!event.delta : true) emitted = true;
-              yield { ...event, resolvedModel: event.resolvedModel ?? binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+              yield { ...event, resolvedModel: event.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
             }
             if (!completed) throw Error("Provider stream ended without a terminal receipt");
           } else {
@@ -1213,8 +1214,8 @@ export class ProviderRegistry {
             request.execution?.check();
             if (isInvalidProviderResult(result, request)) throw Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
             emitted = true;
-            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel ?? binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
-            yield { type: "done", ...result, resolvedModel: result.resolvedModel ?? binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            yield { type: "done", ...result, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
           }
           this.modelStats.recordSuccess({ ...stats, durationMs: Date.now() - startedAt });
           trackProvider(binding.provider.id, binding.modelId, true, Date.now() - startedAt);
