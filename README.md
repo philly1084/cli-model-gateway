@@ -22,6 +22,8 @@ Also exposed under `/openai/v1/*` for in-cluster compatibility URLs.
 
 Model execution is delegated to configurable providers, including CLI runners (Gemini CLI, Kimi ACP, Antigravity CLI, Codex CLI) and OpenAI-compatible remote APIs such as Groq and DeepSeek. When a Codex app-server bridge model is configured, the gateway also prefers it for `POST /v1/images/generations` so frontend image requests run through Codex CLI image generation by default. The gateway keeps n8n on one API key while provider auth is handled on the backend.
 
+Declarative [provider profiles](docs/provider-profiles.md) supply opt-in transport defaults and quirks. Chat output now has consistent reasoning opt-in, usage, terminal errors, and explicit serving-model/fallback markers; see the guide for the exact local build and ZZTEST comparison commands.
+
 ## Why this fits your setup
 
 - n8n receives a normal OpenAI-style API base URL + API key.

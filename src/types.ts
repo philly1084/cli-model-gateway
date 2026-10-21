@@ -76,15 +76,17 @@ export interface ProviderTokenUsage {
 export interface ProviderResult {
   outputText: string;
   toolCalls: ProviderToolCall[];
-  finishReason: "stop" | "tool_calls" | "length" | "error";
+  finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";
   reasoningText?: string;
   reasoningContent?: unknown;
   usage?: ProviderTokenUsage;
   resolvedModel?: string;
+  servedModel?: string;
+  normalization?: { strip_think: boolean; strip_fence: boolean };
   raw?: unknown;
 }
 
-export type ProviderStreamEvent =
+export type ProviderStreamEvent = (
   | {
     type: "reasoning_delta";
     delta: string;
@@ -103,7 +105,7 @@ export type ProviderStreamEvent =
     outputText?: string;
     reasoningText?: string;
     usage?: ProviderTokenUsage;
-  };
+  }) & { resolvedModel?: string; servedModel?: string; normalization?: { strip_think: boolean; strip_fence: boolean } };
 
 export type CommandOutputMode =
   | "text"
@@ -178,6 +180,7 @@ export interface ModelDiscoveryConfig {
 }
 
 export interface CliProviderConfig {
+  profile?: string;
   id: string;
   type: "cli";
   description?: string;
@@ -191,6 +194,7 @@ export interface CliProviderConfig {
 }
 
 export interface OpenAiCompatibleProviderConfig {
+  profile?: string;
   id: string;
   type: "openai";
   description?: string;

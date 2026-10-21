@@ -1,0 +1,33 @@
+id: kimi-code-cli
+type: cli
+auth:
+  env: KIMI_API_KEY
+command:
+  executable: node
+  args:
+    - dist/scripts/kimi-acp-bridge.js
+    - --model
+    - "{{provider_model}}"
+  input: request_json_stdin
+  output: json_contract
+stream_format: buffered-json
+quirks:
+  duplicate_finish_trailer: false
+  json_array_errors: false
+  unsupported_model_patterns: []
+  refusal_patterns: []
+  retry_on:
+    - 429
+    - 503
+  backoff_ms: 150
+  auth_fail_fast: true
+  timeouts:
+    first_token: 60000
+    total: 240000
+capabilities:
+  tools: false
+  json_mode: true
+  system_prompt: native
+normalization:
+  strip_think: true
+  strip_fence: false

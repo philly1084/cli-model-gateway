@@ -1,3 +1,4 @@
+import { loadProviderProfiles, resolveProviderProfile } from "./provider-profiles.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -45,6 +46,7 @@ const discoverySchema = z.object({
 });
 
 const cliProviderSchema = z.object({
+  profile: z.string().min(1).optional(),
   id: z.string().min(1),
   type: z.literal("cli"),
   description: z.string().optional(),
@@ -81,6 +83,7 @@ const cliProviderSchema = z.object({
 });
 
 const openAiProviderSchema = z.object({
+  profile: z.string().min(1).optional(),
   id: z.string().min(1),
   type: z.literal("openai"),
   description: z.string().optional(),
@@ -420,7 +423,21 @@ export function loadProvidersFile(providersPath: string): ProvidersFile {
     });
   }
 
+  const profiles = loadProviderProfiles();
+  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { providers?: unknown }).providers)) {
+    const document = parsed as { providers: Array<Record<string, unknown>> };
+    document.providers = document.providers.map(provider => {
+      if (!provider.profile) return provider;
+      const profile = profiles.get(String(provider.profile));
+      if (!profile) throw Error("Unknown provider profile: " + String(provider.profile));
+      if (provider.type !== profile.type) throw Error("Provider profile type mismatch: " + profile.id);
+      return profile.type === "cli"
+        ? { responseCommand: { ...profile.command, timeoutMs: profile.quirks.timeouts.total }, ...provider }
+        : { baseUrl: profile.baseUrl, apiKeyEnv: profile.auth.env, timeoutMs: profile.quirks.timeouts.total, ...provider };
+    });
+  }
   const config = providersFileSchema.parse(parsed);
+  for (const provider of config.providers) resolveProviderProfile(provider, profiles);
   config.remoteCliTargets = overrideRemoteTargetHosts(config.remoteCliTargets);
   return config;
 }

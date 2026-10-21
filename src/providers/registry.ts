@@ -1,3 +1,4 @@
+import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
 import { setTimeout as retryDelay } from "node:timers/promises";
 import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
 import { ExecutionPolicy } from "../utils/execution-policy";
@@ -141,7 +142,8 @@ export class ProviderRegistry {
   static async create(configs: ProviderConfig[]): Promise<ProviderRegistry> {
     const registry = new ProviderRegistry();
     let routingIndex = 0;
-    for (const config of configs) {
+    for (const originalConfig of configs) {
+      const config = applyProviderProfile(originalConfig);
       const provider =
         config.type === "cli"
           ? new CliProvider(config)
@@ -248,6 +250,11 @@ export class ProviderRegistry {
     }
 
     return requestedBinding?.modelId;
+  }
+
+  getProfileForModel(modelId: string) {
+    const config = this.models.get(modelId)?.provider.config;
+    return config ? resolveProviderProfile(config) : undefined;
   }
 
   getProvider(providerId: string): Provider | undefined {
@@ -874,9 +881,9 @@ export class ProviderRegistry {
         try {
           rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
         } catch (error) {
-          if (emergency.used || !(error instanceof UpstreamError) || !error.transient || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
+          if (emergency.used || !(error instanceof UpstreamError) || !profileRetryAllowed(binding.provider.config, error) || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
           recordUpstreamFailure(request, binding, error);
-          await retryDelay(150, undefined, { signal: request.signal });
+          await retryDelay(profileBackoff(binding.provider.config), undefined, { signal: request.signal });
           request.execution.attempt(binding.modelId, binding.provider.id);
           rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
         }
@@ -897,12 +904,14 @@ export class ProviderRegistry {
         return {
           ...result,
           resolvedModel: result.resolvedModel ?? binding.modelId,
+          servedModel: binding.modelId,
+          normalization: resolveProviderProfile(binding.provider.config)?.normalization,
         };
       } catch (error) {
         request.execution?.check();
         if (error && typeof error === "object" && "uncertain" in error && error.uncertain) throw error;
         lastError = error;
-        if (error instanceof UpstreamError && error.code === "auth") authFailedProviders.add(binding.provider.id);
+        if (error instanceof UpstreamError && error.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
         recordUpstreamFailure(request, binding, error);
         const failureKind = this.modelStats.recordFailure({
           modelId: binding.modelId,
@@ -1024,7 +1033,7 @@ export class ProviderRegistry {
     requestedModelId: string,
   ): ModelFailureKind | undefined {
     const snapshot = this.modelStats.snapshot();
-    if (snapshot.models.some(model => model.providerId === binding.provider.id && model.suggestedState === "auth_blocked" && model.suggestedCooldownSeconds > 0)) return "auth";
+    if (profileAuthFailFast(binding.provider.config) && snapshot.models.some(model => model.providerId === binding.provider.id && model.suggestedState === "auth_blocked" && model.suggestedCooldownSeconds > 0)) return "auth";
     const providerQuotaBlocked = snapshot.models.some(
       (model) =>
         model.providerId === binding.provider.id &&
@@ -1197,7 +1206,7 @@ export class ProviderRegistry {
                 completed = true;
               }
               if ((event.type === "output_text_delta" || event.type === "reasoning_delta") ? !!event.delta : true) emitted = true;
-              yield event;
+              yield { ...event, resolvedModel: event.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
             }
             if (!completed) throw Error("Provider stream ended without a terminal receipt");
           } else {
@@ -1205,8 +1214,8 @@ export class ProviderRegistry {
             request.execution?.check();
             if (isInvalidProviderResult(result, request)) throw Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
             emitted = true;
-            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call };
-            yield { type: "done", ...result };
+            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            yield { type: "done", ...result, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
           }
           this.modelStats.recordSuccess({ ...stats, durationMs: Date.now() - startedAt });
           trackProvider(binding.provider.id, binding.modelId, true, Date.now() - startedAt);
@@ -1214,14 +1223,14 @@ export class ProviderRegistry {
         } catch (error) {
           request.execution?.check();
           lastError = error;
-          if (error instanceof UpstreamError && error.code === "auth") authFailedProviders.add(binding.provider.id);
+          if (error instanceof UpstreamError && error.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
           recordUpstreamFailure(request, binding, error);
           const failureKind = this.modelStats.recordFailure({ ...stats, durationMs: Date.now() - startedAt, error });
           trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
           if (emitted || (!(binding.provider instanceof OpenAiCompatibleProvider) && !(error instanceof UpstreamError && error.code === "model_unavailable")) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw error;
-          if (!emergency.used && !retry && error instanceof UpstreamError && error.transient && request.execution?.canFallback()) {
+          if (!emergency.used && !retry && error instanceof UpstreamError && profileRetryAllowed(binding.provider.config, error) && request.execution?.canFallback()) {
             retry = true;
-            await retryDelay(150, undefined, { signal: request.signal });
+            await retryDelay(profileBackoff(binding.provider.config), undefined, { signal: request.signal });
             continue;
           }
           const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks, emergency);
@@ -1703,7 +1712,7 @@ function isInvalidProviderResult(
     return isBlankImageGenerationResult(result) || isSyntheticFailureProviderResult(result);
   }
 
-  return isBlankProviderResult(result) || isSyntheticFailureProviderResult(result);
+  return (result.finishReason !== "content_filter" && isBlankProviderResult(result)) || isSyntheticFailureProviderResult(result);
 }
 
 function isBlankProviderResult(result: ProviderResult): boolean {
@@ -2090,3 +2099,10 @@ function recordUpstreamFailure(request: Omit<UnifiedRequest, "model" | "provider
   request.receipt?.({ type: "gateway.upstream.failure", requestId: request.requestId, model: binding.modelId, providerId: binding.provider.id,
     upstreamStatus: error.status ?? 200, errorCode: error.code, ...(error.upstreamCode ? { upstreamCode: error.upstreamCode } : {}) });
 }
+
+function profileRetryAllowed(config: ProviderConfig, error: UpstreamError): boolean {
+  return config.profile ? resolveProviderProfile(config)!.quirks.retry_on.includes(error.status ?? (error.code === "rate_limited" ? 429 : error.code === "capacity_exhausted" ? 503 : 0)) : error.transient;
+}
+function profileBackoff(config: ProviderConfig): number { return config.profile ? resolveProviderProfile(config)!.quirks.backoff_ms : 150; }
+
+function profileAuthFailFast(config: ProviderConfig): boolean { return config.profile ? resolveProviderProfile(config)!.quirks.auth_fail_fast : true; }

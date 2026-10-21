@@ -1,3 +1,4 @@
+import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
 import { strictToolCalls, migrateToolHistory, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
 import { createHash } from "node:crypto";
 import { RequestCapabilityError } from "../utils/request-capability.js";
@@ -126,6 +127,7 @@ export class OpenAiCompatibleProvider implements Provider {
   }
 
   async run(request: UnifiedRequest): Promise<ProviderResult> {
+    request = prepareProfileRequest(this.config, request);
     request = {...request,messages:migrateToolHistory(request.messages)};
     validateToolHistory(request.messages);
     const modelConfig = this.models.find((model) => model.id === request.model);
@@ -137,7 +139,7 @@ export class OpenAiCompatibleProvider implements Provider {
     if (request.requestKind === "images_generations") {
       return await this.runImageGeneration(providerModel, request);
     }
-    if (isKimiCodeApiBaseUrl(this.config.baseUrl)) {
+    if (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "anthropic-json" : isKimiCodeApiBaseUrl(this.config.baseUrl)) {
       return validateToolResult(await this.runKimiCodeAnthropicMessages(providerModel, request), request);
     }
 
@@ -146,7 +148,7 @@ export class OpenAiCompatibleProvider implements Provider {
 
     request.signal?.throwIfAborted(); request.execution?.dispatch();
     const response = await this.requestJson(
-      "/chat/completions",
+      this.config.profile ? resolveProviderProfile(this.config)!.endpoint! : "/chat/completions",
       {
         method: "POST",
         body: JSON.stringify(body),
@@ -211,6 +213,7 @@ export class OpenAiCompatibleProvider implements Provider {
       copyIntegerMetadata(body, metadata, "max_tokens");
     }
     copyStringMetadata(body, metadata, "user");
+    if (this.config.profile && metadata?.response_format) body.response_format = metadata.response_format;
     copyProviderReasoningMetadata(body, metadata, this.config.baseUrl, providerModel);
 
     if (shouldForwardRemoteMetadata(this.config.baseUrl)) {
@@ -256,9 +259,10 @@ export class OpenAiCompatibleProvider implements Provider {
     return body;
   }
 
-  supportsStreaming(): boolean { return !isKimiCodeApiBaseUrl(this.config.baseUrl); }
+  supportsStreaming(): boolean { return this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "openai-sse" : !isKimiCodeApiBaseUrl(this.config.baseUrl); }
 
   async *runStream(request: UnifiedRequest): AsyncGenerator<ProviderStreamEvent> {
+    request = prepareProfileRequest(this.config, request);
     if (!this.supportsStreaming() || request.requestKind === "images_generations") throw Error("Native streaming unsupported for this provider request");
     const model = this.models.find(m => m.id === request.model);
     if (!model) throw Error("Unknown provider model");
@@ -269,30 +273,34 @@ export class OpenAiCompatibleProvider implements Provider {
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
     const timer = setTimeout(() => controller.abort(), readPositiveIntegerMetadata(request.metadata, "gateway_benchmark_timeout_ms") ?? this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const profile = this.config.profile ? resolveProviderProfile(this.config) : undefined;
+    const firstTokenTimer = profile ? setTimeout(() => controller.abort(), profile.quirks.timeouts.first_token) : undefined;
     try {
       signal.throwIfAborted();
       request.execution?.dispatch();
-      const response = await fetch(buildProviderUrl(this.config.baseUrl, "/chat/completions"), {
+      const response = await fetch(buildProviderUrl(this.config.baseUrl, this.config.profile ? resolveProviderProfile(this.config)!.endpoint! : "/chat/completions"), {
         method: "POST", headers: buildRequestHeaders(key), body: JSON.stringify(body), signal,
       }).catch(error => { throw Object.assign(error, { uncertain: true }); });
-      if (!response.ok) throw new UpstreamError(response.status, tryParseJson(await response.text()));
+      if (!response.ok) throw new UpstreamError(response.status, tryParseJson(await response.text()), profile?.quirks.json_array_errors);
       if (response.headers.get("content-type")?.includes("application/json")) {
         const payload = tryParseJson(await response.text());
-        if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload);
+        if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, profile?.quirks.json_array_errors);
         const result = validateToolResult(parseChatCompletionResponse(payload), request);
-        for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call };
+        for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel };
         yield { type: "done", ...result };
         return;
       }
       // No implicit retry: remote tools/session metadata can have side effects even before text.
+      let servedModel: string | undefined;
       const offered = new Set(request.tools.map(t => t.function.name));
       const toolEvents: ProviderStreamEvent[] = [];
-      for await (const event of parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature))) {
+      for await (const event of parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature), profile?.quirks, model => { servedModel = model; })) {
+        if (event.type !== "reasoning_delta") clearTimeout(firstTokenTimer);
         if (event.type === "tool_call") { requireOfferedTool(event.toolCall, offered); toolEvents.push(event); continue; }
-        if (event.type === "done") for (const tool of toolEvents) yield tool;
-        yield event;
+        if (event.type === "done") for (const tool of toolEvents) yield { ...tool, resolvedModel: servedModel };
+        yield { ...event, resolvedModel: servedModel };
       }
-    } finally { clearTimeout(timer); controller.abort(); }
+    } finally { clearTimeout(firstTokenTimer); clearTimeout(timer); controller.abort(); }
   }
 
   private async runKimiCodeAnthropicMessages(
@@ -326,7 +334,7 @@ export class OpenAiCompatibleProvider implements Provider {
 
     request.signal?.throwIfAborted(); request.execution?.dispatch();
     const response = await this.requestJson(
-      "/messages",
+      this.config.profile ? resolveProviderProfile(this.config)!.endpoint! : "/messages",
       {
         method: "POST",
         headers: {
@@ -1051,6 +1059,7 @@ function normalizeFinishReason(
     value === "stop" ||
     value === "tool_calls" ||
     value === "length" ||
+    value === "content_filter" ||
     value === "error"
   ) {
     return value;
@@ -1120,14 +1129,14 @@ async function requestProviderJson(
     const payload = tryParseJson(text);
 
     if (!response.ok) {
-      throw new UpstreamError(response.status, payload);
+      throw new UpstreamError(response.status, payload, config.profile ? resolveProviderProfile(config)!.quirks.json_array_errors : true);
     }
 
     if (payload === null) {
       throw new Error("Provider API returned invalid JSON.");
     }
 
-    if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload);
+    if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, config.profile ? resolveProviderProfile(config)!.quirks.json_array_errors : true);
 
     return payload;
   } catch (error) {

@@ -49,10 +49,10 @@ for (const partial of [false, true]) {
       try {
         const response = await f.inject();
         assert.equal(response.statusCode, 200);
-        assert.doesNotMatch(response.body, /\[DONE\]/);
-        const events = response.body.split("\n").filter(line => line.startsWith("data: ")).map(line => JSON.parse(line.slice(6)));
+        assert.match(response.body, /data: \[DONE\]\n\n$/);
+        const events = response.body.split("\n").filter(line => line.startsWith("data: ") && line !== "data: [DONE]").map(line => JSON.parse(line.slice(6)));
         assert.deepEqual(events.at(-1), { error: {
-          message: "Upstream stream failed.", type: "upstream_stream_failed", code: "upstream_stream_failed",
+          message: "Upstream stream failed.", type: "upstream_stream_failed", code: "upstream_stream_failed", param: null,
         } });
         const completions = f.logs.filter(log => log.msg === "request completed");
         assert.equal(completions.length, 1);
@@ -108,7 +108,8 @@ for (const fail of [false, true]) test(`real HTTP stream closes with the correct
     const body = await response.text();
     if (fail) {
       assert.match(body, /"type":"upstream_stream_failed"/);
-      assert.doesNotMatch(body, /\[DONE\]|synthetic provider failure/);
+      assert.match(body, /data: \[DONE\]\n\n$/);
+      assert.doesNotMatch(body, /synthetic provider failure/);
     } else assert.match(body, /data: \[DONE\]\n\n$/);
     const completions = f.logs.filter(log => log.msg === "request completed");
     assert.equal(completions.length, 1);

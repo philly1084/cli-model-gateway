@@ -1,0 +1,27 @@
+id: gemini-api
+type: openai
+baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+endpoint: /chat/completions
+auth:
+  env: GEMINI_API_KEY
+stream_format: openai-sse
+quirks:
+  duplicate_finish_trailer: false
+  json_array_errors: true
+  unsupported_model_patterns: []
+  refusal_patterns: []
+  retry_on:
+    - 429
+    - 503
+  backoff_ms: 150
+  auth_fail_fast: true
+  timeouts:
+    first_token: 60000
+    total: 240000
+capabilities:
+  tools: true
+  json_mode: true
+  system_prompt: native
+normalization:
+  strip_think: true
+  strip_fence: false
