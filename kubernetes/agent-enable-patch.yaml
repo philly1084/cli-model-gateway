@@ -1,0 +1,47 @@
+# Strategic-merge patch ONLY: use kubectl patch, never kubectl apply.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n-openai-cli-gateway
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    spec:
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: gateway
+          env:
+            - name: AGENT_ENABLED
+              value: "true"
+            - name: AGENT_DATA_DIR
+              value: /var/lib/gateway-home/agent-data
+            - name: AGENT_POOL_MAX
+              value: "1"
+            - name: AGENT_KEYS_SOPS_FILE
+              value: /etc/gateway-agent-keys/keys.sops.json
+            - name: AGENT_CHECKER_KEY_SOPS_FILE
+              value: /etc/gateway-agent-keys/checker.sops.json
+            - name: SOPS_AGE_KEY_FILE
+              value: /etc/gateway-agent-keys/age-key.txt
+          volumeMounts:
+            - name: agent-keys
+              mountPath: /etc/gateway-agent-keys
+              readOnly: true
+      volumes:
+        - name: agent-keys
+          secret:
+            secretName: cli-model-gateway-agent-keys
+            defaultMode: 0440
+            items:
+              - key: keys.sops.json
+                path: keys.sops.json
+              - key: checker.sops.json
+                path: checker.sops.json
+              - key: age-key.txt
+                path: age-key.txt

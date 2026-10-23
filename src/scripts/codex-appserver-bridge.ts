@@ -1368,7 +1368,7 @@ function parseChatGptFallbackModel(): string {
   ) {
     return process.env.CODEX_APPSERVER_CHATGPT_FALLBACK_MODEL.trim();
   }
-  return "gpt-5.5";
+  return "gpt-5.6-sol";
 }
 
 function decorateCodexExecutableError(

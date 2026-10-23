@@ -1,5 +1,7 @@
+import type { ProviderProfile } from "../provider-profiles.js";
 import type { ProviderStreamEvent, ProviderToolCall, ProviderResult } from "../types";
 import { normalizeProviderUsage } from "./usage";
+import { UpstreamError } from "./upstream-error.js";
 
 const object = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Invalid provider stream object");
@@ -7,34 +9,51 @@ const object = (value: unknown): Record<string, unknown> => {
 };
 
 // Pull-based, bounded SSE decoding. Tools are released only after a complete valid turn.
-export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void): AsyncGenerator<ProviderStreamEvent> {
+export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void, quirks?: ProviderProfile["quirks"], onModel?: (model: string) => void): AsyncGenerator<ProviderStreamEvent> {
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw Error("Provider did not return an SSE stream");
   const reader = response.body.getReader();
   const abort = () => { void reader.cancel().catch(() => {}); };
   signal.addEventListener("abort", abort, { once: true });
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  let pending = "", data: string[] = [], bytes = 0, text = "", reasoning = "", model = "";
+  let pending = "", data: string[] = [], bytes = 0, text = "", reasoning = "", model = "", eventType = "";
   let finish: ProviderResult["finishReason"] | undefined, done = false, usage: ProviderResult["usage"];
   const calls: ProviderToolCall[] = [];
   const signatures = new Map<number, string>();
   function* event(payload: string): Generator<ProviderStreamEvent> {
     if (done) throw Error("Data after provider completion");
     if (payload === "[DONE]") { if (!finish) throw Error("Provider stream missing finish reason"); done = true; return; }
-    const chunk = object(JSON.parse(payload));
-    if (chunk.error) throw Error("Provider stream reported an error");
-    if (typeof chunk.model === "string") { if (model && model !== chunk.model) throw Error("Provider model changed mid-stream"); model = chunk.model; }
+    if (eventType === "error") throw new UpstreamError(undefined, JSON.parse(payload), quirks?.json_array_errors);
+    const parsed: unknown = JSON.parse(payload);
+    if (Array.isArray(parsed) && parsed.some(item => item?.error)) throw new UpstreamError(undefined, parsed, quirks?.json_array_errors);
+    const chunk = object(parsed);
+    if (chunk.error) throw new UpstreamError(undefined, chunk);
+    if (typeof chunk.model === "string") { if (model && model !== chunk.model) throw Error("Provider model changed mid-stream"); model = chunk.model; onModel?.(model); }
     if (chunk.usage) usage = normalizeProviderUsage(chunk.usage, "provider");
+    if (chunk.choices === undefined && chunk.usage) return;
     if (!Array.isArray(chunk.choices)) throw Error("Invalid provider choices");
-    if (chunk.choices.length === 0 && chunk.usage) return;
-    if (finish || chunk.choices.length !== 1) throw Error("Unexpected provider choice or data after finish");
+    if (chunk.choices.length === 0) return;
+    if (chunk.choices.length !== 1) throw Error("Unexpected provider choice");
     const choice = object(chunk.choices[0]);
     if (choice.index !== undefined && choice.index !== 0) throw Error("Multiple provider choices unsupported");
     const delta = object(choice.delta ?? {});
+    if (finish) {
+      if (quirks?.duplicate_finish_trailer === false) throw Error("Duplicate provider finish");
+      // OpenRouter repeats the terminal choice on its usage trailer. Accept only
+      // an identical finish with no additional output or tool fragments.
+      const repeatedFinish = choice.finish_reason === "stop" && calls.length ? "tool_calls" : choice.finish_reason;
+      if (repeatedFinish !== finish || Object.entries(delta).some(([key, value]) =>
+        key === "role" ? value !== "assistant" : value != null && value !== "")) {
+        throw Error("Unexpected provider data after finish");
+      }
+      return;
+    }
     if (delta.content != null) {
       if (typeof delta.content !== "string" || text.length + delta.content.length > 262144) throw Error("Invalid or oversized provider text");
       text += delta.content; if (delta.content) yield { type: "output_text_delta", delta: delta.content };
     }
-    const thought = delta.reasoning_content ?? delta.reasoning;
+    // Preserve DeepSeek's established reasoning_content contract; vendor reasoning
+    // and reasoning_details are opaque extensions, not assistant content.
+    const thought = delta.reasoning_content;
     if (thought != null) {
       if (typeof thought !== "string" || reasoning.length + thought.length > 262144) throw Error("Invalid or oversized provider reasoning");
       reasoning += thought; if (thought) yield { type: "reasoning_delta", delta: thought };
@@ -81,7 +100,8 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
       }
     }
     if (choice.finish_reason != null) {
-      if (!["stop", "tool_calls", "length"].includes(String(choice.finish_reason))) throw Error("Provider stream failed");
+      if (choice.finish_reason === "error") throw new UpstreamError();
+      if (!["stop", "tool_calls", "length", "content_filter"].includes(String(choice.finish_reason))) throw Error("Provider stream failed");
       finish = choice.finish_reason === "stop" && calls.length ? "tool_calls" : choice.finish_reason as ProviderResult["finishReason"];
       if (calls.length && finish !== "tool_calls") throw Error("Incomplete provider tool call");
       if (!calls.length && finish === "tool_calls") throw Error("Missing provider tool call");
@@ -91,14 +111,20 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
     while (true) {
       signal.throwIfAborted();
       const chunk = await reader.read(); signal.throwIfAborted();
-      if (chunk.done) { pending += decoder.decode(); break; }
+      if (chunk.done) {
+        pending += decoder.decode();
+        if (pending.startsWith("data:")) data.push(pending.slice(5).replace(/^ /, "").replace(/\r$/, ""));
+        if (data.length) yield* event(data.join("\n"));
+        break;
+      }
       bytes += chunk.value.byteLength; if (bytes > 2097152) throw Error("Provider stream exceeds limit");
       pending += decoder.decode(chunk.value, { stream: true });
       let at: number;
       while ((at = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, at).replace(/\r$/, ""); pending = pending.slice(at + 1);
-        if (!line) { if (data.length) { yield* event(data.join("\n")); data = []; } }
+        if (!line) { if (data.length) { yield* event(data.join("\n")); data = []; } eventType = ""; }
         else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+        else if (line.startsWith("event:")) eventType = line.slice(6).trim();
       }
       if (pending.length > 262144) throw Error("Provider SSE line exceeds limit");
       if (done) break;

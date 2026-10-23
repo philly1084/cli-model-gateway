@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-10-13T22:09:15.628Z",
+  "source": "Read-only model/list from the gateway's configured Codex executable",
+  "configuredClientVersion": "0.161.0",
+  "imagePathClientVersion": "0.144.1",
+  "operations": ["initialize", "initialized", "model/list"],
+  "inferencePerformed": false,
+  "nextCursor": null,
+  "models": [
+    { "id": "gpt-6.1-sol", "isDefault": true, "defaultReasoningEffort": "low" },
+    { "id": "gpt-6-astra", "isDefault": false, "defaultReasoningEffort": "medium" },
+    { "id": "gpt-6-sol", "isDefault": false, "defaultReasoningEffort": "medium" },
+    { "id": "gpt-6-luna", "isDefault": false, "defaultReasoningEffort": "medium" },
+    { "id": "gpt-5.6-sol", "isDefault": false, "defaultReasoningEffort": "low" },
+    { "id": "gpt-5.6-terra", "isDefault": false, "defaultReasoningEffort": "medium" },
+    { "id": "gpt-5.6-luna", "isDefault": false, "defaultReasoningEffort": "medium" }
+  ],
+  "limitations": [
+    "Discovery confirms advertised selectors for this configured client/account, not successful inference.",
+    "This is not a claim about public API-key availability.",
+    "The gateway's authenticated in-memory /v1/models response was not independently inspected."
+  ]
+}

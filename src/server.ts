@@ -1,4 +1,9 @@
+import { gatewayError } from "./utils/output-normalization.js";
 import Fastify from "fastify";
+import { loadAgentConfig } from "./agent/config.js";
+import { createAgentRuntime } from "./agent/runtime.js";
+import { agentRoutes } from "./agent/routes/agent.js";
+import { agentUiRoutes } from "./agent/routes/ui.js";
 import type { AppConfig, RemoteCliTargetConfig } from "./types";
 import { adminRoutes } from "./routes/admin";
 import { openAiRoutes } from "./routes/openai";
@@ -15,6 +20,7 @@ import { REMOTE_AGENT_HANDOFF_VERSION } from "./jobs/agent-handoff-store";
 import { ProviderRegistry } from "./providers/registry";
 import { LruMap } from "./utils/lru-map";
 import { makeId } from "./utils/ids";
+import { installRequestCompletionLogging } from "./utils/request-completion.js";
 import { metrics, trackRequest } from "./metrics";
 
 // Rate limit configuration constants
@@ -78,9 +84,20 @@ function checkRateLimit(
 export function buildServer(
   config: AppConfig,
   registry: ProviderRegistry,
-  options: { remoteCliTargets?: RemoteCliTargetConfig[] } = {},
+  options: {
+    remoteCliTargets?: RemoteCliTargetConfig[];
+    agentRuntimeFactory?: typeof createAgentRuntime;
+    embeddingsFetch?: typeof fetch;
+  } = {},
 ) {
+  if (config.embeddings) {
+    const chatModelIds = new Set(registry.listModels().map(model => model.id));
+    if (config.embeddings.models.some(model => [model.id, ...model.aliases].some(id => chatModelIds.has(id)))) {
+      throw new Error("Embedding ids and aliases must not overlap chat model ids.");
+    }
+  }
   const app = Fastify({
+    disableRequestLogging: true,
     logger: {
       level: config.logLevel,
     },
@@ -91,6 +108,8 @@ export function buildServer(
     keepAliveTimeout: config.requestTimeoutMs,
     requestTimeout: config.requestTimeoutMs,
   });
+
+  installRequestCompletionLogging(app);
 
   const jobManager = new JobManager(config.maxJobLogLines);
   const providerSessionManager = new ProviderSessionManager({
@@ -151,13 +170,7 @@ export function buildServer(
 
     if (!result.allowed) {
       reply.header("Retry-After", result.retryAfter?.toString() ?? "60");
-      return reply.status(429).send({
-        error: {
-          message: "Rate limit exceeded. Please try again later.",
-          type: "rate_limit_error",
-          code: 429,
-        },
-      });
+      return reply.status(429).send(gatewayError("Rate limit exceeded. Please try again later.", "rate_limit_error", 429));
     }
   });
 
@@ -193,6 +206,8 @@ export function buildServer(
     registry,
     n8nApiKeys: config.n8nApiKeys,
     defaultReasoningEffort: config.defaultReasoningEffort,
+    embeddings: config.embeddings,
+    embeddingsFetch: options.embeddingsFetch,
   });
 
   app.register(openAiRoutes, {
@@ -200,6 +215,8 @@ export function buildServer(
     registry,
     n8nApiKeys: config.n8nApiKeys,
     defaultReasoningEffort: config.defaultReasoningEffort,
+    embeddings: config.embeddings,
+    embeddingsFetch: options.embeddingsFetch,
   });
 
   app.register(adminRoutes, {
@@ -208,6 +225,24 @@ export function buildServer(
     jobManager,
     adminApiKey: config.adminApiKey,
   });
+
+  if (process.env.AGENT_ENABLED === "true") {
+    app.register(async agentApp => {
+      const factory = options.agentRuntimeFactory ?? createAgentRuntime;
+      const runtime = await factory(loadAgentConfig(), registry);
+      agentApp.addHook("onClose", async () => runtime.close());
+      await agentApp.register(agentRoutes, {
+        prefix: "/admin/agent",
+        adminApiKey: config.adminApiKey,
+        ...runtime,
+      });
+      await agentApp.register(agentUiRoutes, {
+        prefix: "/admin/agent/ui",
+        adminApiKey: config.adminApiKey,
+        ...runtime,
+      });
+    });
+  }
 
   app.register(providerSessionRoutes, {
     prefix: "/admin",
@@ -252,22 +287,13 @@ export function buildServer(
       ? (error as { statusCode?: number }).statusCode
       : undefined;
     if (statusCode === 413) {
-      return reply.status(413).send({
-        error: {
-          message: "Request body too large.",
-          type: "invalid_request_error",
-          code: 413,
-          requestId,
-        },
-      });
+      return reply.status(413).send(gatewayError("Request body too large.", "invalid_request_error", 413));
     }
 
-    reply.status(500).send({
-      error: {
-        message: "Internal server error.",
-        requestId,
-      },
-    });
+    if (statusCode && statusCode >= 400 && statusCode < 500) {
+      return reply.status(statusCode).send(gatewayError("Invalid request.", "invalid_request_error", statusCode));
+    }
+    reply.status(500).send(gatewayError("Internal server error.", "server_error", 500));
   });
 
   return {

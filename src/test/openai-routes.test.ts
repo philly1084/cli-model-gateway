@@ -341,6 +341,7 @@ test("chat completions response includes reasoning when provider returns it", as
         authorization: "Bearer test-key",
       },
       payload: {
+        include_reasoning: true,
         model: "demo-model",
         messages: [{ role: "user", content: "Hi" }],
       },
@@ -417,6 +418,7 @@ test("chat completions stream emits incremental Codex chunks", async () => {
         authorization: "Bearer test-key",
       },
       payload: {
+        include_reasoning: true,
         model: "demo-model",
         stream: true,
         messages: [{ role: "user", content: "Hi" }],
@@ -507,6 +509,7 @@ test("chat completions synthetic stream preserves reasoning_content and tool ind
         authorization: "Bearer test-key",
       },
       payload: {
+        include_reasoning: true,
         model: "demo-model",
         stream: true,
         messages: [{ role: "user", content: "Check both services" }],
@@ -593,6 +596,7 @@ test("chat completions stream can flush final snapshots from done events", async
         authorization: "Bearer test-key",
       },
       payload: {
+        include_reasoning: true,
         model: "demo-model",
         stream: true,
         messages: [{ role: "user", content: "Hi" }],

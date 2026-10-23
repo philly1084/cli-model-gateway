@@ -22,6 +22,8 @@ Also exposed under `/openai/v1/*` for in-cluster compatibility URLs.
 
 Model execution is delegated to configurable providers, including CLI runners (Gemini CLI, Kimi ACP, Antigravity CLI, Codex CLI) and OpenAI-compatible remote APIs such as Groq and DeepSeek. When a Codex app-server bridge model is configured, the gateway also prefers it for `POST /v1/images/generations` so frontend image requests run through Codex CLI image generation by default. The gateway keeps n8n on one API key while provider auth is handled on the backend.
 
+Declarative [provider profiles](docs/provider-profiles.md) supply opt-in transport defaults and quirks. Chat output now has consistent reasoning opt-in, usage, terminal errors, and explicit serving-model/fallback markers; see the guide for the exact local build and ZZTEST comparison commands.
+
 ## Why this fits your setup
 
 - n8n receives a normal OpenAI-style API base URL + API key.
@@ -266,7 +268,7 @@ remoteCliTargets:
     allowedCwds:
       - /srv/apps
     defaultCwd: /srv/apps/my-app
-    defaultModel: openai/gpt-5.4
+    defaultModel: gpt-5.6-sol
     opencodeExecutable: opencode
     timeoutMs: 1800000
 ```
@@ -332,7 +334,7 @@ The task stream is Server-Sent Events. It includes normal provider-session `outp
 
 Use `/api/codex-agent/*` when a trusted frontend service, such as Symphony, needs to run a local Codex app-server turn directly in a checked-out workspace. Requests must use a `FRONTEND_API_KEY`/`FRONTEND_API_KEYS` key or the admin key. The gateway validates `workspacePath` against `CODEX_AGENT_ALLOWED_WORKSPACE_ROOTS` and starts `codex app-server` with `cwd` set to that workspace.
 
-When a request omits `config.model`, the Codex agent defaults to `gpt-5.6-sol`; callers can still select another configured or account-entitled Codex model explicitly. The provider catalog exposes the complete GPT-5.6 family: `gpt-5.6-sol` for frontier capability, `gpt-5.6-terra` for balanced intelligence and cost, and `gpt-5.6-luna` for efficient high-volume work.
+When a request omits `config.model`, the Codex agent defaults to `gpt-5.6-sol`; callers can still select another configured or account-entitled Codex model explicitly. The examples expose newer verified selectors with `manualOnly: true`, preserving automatic ranking and excluding them from automatic judges and implicit fallbacks. Deploy the matching runtime before loading these entries; see the [implementation and rollout notes](docs/manual-catalog-implementation.md).
 
 ```http
 POST /api/codex-agent/run
@@ -1191,3 +1193,20 @@ The generated Groq models match the current Groq docs production/system IDs:
 - `llama-3.1-8b-instant`
 
 Do not import `kubernetes/groq-rancher-overlay.yaml` directly into Rancher as a standalone manifest. Rancher applies imported YAML as full Kubernetes resources, and that file is only suitable as a patch-style overlay, not a complete deployment object.
+
+The [all-provider audit](docs/provider-audit-2026-10-13.md) covers Gemini, Kimi, OpenRouter and every configured provider with dated discovery evidence and unloaded candidates.
+
+## Unified agent (experimental, off by default)
+
+An experimental coordinator lives in `src/agent/`. It adds sealed state, leases,
+approval inboxes, router decisions and checker receipts behind `AGENT_ENABLED=true`.
+The phase 1 runtime is model-only; container execution and side-effect backends
+remain off. See the [enablement runbook](docs/unified-agent/ENABLE.md),
+[phase 1 setup and limits](docs/unified-agent/PHASE1.md) and the
+[sanitized design](docs/unified-agent/DESIGN.md).
+
+## Embeddings
+
+Optional authenticated embeddings forwarding is available at `/v1/embeddings`
+and `/openai/v1/embeddings`. It uses a separate model catalog and leaves chat
+model discovery unchanged. See [embeddings configuration and API](docs/embeddings.md).

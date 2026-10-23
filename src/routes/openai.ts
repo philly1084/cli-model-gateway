@@ -1,5 +1,12 @@
+import { ContentNormalizer, normalizeContent, normalizeFinishReason, completeUsage, stripProviderFields, gatewayError } from "../utils/output-normalization.js";
+import { UpstreamError } from "../utils/upstream-error.js";
 import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
+import { registerEmbeddingsRoutes } from "./embeddings.js";
+import type { EmbeddingsConfig } from "../types.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
+import { trackChatStream, markStreamToken, failChatStream, recordExecution } from "../utils/request-completion.js";
+import { EXECUTION_POLICY_VERSION } from "../utils/execution-policy";
+import { RequestCapabilityError } from "../utils/request-capability.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -507,6 +514,13 @@ function resolveReturnedModel(requestedModel: string, result?: ProviderResult): 
   return result?.resolvedModel || requestedModel;
 }
 
+function setServingHeaders(reply: FastifyReply, requested: string, served: string, stream: boolean): void {
+  const headers = { "x-gateway-served-model": served, "x-gateway-fallback": String(served !== requested) };
+  for (const [key, value] of Object.entries(headers)) {
+    if (stream) reply.raw.setHeader(key, value); else reply.header(key, value);
+  }
+}
+
 function startSseStream(reply: FastifyReply): void {
   reply.hijack();
   reply.raw.setHeader("Content-Type", "text/event-stream");
@@ -702,6 +716,8 @@ function filterToolsByFrontendAllowlist(
 }
 
 interface OpenAiRoutesOptions {
+  embeddings?: EmbeddingsConfig;
+  embeddingsFetch?: typeof fetch;
   registry: ProviderRegistry;
   n8nApiKeys: Set<string>;
   defaultReasoningEffort?: ReasoningEffort;
@@ -714,7 +730,15 @@ function executionTransport(reply: FastifyReply) {
   const cleanup = () => { reply.raw.off("close", close); reply.raw.off("finish", cleanup); };
   reply.raw.once("close", close); reply.raw.once("finish", cleanup);
   if (reply.raw.destroyed) close();
-  return { signal: controller.signal, receivedAt: requestArrivals.get(reply.request) ?? Date.now(), receipt: (value: ExecutionReceipt) => reply.log.info(value, "Gateway execution receipt") };
+  return { signal: controller.signal, receivedAt: requestArrivals.get(reply.request) ?? Date.now(), receipt: (value: ExecutionReceipt) => {
+    recordExecution(reply, value);
+    if (value.type === "gateway.execution.attempt" && value.model &&
+        (reply.request.body as { model?: string } | undefined)?.model === "auto" &&
+        typeof value.model === "string" && (value.model.includes(":free") || value.model.endsWith("/free"))) {
+      reply.log.warn({ event: "auto_selected_free_model", selectedModel: value.model }, "auto_selected_free_model");
+    }
+    reply.log.info(value, "Gateway execution receipt");
+  } };
 }
 
 export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
@@ -729,6 +753,8 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
     }
   });
 
+  registerEmbeddingsRoutes(app, options.embeddings, options.embeddingsFetch);
+
   app.get("/models", async () => ({
     object: "list",
     data: options.registry.listModels().map((model) => ({
@@ -738,6 +764,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       owned_by: model.providerId,
       description: model.description,
       provider_model: model.providerModel,
+      execution_policy_version: EXECUTION_POLICY_VERSION,
       fallback_models: model.fallbackModels,
       capabilities: model.capabilities,
       benchmark: model.benchmark,
@@ -1524,6 +1551,7 @@ async function handleChatCompletionsRequest(
   defaultReasoningEffort?: ReasoningEffort,
 ) {
   const isStream = Boolean(body.stream);
+  if (isStream) trackChatStream(reply, body.model);
 
   const messages = normalizeChatMessages(body.messages);
   if (messages.length === 0) {
@@ -1609,188 +1637,93 @@ async function handleChatCompletionsRequest(
     if (isStream && registry.canStreamModel(body.model)) {
       const respId = makeId("chatcmpl");
       const created = Math.floor(Date.now() / 1000);
-      const streamedResult: ProviderResult = {
-        outputText: "",
-        reasoningText: "",
-        toolCalls: [],
-        finishReason: "stop",
+      let servedModel = body.model;
+      let started = false;
+      let terminal = false;
+      let rawText = "";
+      let reasoningText = "";
+      let outputText = "";
+      let toolText = "";
+      let usage: ProviderResult["usage"];
+      let finish: ProviderResult["finishReason"] = "stop";
+      let toolCount = 0;
+      let content = new ContentNormalizer();
+      const write = async (delta: Record<string, unknown>, finish_reason: string | null = null, finalUsage?: Record<string, unknown>) => {
+        await writeSseData(reply, { id: respId, object: "chat.completion.chunk", created, model: servedModel,
+          ...(finalUsage ? { usage: finalUsage } : {}),
+          choices: [{ index: 0, delta: stripProviderFields(delta, body.include_reasoning === true), finish_reason }] });
       };
-      startSseStream(reply);
-      await writeSseData(reply, {
-        id: respId,
-        object: "chat.completion.chunk",
-        created,
-        model: body.model,
-        choices: [
-          {
-            index: 0,
-            delta: {
-              role: "assistant",
-            },
-            finish_reason: null,
-          },
-        ],
-      });
       const streamAbort = new AbortController();
       const disconnect = () => streamAbort.abort();
       reply.raw.once("close", disconnect);
       try {
         for await (const event of registry.runModelStream(body.model, { ...runRequest, signal: AbortSignal.any([runRequest.signal, streamAbort.signal]) })) {
+          if (terminal) throw Error("Provider data after terminal event");
+          if (!started) {
+            servedModel = event.resolvedModel ?? body.model;
+            const servedRouteModel = event.servedModel ?? body.model;
+            content = new ContentNormalizer(event.normalization ?? registry.getProfileForModel?.(servedModel)?.normalization);
+            setServingHeaders(reply, body.model, servedRouteModel, true);
+            startSseStream(reply);
+            await writeSseData(reply, { id: respId, object: "chat.completion.chunk", created, model: servedModel,
+              gateway_fallback: servedRouteModel !== body.model,
+              choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] });
+            started = true;
+          }
           if (event.type === "output_text_delta") {
-            streamedResult.outputText += event.delta;
-            await writeSseData(reply, {
-              id: respId,
-              object: "chat.completion.chunk",
-              created,
-              model: body.model,
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    content: event.delta,
-                  },
-                  finish_reason: null,
-                },
-              ],
-            });
-            continue;
-          }
-          if (event.type === "reasoning_delta") {
-            streamedResult.reasoningText = `${streamedResult.reasoningText || ""}${event.delta}`;
-            await writeSseData(reply, {
-              id: respId,
-              object: "chat.completion.chunk",
-              created,
-              model: body.model,
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    reasoning: event.delta,
-                    reasoning_content: event.delta,
-                  },
-                  finish_reason: null,
-                },
-              ],
-            });
-            continue;
-          }
-          if (event.type === "tool_call") {
-            const toolCallIndex = streamedResult.toolCalls.length;
-            streamedResult.toolCalls.push(event.toolCall);
-            await writeSseData(reply, {
-              id: respId,
-              object: "chat.completion.chunk",
-              created,
-              model: body.model,
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: toolCallIndex,
-                        id: event.toolCall.id,
-                        type: "function",
-                        function: {
-                          name: event.toolCall.name,
-                          arguments: event.toolCall.arguments,
-                        },
-                      },
-                    ],
-                  },
-                  finish_reason: null,
-                },
-              ],
-            });
-            continue;
-          }
-          if (event.type === "done") {
-            if (typeof event.reasoningText === "string") {
-              const delta = computeMonotonicDelta(streamedResult.reasoningText || "", event.reasoningText);
-              if (delta) {
-                streamedResult.reasoningText = event.reasoningText;
-                await writeSseData(reply, {
-                  id: respId,
-                  object: "chat.completion.chunk",
-                  created,
-                  model: body.model,
-                  choices: [
-                    {
-                      index: 0,
-                      delta: {
-                        reasoning: delta,
-                        reasoning_content: delta,
-                      },
-                      finish_reason: null,
-                    },
-                  ],
-                });
-              } else {
-                streamedResult.reasoningText = event.reasoningText;
-              }
+            rawText += event.delta;
+            const delta = content.push(event.delta);
+            if (delta) { outputText += delta; markStreamToken(reply); await write({ content: delta }); }
+          } else if (event.type === "reasoning_delta") {
+            reasoningText += event.delta;
+            if (body.include_reasoning === true && event.delta) {
+              markStreamToken(reply);
+              await write({ reasoning: event.delta, reasoning_content: event.delta });
             }
+          } else if (event.type === "tool_call") {
+            const call = event.toolCall;
+            toolText += call.name + call.arguments;
+            markStreamToken(reply);
+            await write({ tool_calls: [{ index: toolCount++, id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } }] });
+          } else if (event.type === "done") {
+            terminal = true;
             if (typeof event.outputText === "string") {
-              const delta = computeMonotonicDelta(streamedResult.outputText, event.outputText);
-              if (delta) {
-                streamedResult.outputText = event.outputText;
-                await writeSseData(reply, {
-                  id: respId,
-                  object: "chat.completion.chunk",
-                  created,
-                  model: body.model,
-                  choices: [
-                    {
-                      index: 0,
-                      delta: {
-                        content: delta,
-                      },
-                      finish_reason: null,
-                    },
-                  ],
-                });
-              } else {
-                streamedResult.outputText = event.outputText;
-              }
+              const extra = computeMonotonicDelta(rawText, event.outputText);
+              rawText = event.outputText;
+              const delta = content.push(extra);
+              if (delta) { outputText += delta; markStreamToken(reply); await write({ content: delta }); }
             }
-            streamedResult.finishReason = event.finishReason;
-            streamedResult.usage = event.usage;
-            continue;
+            if (body.include_reasoning === true && event.reasoningText) {
+              const delta = computeMonotonicDelta(reasoningText, event.reasoningText);
+              if (delta) await write({ reasoning: delta, reasoning_content: delta });
+            }
+            usage = event.usage;
+            finish = normalizeFinishReason(event.finishReason, toolCount > 0);
           }
         }
-      } catch (error) {
-        if (reply.raw.destroyed) return reply;
-        await writeSseData(reply, {
-          object: "error",
-          error: error instanceof Error ? error.message : String(error),
+        if (!terminal) throw Error("Provider stream missing terminal event");
+        const tail = content.push("", true);
+        if (tail) { outputText += tail; markStreamToken(reply); await write({ content: tail }); }
+        const finalUsage = completeUsage(usage, messages, rawText + toolText);
+        await write({}, finish, finalUsage);
+        if (body.stream_options?.include_usage) await writeSseData(reply, {
+          id: respId, object: "chat.completion.chunk", created, model: servedModel, choices: [],
+          usage: finalUsage,
         });
         reply.raw.write("data: [DONE]\n\n");
         reply.raw.end();
         return reply;
       } finally { reply.raw.off("close", disconnect); streamAbort.abort(); }
-
-      await writeSseData(reply, {
-        id: respId,
-        object: "chat.completion.chunk",
-        created,
-        model: body.model,
-        choices: [
-          {
-            index: 0,
-            delta: {},
-            finish_reason:
-              streamedResult.toolCalls.length > 0 ? "tool_calls" : streamedResult.finishReason,
-          },
-        ],
-        usage: buildChatUsage(streamedResult.usage),
-      });
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
-      return reply;
     }
 
     const result = normalizeNativeAssistantResult(await registry.runModel(body.model, runRequest));
     const returnedModel = resolveReturnedModel(body.model, result);
+    const servedRouteModel = result.servedModel ?? body.model;
+    const rawOutputText = result.outputText;
+    result.outputText = normalizeContent(result.outputText, result.normalization ?? registry.getProfileForModel?.(returnedModel)?.normalization);
+    result.finishReason = normalizeFinishReason(result.finishReason, result.toolCalls.length > 0);
+    const usage = completeUsage(result.usage, messages, rawOutputText + result.toolCalls.map(call => call.name + call.arguments).join(""));
+    setServingHeaders(reply, body.model, servedRouteModel, isStream);
     logBlankAssistantResult(reply.log.warn.bind(reply.log), returnedModel, result, "/chat/completions");
 
     // Log tool calls for debugging
@@ -1818,6 +1751,7 @@ async function handleChatCompletionsRequest(
         object: "chat.completion.chunk",
         created,
         model: returnedModel,
+        gateway_fallback: servedRouteModel !== body.model,
         choices: [
           {
             index: 0,
@@ -1831,10 +1765,12 @@ async function handleChatCompletionsRequest(
             finish_reason: result.toolCalls.length > 0 ? "tool_calls" : result.finishReason,
           },
         ],
-        usage: buildChatUsage(result.usage),
+        usage,
       };
 
-      reply.raw.write(`data: ${JSON.stringify(chunkData)}\n\n`);
+      await writeSseData(reply, stripProviderFields(chunkData, body.include_reasoning === true));
+      if (body.stream_options?.include_usage) await writeSseData(reply, { id: respId, object: "chat.completion.chunk", created, model: returnedModel, choices: [], usage });
+      if (result.outputText || result.reasoningText || result.toolCalls.length) markStreamToken(reply);
       reply.raw.write("data: [DONE]\n\n");
       reply.raw.end();
       return reply;
@@ -1845,17 +1781,34 @@ async function handleChatCompletionsRequest(
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
         model: returnedModel,
+        gateway_fallback: servedRouteModel !== body.model,
         choices: [
           {
             index: 0,
-            message: buildChatCompletionMessage(result),
+            message: stripProviderFields(buildChatCompletionMessage(result), body.include_reasoning === true),
             finish_reason:
               result.toolCalls.length > 0 ? "tool_calls" : result.finishReason,
           },
         ],
-      usage: buildChatUsage(result.usage),
+      usage,
     };
   } catch (error) {
+    if (isStream && !reply.raw.headersSent && !(error instanceof UpstreamError) && !(error instanceof RequestCapabilityError) && registry.canStreamModel(body.model)) startSseStream(reply);
+    if (isStream && reply.raw.headersSent) {
+      failChatStream(reply);
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+        try {
+          await writeSseData(reply, {
+            ...gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError ? error.code : "upstream_stream_failed"),
+          });
+          reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
+        } catch {
+          reply.raw.destroy();
+        }
+      }
+      return reply;
+    }
     return handleModelError(reply, error);
   }
 }
@@ -2362,17 +2315,27 @@ function sendOpenAiError(
   statusCode: number,
   message: string,
   type = "invalid_request_error",
+  code: string | number = statusCode,
 ): FastifyReply {
   return reply.status(statusCode).send({
     error: {
       message,
       type,
-      code: statusCode,
+      code,
+      param: null,
     },
   });
 }
 
 function handleModelError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof UpstreamError) {
+    const status = error.code === "auth" ? 401 : error.code === "model_unavailable" ? 404
+      : error.code === "rate_limited" ? 429 : error.code === "capacity_exhausted" ? 503 : 502;
+    return sendOpenAiError(reply, status, error.message, "provider_error", error.code);
+  }
+  if (error instanceof RequestCapabilityError) {
+    return sendOpenAiError(reply, 400, error.message, "invalid_request_error", error.code);
+  }
   if (error instanceof Error && error.message.startsWith("Unknown model:")) {
     return sendOpenAiError(reply, 404, error.message, "invalid_model");
   }

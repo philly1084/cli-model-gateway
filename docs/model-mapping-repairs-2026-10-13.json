@@ -1,0 +1,11 @@
+{
+  "status": "proposed-not-applied",
+  "checkedAt": "2026-10-13",
+  "targets": ["config/providers.example.yaml", "kubernetes/rancher-install.yaml"],
+  "repairs": [
+    {"providerId":"kimi-code-api","id":"kimi-k2.7-code","oldProviderModel":"kimi-k2.7-code","newProviderModel":"kimi-for-coding","meaning":"Rolling Code alias, currently K2.8 Preview","source":"https://www.kimi.com/code/docs/en/kimi-code/models.html"},
+    {"providerId":"kimi-code-api","id":"kimi-k2.7-code-highspeed","oldProviderModel":"kimi-k2.7-code-highspeed","newProviderModel":"kimi-for-coding-highspeed","meaning":"K2.7 Code HighSpeed","source":"https://www.kimi.com/code/docs/en/kimi-code/models.html"},
+    {"providerId":"groq-whisper","id":"groq-whisper-v3-turbo","oldProviderModel":"whisper-v3-turbo","newProviderModel":"whisper-large-v3-turbo","targets":["config/providers.example.yaml"],"source":"https://console.groq.com/docs/speech-to-text"}
+  ],
+  "note":"Preserve public IDs, positions, eligibility and fallbacks when separately applying. Model substitution changes execution behavior; do not bundle with the no-drift manual insertion guarantee. Live Code aliases are already mapped correctly. Production kimi-k3 -> k3 is valid and unchanged."
+}

@@ -7,6 +7,11 @@ metadata:
   name: n8n-openai-cli-gateway
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
   selector:
     matchLabels:
       app: n8n-openai-cli-gateway
@@ -138,6 +143,15 @@ spec:
               value: /var/lib/gateway-home
             - name: PATH
               value: /var/lib/gateway-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            # Optional in-cluster embeddings upstream (disabled when unset).
+            # - name: EMBEDDINGS_UPSTREAM_URL
+            #   value: http://embeddings.example.svc.cluster.local:11434/v1
+            # A per-client key may be added this way, alongside N8N_API_KEY.
+            # - name: N8N_API_KEYS
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: example-client-key
+            #       key: apiKey
             - name: N8N_API_KEY
               valueFrom:
                 secretKeyRef:

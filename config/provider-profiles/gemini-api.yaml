@@ -1,0 +1,31 @@
+id: gemini-api
+# Measured free-tier hints (2026-09), per project, not enforced here:
+# flash: 5 RPM / 20 RPD; flash-lite: 15 RPM / 500 RPD.
+# Daily quota resets at midnight Pacific. Availability can vary by model.
+type: openai
+baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+endpoint: /chat/completions
+auth:
+  env: GEMINI_API_KEY
+stream_format: openai-sse
+quirks:
+  duplicate_finish_trailer: false
+  json_array_errors: true
+  unsupported_model_patterns: []
+  refusal_patterns: []
+  retry_on:
+    - 503
+  # One retry maximum. Minute-limit 429 needs a delay <=10s;
+  # daily/billing exhaustion or longer delays immediately fall back.
+  backoff_ms: 2000
+  auth_fail_fast: true
+  timeouts:
+    first_token: 60000
+    total: 240000
+capabilities:
+  tools: true
+  json_mode: true
+  system_prompt: native
+normalization:
+  strip_think: true
+  strip_fence: false

@@ -1,0 +1,80 @@
+{
+  "checkedAt": "2026-10-13T22:31:15.0917876Z",
+  "source": "https://huggingface.co/api/models/{id}?expand[]=inferenceProviderMapping&expand[]=pipeline_tag",
+  "models": [
+    {
+      "id": "openai/whisper-large-v3",
+      "pipeline_tag": "automatic-speech-recognition",
+      "inferenceProviderMapping": {
+        "fal-ai": {
+          "status": "live",
+          "providerId": "fal-ai/whisper",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        },
+        "together": {
+          "status": "live",
+          "providerId": "openai/whisper-large-v3",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        },
+        "replicate": {
+          "status": "live",
+          "providerId": "openai/whisper:8099696689d249cf8b122d833c36ac3f75505c666a395ca40ef26f68e7d3d16e",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        },
+        "hf-inference": {
+          "status": "live",
+          "providerId": "openai/whisper-large-v3",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        },
+        "deepinfra": {
+          "status": "live",
+          "providerId": "openai/whisper-large-v3",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        }
+      }
+    },
+    {
+      "id": "openai/whisper-base",
+      "pipeline_tag": "automatic-speech-recognition",
+      "inferenceProviderMapping": {}
+    },
+    {
+      "id": "openai/whisper-large-v3-turbo",
+      "pipeline_tag": "automatic-speech-recognition",
+      "inferenceProviderMapping": {
+        "hf-inference": {
+          "status": "live",
+          "providerId": "openai/whisper-large-v3-turbo",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        },
+        "deepinfra": {
+          "status": "live",
+          "providerId": "openai/whisper-large-v3-turbo",
+          "task": "automatic-speech-recognition",
+          "isModelAuthor": false
+        }
+      }
+    },
+    {
+      "id": "microsoft/speecht5_tts",
+      "pipeline_tag": "text-to-speech",
+      "inferenceProviderMapping": {}
+    },
+    {
+      "id": "suno/bark",
+      "pipeline_tag": "text-to-speech",
+      "inferenceProviderMapping": {}
+    },
+    {
+      "id": "facebook/fastspeech2-en-ljspeech",
+      "pipeline_tag": "text-to-speech",
+      "inferenceProviderMapping": {}
+    }
+  ]
+}

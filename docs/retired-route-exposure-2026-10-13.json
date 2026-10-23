@@ -1,0 +1,161 @@
+{
+  "source": "checked-in kubernetes/rancher-install.yaml; NOT verified live production configuration",
+  "baseCommit": "813dcaba83994285fa0bbfcfac9d38e36c60d55e",
+  "codexAgentDefault": "gpt-5.6-sol",
+  "codexBridgeSpecialFallback": "gpt-5.5",
+  "configuredRemoteTargetDefaults": "omitted; target executable determines default",
+  "routes": [
+    {
+      "model": "gpt-5.4",
+      "incomingFallbacks": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "gpt-5.4-pro",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.3-instant",
+        "gpt-5.3-chat-latest",
+        "kimi-for-coding",
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed",
+        "grok-build",
+        "kimi-k2.6",
+        "kimi-k2.5",
+        "groq/compound",
+        "groq/compound-mini",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "meta-llama/llama-4-scout-17b-16e-instruct"
+      ],
+      "routes": [
+        {
+          "id": "gpt-5.4",
+          "autoEligible": true,
+          "fallbackModels": [
+            "gpt-5.5",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "kimi-k2.6",
+            "kimi-for-coding",
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview"
+          ]
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "incomingFallbacks": [
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-nano"
+      ],
+      "routes": [
+        {
+          "id": "gpt-5.4-mini",
+          "autoEligible": true,
+          "fallbackModels": [
+            "gpt-5.4",
+            "gpt-5.5",
+            "gpt-5.4-nano",
+            "kimi-k2.6",
+            "kimi-for-coding",
+            "gemini-3.5-flash",
+            "gemini-3.1-pro-preview"
+          ]
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.5",
+      "incomingFallbacks": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5-pro",
+        "gpt-5.4",
+        "gpt-5.4-pro",
+        "gpt-5.4-mini",
+        "gpt-5.3-instant",
+        "gpt-5.3-chat-latest",
+        "kimi-for-coding",
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed",
+        "grok-build",
+        "kimi-k2.6",
+        "groq/compound",
+        "groq/compound-mini",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant"
+      ],
+      "routes": [
+        {
+          "id": "gpt-5.5",
+          "autoEligible": true,
+          "fallbackModels": [
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "kimi-k2.6",
+            "kimi-for-coding",
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview"
+          ]
+        }
+      ]
+    },
+    {
+      "model": "deepseek-chat",
+      "incomingFallbacks": [],
+      "routes": [
+        {
+          "id": "deepseek-chat",
+          "autoEligible": true,
+          "fallbackModels": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro"
+          ]
+        },
+        {
+          "id": "deepseek-coder",
+          "autoEligible": true,
+          "fallbackModels": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro"
+          ]
+        }
+      ]
+    },
+    {
+      "model": "deepseek-reasoner",
+      "incomingFallbacks": [],
+      "routes": [
+        {
+          "id": "deepseek-reasoner",
+          "autoEligible": true,
+          "fallbackModels": [
+            "deepseek-v4-pro",
+            "deepseek-v4-flash"
+          ]
+        }
+      ]
+    }
+  ]
+}

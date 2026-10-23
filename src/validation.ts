@@ -49,6 +49,8 @@ function validateOutputLimit(value: Record<string, unknown>, ctx: z.RefinementCt
 
 // Chat completions request schema
 export const chatCompletionsRequestSchema = z.object({
+  include_reasoning: z.boolean().optional(),
+  stream_options: z.object({ include_usage: z.boolean().optional() }).passthrough().optional(),
   gateway_policy: gatewayPolicySchema.optional(),
   model: z.string().min(1, "model is required"),
   messages: z.array(chatMessageSchema).min(1, "messages must include at least one item"),

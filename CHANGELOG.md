@@ -1,0 +1,20 @@
+# Changelog
+
+## Unreleased
+
+- Add seven strict YAML provider profiles, optional provider references, inferred normalization policies, and mocked profile/transport regressions. Normalize chat roles, finish reasons, think blocks, reasoning opt-in, estimated usage, standard errors, and serving-model/fallback metadata. Streams always carry real or estimated usage on the single finish chunk for Brain compatibility; `stream_options.include_usage` additionally requests an empty-choices usage trailer. Errors terminate with `[DONE]`. Preserve legacy transport/routing behavior unless a profile opts in. Align the example `kimi-api` URL with the supplied live snapshot and document local comparison commands in [provider profiles](docs/provider-profiles.md).
+
+- Retire four dead router selectors and their fallback references from checked-in catalogs and deployment helpers. Remove the Codex bridge's dead implicit fallback by using the existing GPT-5.6 Sol selector. Add a local-only, byte-preserving retirement snapshot tool with router-schema, unchanged-model and fallback-resolution guards, immutable promotion manifests, regression tests, and [promotion/rollback instructions](docs/model-retirement.md).
+
+- Detect Codex CLI unsupported-model diagnostics and JSON `model_not_found`/404 errors on stdout or stderr immediately, stop the rejected attempt, and record sanitized upstream status/codes. Classify these as `model_unavailable` with a ten-minute model cooldown so configured fallbacks continue and subsequent requests skip rejected models.
+- After configured chat fallbacks are exhausted before output, try one healthy, untried text model using the existing `auto` ranking. Preserve explicit no-fallback settings, attempt/deadline limits, stateful/tool restrictions, partial-output protection, and the model catalog. Add mocked CLI and buffered/SSE route regressions; no dependencies, unified-agent, or deployment changes.
+
+- Accept OpenRouter's repeated terminal choice on usage trailers when the finish matches and no new output is present. Preserve usage and emit one client finish followed by `[DONE]`; continue rejecting changed finishes, post-finish output and incomplete streams. Add the captured 50-chunk/double-stop shape as a mocked `/v1/chat/completions` regression.
+- Remember auth-failed providers for the entire request in both buffered and streaming fallback paths. Skip their sibling models without dispatch, retain the original model's remaining fallback candidates across failed branches, and follow blocked siblings' fallback edges. Auth failures have no same-provider retry; mocked Moonshot 401 tests prove recovery through a working provider even after shared cooldown expiry.
+
+- Repair ordinary Brain chat streaming through OpenAI-compatible providers: tolerate SSE comments, empty choices, usage trailers and vendor extensions; preserve content and require terminal evidence. Vendor `reasoning`/`reasoning_details` stay opaque; existing DeepSeek `reasoning_content` and tool/signature handling remain supported.
+- Decode object and Gemini array error envelopes into sanitized status/code errors for buffered and streamed requests. Classify 401/403 as auth, 404 as model_unavailable, and 429/503 as transient. Log status and safe codes without upstream messages, prompts or credentials.
+- Apply configured fallbacks before ordinary chat output starts, including buffered CLI/Kimi Code fallbacks. Skip auth-blocked provider siblings, allow one 150ms retry for transient failures, and honor cancellation, deadlines and attempt limits. Tool/session streams, uncertain delivery and partial output are not replayed.
+- Add mocked Brain-format HTTP/SSE regression tests. No model additions, dependency changes, unified-agent changes or deployment changes.
+
+Provider catalog note: the Oct 21 diagnosis reports `z-ai/glm-5.2:free` is no longer free upstream. That ID is absent from this checkout's example configuration; no paid replacement was added. This note uses the supplied diagnosis, without network verification.

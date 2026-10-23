@@ -1,4 +1,8 @@
+import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
+import { setTimeout as retryDelay } from "node:timers/promises";
+import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
 import { ExecutionPolicy } from "../utils/execution-policy";
+import { RequestCapabilityError, requestRequiresTools } from "../utils/request-capability.js";
 import type {
   AutoRouterBenchmarkMeasurement,
   AutoRouterBenchmarkPromptKind,
@@ -79,6 +83,8 @@ interface ModelBinding {
   fallbackModelIds: string[];
   capabilities: ModelCapability[];
   autoEligible: boolean;
+  manualOnly: boolean;
+  routingIndex: number;
 }
 
 interface RegistryLogger {
@@ -135,7 +141,9 @@ export class ProviderRegistry {
 
   static async create(configs: ProviderConfig[]): Promise<ProviderRegistry> {
     const registry = new ProviderRegistry();
-    for (const config of configs) {
+    let routingIndex = 0;
+    for (const originalConfig of configs) {
+      const config = applyProviderProfile(originalConfig);
       const provider =
         config.type === "cli"
           ? new CliProvider(config)
@@ -158,8 +166,10 @@ export class ProviderRegistry {
           provider,
           description: model.description,
           fallbackModelIds: model.fallbackModels || [],
-          capabilities: normalizeModelCapabilities(model.capabilities),
-          autoEligible: model.autoEligible !== false,
+          capabilities: normalizeModelCapabilities(model.capabilities, config.type),
+          autoEligible: model.manualOnly !== true && model.autoEligible !== false,
+          manualOnly: model.manualOnly === true,
+          routingIndex: model.manualOnly === true ? -1 : routingIndex++,
         });
         registry.modelStats.registerModel({
           modelId: model.id,
@@ -172,7 +182,7 @@ export class ProviderRegistry {
           modelId: model.id,
           providerId: provider.id,
           providerModel: model.providerModel || model.id,
-          status: model.autoEligible === false ? "skipped" : "pending",
+          status: model.manualOnly === true || model.autoEligible === false ? "skipped" : "pending",
           score: 0,
         });
       }
@@ -234,12 +244,17 @@ export class ProviderRegistry {
     }
 
     for (const binding of this.models.values()) {
-      if (bindingSupportsImageGeneration(binding)) {
+      if (!binding.manualOnly && bindingSupportsImageGeneration(binding)) {
         return binding.modelId;
       }
     }
 
     return requestedBinding?.modelId;
+  }
+
+  getProfileForModel(modelId: string) {
+    const config = this.models.get(modelId)?.provider.config;
+    return config ? resolveProviderProfile(config) : undefined;
   }
 
   getProvider(providerId: string): Provider | undefined {
@@ -278,6 +293,9 @@ export class ProviderRegistry {
     const candidates = this.rankAutoCandidatesWithProfile(normalizedRequest, profile);
     const selected = candidates[0];
     if (!selected) {
+      if (requestRequiresTools(normalizedRequest)) {
+        throw new RequestCapabilityError("Auto routing could not find a tool-capable model.", "no_tool_capable_model");
+      }
       throw new Error("Auto routing could not find a compatible model.");
     }
 
@@ -286,6 +304,9 @@ export class ProviderRegistry {
       selectedProviderId: selected.binding.provider.id,
       selectedProviderModel: selected.binding.providerModel,
       promptProfile: profile,
+      filteredCandidates: [...this.models.values()]
+        .filter(binding => binding.autoEligible && requestRequiresTools(normalizedRequest) && !bindingSupportsCapability(binding, "tools"))
+        .map(binding => ({ modelId: binding.modelId, providerId: binding.provider.id, reason: "filtered: tools unsupported" })),
       candidates: candidates.map((candidate) => ({
         modelId: candidate.binding.modelId,
         providerId: candidate.binding.provider.id,
@@ -710,6 +731,9 @@ export class ProviderRegistry {
       if (!preferred) {
         return { error: `Quality evaluator model is not configured: ${preferredModelId}` };
       }
+      if (preferred.manualOnly) {
+        return { error: `Quality evaluator model ${preferredModelId} is manual-only.` };
+      }
       if (preferred.modelId === testedModelId) {
         return { error: `Quality evaluator model ${preferredModelId} is the model under test.` };
       }
@@ -720,7 +744,7 @@ export class ProviderRegistry {
     }
 
     const eligible = [...this.models.values()]
-      .filter((binding) => binding.modelId !== testedModelId && bindingCanEvaluateQuality(binding))
+      .filter((binding) => !binding.manualOnly && binding.modelId !== testedModelId && bindingCanEvaluateQuality(binding))
       .map((binding, index) => ({
         binding,
         index,
@@ -752,6 +776,9 @@ export class ProviderRegistry {
 
     const attempted: string[] = [];
     const visited = new Set<string>();
+    const authFailedProviders = new Set<string>();
+    const pendingFallbacks: string[] = [];
+    const emergency = { used: false };
     let currentModelId: string | undefined = autoSelection?.modelId ?? modelId;
     const autoFallbackModelIds = autoSelection?.fallbackModelIds ?? [];
     let lastError: unknown;
@@ -789,11 +816,15 @@ export class ProviderRegistry {
 
       const skippedFailureKind = this.getModelSkipReason(binding, modelId);
       if (skippedFailureKind) {
+        if (skippedFailureKind === "auth") authFailedProviders.add(binding.provider.id);
         const nextModelId = this.findNextModelId(
           binding,
           autoFallbackModelIds,
           visited,
           request,
+          authFailedProviders,
+          pendingFallbacks,
+          emergency,
         );
         const stats = this.modelStats.snapshotModel(binding.modelId);
         const unavailableState =
@@ -837,20 +868,25 @@ export class ProviderRegistry {
       try {
         const requiredCapability = requiredCapabilityForRequest(request);
         if (requiredCapability && !bindingSupportsCapability(binding, requiredCapability)) {
-          throw new Error(
+          throw new RequestCapabilityError(
             `Model ${binding.modelId} does not support ${requiredCapability} requests.`,
           );
         }
-        if (request.tools.length > 0 && !bindingSupportsCapability(binding, "tools")) {
-          throw new Error(`Model ${binding.modelId} does not support tools requests.`);
+        if (requestRequiresTools(request) && !bindingSupportsCapability(binding, "tools")) {
+          throw new RequestCapabilityError(`Model ${binding.modelId} does not support tools requests.`);
         }
 
         request.execution?.attempt(binding.modelId, binding.provider.id);
-        const rawResult = await binding.provider.run({
-          ...request,
-          model: binding.modelId,
-          providerModel: binding.providerModel,
-        });
+        let rawResult: ProviderResult;
+        try {
+          rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
+        } catch (error) {
+          if (emergency.used || !(error instanceof UpstreamError) || !profileRetryAllowed(binding.provider.config, error) || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
+          recordUpstreamFailure(request, binding, error);
+          await retryDelay(profileBackoff(binding.provider.config, error), undefined, { signal: request.signal });
+          request.execution.attempt(binding.modelId, binding.provider.id);
+          rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
+        }
         request.execution?.check();
         const result = normalizeNativeAssistantResult(rawResult);
         if (isInvalidProviderResult(result, request)) {
@@ -868,11 +904,15 @@ export class ProviderRegistry {
         return {
           ...result,
           resolvedModel: result.resolvedModel ?? binding.modelId,
+          servedModel: binding.modelId,
+          normalization: resolveProviderProfile(binding.provider.config)?.normalization,
         };
       } catch (error) {
         request.execution?.check();
         if (error && typeof error === "object" && "uncertain" in error && error.uncertain) throw error;
         lastError = error;
+        if (error instanceof UpstreamError && error.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
+        recordUpstreamFailure(request, binding, error);
         const failureKind = this.modelStats.recordFailure({
           modelId: binding.modelId,
           requestedModelId: modelId,
@@ -888,6 +928,9 @@ export class ProviderRegistry {
           autoFallbackModelIds,
           visited,
           request,
+          authFailedProviders,
+          pendingFallbacks,
+          emergency,
         );
         if (!nextModelId) {
           break;
@@ -903,7 +946,7 @@ export class ProviderRegistry {
       }
     }
 
-    if (attempted.length <= 1) {
+    if (attempted.length <= 1 || lastError instanceof RequestCapabilityError) {
       throw lastError instanceof Error
         ? lastError
         : new Error("Model execution failed with an unknown provider error.");
@@ -939,7 +982,7 @@ export class ProviderRegistry {
     if (!binding) {
       return false;
     }
-    if (request.tools.length > 0 && !bindingSupportsCapability(binding, "tools")) {
+    if (requestRequiresTools(request) && !bindingSupportsCapability(binding, "tools")) {
       return false;
     }
 
@@ -951,20 +994,38 @@ export class ProviderRegistry {
     autoFallbackModelIds: string[],
     visited: Set<string>,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
+    authFailedProviders: Set<string>,
+    pendingFallbacks: string[],
+    emergency: { used: boolean },
   ): string | undefined {
-    if (request.execution && !request.execution.canFallback()) return undefined;
-    return (
-      binding.fallbackModelIds.find(
-        (fallback) =>
-          !visited.has(fallback) &&
-          this.modelSupportsRequest(fallback, request),
-      ) ??
-      autoFallbackModelIds.find(
-        (fallback) =>
-          !visited.has(fallback) &&
-          this.modelSupportsRequest(fallback, request),
-      )
+    if (emergency.used || (request.execution && !request.execution.canFallback())) return undefined;
+    for (const id of [...binding.fallbackModelIds, ...autoFallbackModelIds]) {
+      if (!pendingFallbacks.includes(id)) pendingFallbacks.push(id);
+    }
+    for (const id of pendingFallbacks) {
+      const candidate = this.models.get(id);
+      if (visited.has(id) || !candidate || candidate.manualOnly === true || !this.modelSupportsRequest(id, request)) continue;
+      if (authFailedProviders.has(candidate.provider.id)) {
+        // Follow a blocked sibling's edges without dispatching it or losing the
+        // original model's remaining configured fallbacks. Cycles stay bounded.
+        for (const fallback of candidate.fallbackModelIds) {
+          if (!pendingFallbacks.includes(fallback)) pendingFallbacks.push(fallback);
+        }
+        continue;
+      }
+      return id;
+    }
+    if (!replaySafeChat(request) || this.models.get([...visited][0] ?? "")?.manualOnly) return undefined;
+    // Reuse auto's ranking, restricted to healthy, untried text candidates. This
+    // final attempt never expands another configured or automatic fallback chain.
+    const selected = this.selectAutoModel(request, candidate =>
+      !visited.has(candidate.modelId) && !authFailedProviders.has(candidate.provider.id) &&
+      !this.getModelSkipReason(candidate, candidate.modelId) &&
+      this.modelStats.snapshotModel(candidate.modelId)?.suggestedState === "healthy",
     );
+    if (!selected) return undefined;
+    emergency.used = true;
+    return selected.modelId;
   }
 
   private getModelSkipReason(
@@ -972,6 +1033,7 @@ export class ProviderRegistry {
     requestedModelId: string,
   ): ModelFailureKind | undefined {
     const snapshot = this.modelStats.snapshot();
+    if (profileAuthFailFast(binding.provider.config) && snapshot.models.some(model => model.providerId === binding.provider.id && model.suggestedState === "auth_blocked" && model.suggestedCooldownSeconds > 0)) return "auth";
     const providerQuotaBlocked = snapshot.models.some(
       (model) =>
         model.providerId === binding.provider.id &&
@@ -1012,10 +1074,15 @@ export class ProviderRegistry {
 
   private selectAutoModel(
     request: Omit<UnifiedRequest, "model" | "providerModel">,
-  ): { modelId: string; fallbackModelIds: string[] } {
-    const candidates = this.rankAutoCandidates(request);
+    eligible?: (binding: ModelBinding) => boolean,
+  ): { modelId: string; fallbackModelIds: string[] } | undefined {
+    const candidates = this.rankAutoCandidates(request).filter(candidate => !eligible || eligible(candidate.binding));
     const selected = candidates[0];
     if (!selected) {
+      if (eligible) return undefined;
+      if (requestRequiresTools(request)) {
+        throw new RequestCapabilityError("Auto routing could not find a tool-capable model.", "no_tool_capable_model");
+      }
       throw new Error("Auto routing could not find a compatible model.");
     }
 
@@ -1040,7 +1107,8 @@ export class ProviderRegistry {
   ): AutoRankedCandidate[] {
     const candidates: AutoRankedCandidate[] = [];
 
-    for (const [index, binding] of [...this.models.values()].entries()) {
+    for (const binding of this.models.values()) {
+      const index = binding.routingIndex;
       if (!binding.autoEligible) {
         continue;
       }
@@ -1098,57 +1166,81 @@ export class ProviderRegistry {
     if (modelId === AUTO_MODEL_ID) {
       throw new Error("Auto model routing does not support provider-native streaming.");
     }
-    const binding = this.models.get(modelId);
-    if (!binding) {
-      throw new Error(`Unknown model: ${modelId}`);
-    }
-    if (!binding.provider.runStream) {
-      throw new Error(`Model ${modelId} does not support streaming.`);
-    }
-    if (binding.provider.supportsStreaming && !binding.provider.supportsStreaming()) {
-      throw new Error(`Model ${modelId} does not support streaming.`);
-    }
-
-    request.execution?.attempt(binding.modelId, binding.provider.id);
-    const attemptIndex = 0;
-    const startedAt = Date.now();
-    this.modelStats.recordAttempt({
-      modelId: binding.modelId,
-      requestedModelId: modelId,
-      providerId: binding.provider.id,
-      providerModel: binding.providerModel,
-      attemptIndex,
-    });
-
-    try {
-      for await (const event of binding.provider.runStream({
-        ...request,
-        model: binding.modelId,
-        providerModel: binding.providerModel,
-      })) {
-        yield event;
+    const visited = new Set<string>();
+    const authFailedProviders = new Set<string>();
+    const pendingFallbacks: string[] = [];
+    const emergency = { used: false };
+    let currentModelId: string | undefined = modelId;
+    let attemptIndex = 0;
+    let emitted = false;
+    let lastError: unknown;
+    while (currentModelId) {
+      const binding = this.models.get(currentModelId);
+      if (!binding) throw new Error(`Unknown model: ${currentModelId}`);
+      visited.add(currentModelId);
+      const skipped = this.getModelSkipReason(binding, modelId);
+      if (skipped) {
+        if (skipped === "auth") authFailedProviders.add(binding.provider.id);
+        const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks, emergency);
+        if (!next) throw lastError ?? (skipped === "auth" ? new UpstreamError(401) : new Error(`Model ${binding.modelId} is temporarily unavailable (${skipped}).`));
+        this.modelStats.recordFallback({ requestedModelId: modelId, fromModelId: binding.modelId, toModelId: next, reason: skipped });
+        trackFallback(binding.provider.id, next, skipped);
+        currentModelId = next;
+        continue;
       }
-      this.modelStats.recordSuccess({
-        modelId: binding.modelId,
-        requestedModelId: modelId,
-        providerId: binding.provider.id,
-        providerModel: binding.providerModel,
-        attemptIndex,
-        durationMs: Date.now() - startedAt,
-      });
-      trackProvider(binding.provider.id, binding.modelId, true, Date.now() - startedAt);
-    } catch (error) {
-      this.modelStats.recordFailure({
-        modelId: binding.modelId,
-        requestedModelId: modelId,
-        providerId: binding.provider.id,
-        providerModel: binding.providerModel,
-        attemptIndex,
-        durationMs: Date.now() - startedAt,
-        error,
-      });
-      trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
-      throw error;
+      let retry = false;
+      for (;;) {
+        request.execution?.attempt(binding.modelId, binding.provider.id);
+        const startedAt = Date.now();
+        const stats = { modelId: binding.modelId, requestedModelId: modelId, providerId: binding.provider.id, providerModel: binding.providerModel, attemptIndex: attemptIndex++ };
+        this.modelStats.recordAttempt(stats);
+        try {
+          if (!this.modelSupportsRequest(binding.modelId, request)) throw new RequestCapabilityError(`Model ${binding.modelId} does not support this request.`);
+          const providerRequest = { ...request, model: binding.modelId, providerModel: binding.providerModel };
+          let completed = false;
+          if (binding.provider.runStream && (binding.provider.supportsStreaming?.() ?? true)) {
+            for await (const event of binding.provider.runStream(providerRequest)) {
+              request.execution?.check();
+              if (event.type === "done") {
+                if (event.finishReason === "error") throw Error("Provider terminal reported failure");
+                completed = true;
+              }
+              if ((event.type === "output_text_delta" || event.type === "reasoning_delta") ? !!event.delta : true) emitted = true;
+              yield { ...event, resolvedModel: event.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            }
+            if (!completed) throw Error("Provider stream ended without a terminal receipt");
+          } else {
+            const result = normalizeNativeAssistantResult(await binding.provider.run(providerRequest));
+            request.execution?.check();
+            if (isInvalidProviderResult(result, request)) throw Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
+            emitted = true;
+            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            yield { type: "done", ...result, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+          }
+          this.modelStats.recordSuccess({ ...stats, durationMs: Date.now() - startedAt });
+          trackProvider(binding.provider.id, binding.modelId, true, Date.now() - startedAt);
+          return;
+        } catch (error) {
+          request.execution?.check();
+          lastError = error;
+          if (error instanceof UpstreamError && error.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
+          recordUpstreamFailure(request, binding, error);
+          const failureKind = this.modelStats.recordFailure({ ...stats, durationMs: Date.now() - startedAt, error });
+          trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
+          if (emitted || (!(binding.provider instanceof OpenAiCompatibleProvider) && !(error instanceof UpstreamError && error.code === "model_unavailable")) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw error;
+          if (!emergency.used && !retry && error instanceof UpstreamError && profileRetryAllowed(binding.provider.config, error) && request.execution?.canFallback()) {
+            retry = true;
+            await retryDelay(profileBackoff(binding.provider.config, error), undefined, { signal: request.signal });
+            continue;
+          }
+          const next = this.findNextModelId(binding, [], visited, request, authFailedProviders, pendingFallbacks, emergency);
+          if (!next) throw error;
+          this.modelStats.recordFallback({ requestedModelId: modelId, fromModelId: binding.modelId, toModelId: next, reason: failureKind });
+          trackFallback(binding.provider.id, next, failureKind);
+          currentModelId = next;
+          break;
+        }
+      }
     }
   }
 }
@@ -1576,12 +1668,16 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function normalizeModelCapabilities(
   capabilities: ModelCapability[] | undefined,
+  providerType: ProviderConfig["type"],
 ): ModelCapability[] {
   if (capabilities && capabilities.length > 0) {
     return [...new Set(capabilities)];
   }
 
-  return ["chat", "responses", "tools", "reasoning", "structured_outputs"];
+  // A CLI JSON output mode alone does not establish a function-calling contract.
+  return providerType === "cli"
+    ? ["chat", "responses", "reasoning", "structured_outputs"]
+    : ["chat", "responses", "tools", "reasoning", "structured_outputs"];
 }
 
 function requiredCapabilityForRequest(
@@ -1616,7 +1712,7 @@ function isInvalidProviderResult(
     return isBlankImageGenerationResult(result) || isSyntheticFailureProviderResult(result);
   }
 
-  return isBlankProviderResult(result) || isSyntheticFailureProviderResult(result);
+  return (result.finishReason !== "content_filter" && isBlankProviderResult(result)) || isSyntheticFailureProviderResult(result);
 }
 
 function isBlankProviderResult(result: ProviderResult): boolean {
@@ -1757,7 +1853,7 @@ function buildAutoRouterPromptProfile(
   const tokenEstimate = estimateTokensFromText(promptText);
   const complexity = scorePromptComplexity(promptText);
   const codingSignal = hasCodingSignal(promptText, request.metadata);
-  const hasTools = request.tools.length > 0;
+  const hasTools = requestRequiresTools(request);
   const wantsStrongReasoning =
     request.reasoningEffort === "high" || request.reasoningEffort === "xhigh";
   const requiredCapability = requiredCapabilityForRequest(request);
@@ -1997,3 +2093,25 @@ function scoreModelName(
 function modelSearchText(binding: ModelBinding): string {
   return `${binding.modelId} ${binding.providerModel} ${binding.provider.id} ${binding.provider.description ?? ""} ${binding.description ?? ""}`.toLowerCase();
 }
+
+function recordUpstreamFailure(request: Omit<UnifiedRequest, "model" | "providerModel">, binding: ModelBinding, error: unknown): void {
+  if (!(error instanceof UpstreamError)) return;
+  request.receipt?.({ type: "gateway.upstream.failure", requestId: request.requestId, model: binding.modelId, providerId: binding.provider.id,
+    upstreamStatus: error.status ?? 200, errorCode: error.code, ...(error.upstreamCode ? { upstreamCode: error.upstreamCode } : {}) });
+}
+
+export function profileRetryAllowed(config: ProviderConfig, error: UpstreamError): boolean {
+  if (resolveProviderProfile(config)?.id === "gemini-api") {
+    if (error.quotaExhausted || (error.retryAfterMs !== undefined && error.retryAfterMs > 10000)) return false;
+    if (error.code === "rate_limited") return error.retryAfterMs !== undefined;
+    return error.status === 503 || (error.status === undefined && error.code === "capacity_exhausted");
+  }
+  return config.profile ? resolveProviderProfile(config)!.quirks.retry_on.includes(error.status ?? (error.code === "rate_limited" ? 429 : error.code === "capacity_exhausted" ? 503 : 0)) : error.transient;
+}
+export function profileBackoff(config: ProviderConfig, error?: UpstreamError): number {
+  const profile = resolveProviderProfile(config);
+  if (profile?.id === "gemini-api") return Math.max(profile.quirks.backoff_ms, error?.retryAfterMs ?? 0);
+  return config.profile ? profile!.quirks.backoff_ms : 150;
+}
+
+function profileAuthFailFast(config: ProviderConfig): boolean { return config.profile ? resolveProviderProfile(config)!.quirks.auth_fail_fast : true; }

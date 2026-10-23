@@ -1,0 +1,36 @@
+id: codex-cli
+type: cli
+auth:
+  env: OPENAI_API_KEY
+command:
+  executable: node
+  args:
+    - dist/scripts/codex-appserver-bridge.js
+    - --model
+    - "{{provider_model}}"
+  input: request_json_stdin
+  output: json_contract
+stream_format: cli-jsonl
+quirks:
+  duplicate_finish_trailer: false
+  json_array_errors: false
+  unsupported_model_patterns:
+    - \bmodel\b[^\r\n]{0,256}\b(?:is\s+)?not supported\b
+  refusal_patterns:
+    - ^(?:the\s+)?(?:['"][^'"]{1,128}['"]\s+)?model\b[^\r\n]{0,256}\b(?:is\s+)?not
+      supported\b
+  retry_on:
+    - 429
+    - 503
+  backoff_ms: 150
+  auth_fail_fast: true
+  timeouts:
+    first_token: 60000
+    total: 600000
+capabilities:
+  tools: false
+  json_mode: true
+  system_prompt: native
+normalization:
+  strip_think: true
+  strip_fence: false

@@ -34,8 +34,6 @@ data:
             fallbackModels:
               - gemini-3.5-flash
               - gemini-3-flash-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3.5-flash
@@ -43,8 +41,6 @@ data:
             fallbackModels:
               - gemini-3.1-pro-preview
               - gemini-3-flash-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3-flash-preview
@@ -52,8 +48,6 @@ data:
             fallbackModels:
               - gemini-3.5-flash
               - gemini-3.1-pro-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-3.1-flash-lite
@@ -61,8 +55,6 @@ data:
             fallbackModels:
               - gemini-3.5-flash
               - gemini-3-flash-preview
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-2.5-pro
@@ -70,16 +62,12 @@ data:
             fallbackModels:
               - gemini-3.1-pro-preview
               - gemini-3.5-flash
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: gemini-2.5-flash
             providerModel: gemini-2.5-flash
             fallbackModels:
               - gemini-2.5-flash-lite
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - gemini-3.5-flash
@@ -121,10 +109,46 @@ data:
                   || (echo '{"ok":false,"error":"missing ~/.gemini/oauth_creds.json"}' && exit 1)
             timeoutMs: 30000
 
+      - id: gemini-api
+        type: openai
+        description: Direct Google API models; explicit requests only
+        baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+        apiKeyEnv: GEMINI_API_KEY
+        models:
+          - id: gemini-4-argon
+            providerModel: gemini-4-argon
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: gemini-3.8-flash
+            providerModel: gemini-3.8-flash
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
       - id: codex-cli
         type: cli
         description: OpenAI Codex app-server bridge adapter
         models:
+          - id: gpt-6.1-sol
+            providerModel: gpt-6.1-sol
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: gpt-6-astra
+            providerModel: gpt-6-astra
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: gpt-6-sol
+            providerModel: gpt-6-sol
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: gpt-6-luna
+            providerModel: gpt-6-luna
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
           - id: gpt-image-2
             providerModel: codex-latest
             description: OpenAI Image 2.0 via Codex CLI image generation
@@ -132,83 +156,41 @@ data:
               - image_generation
           - id: gpt-5.6-sol
             providerModel: gpt-5.6-sol
-            description: GPT-5.6 frontier model for maximum capability
+            description: Older generation workhorse model.
             fallbackModels:
               - gpt-5.6-terra
               - gpt-5.6-luna
-              - gpt-5.5
-              - gpt-5.4
           - id: gpt-5.6-terra
             providerModel: gpt-5.6-terra
-            description: GPT-5.6 model balancing intelligence and cost
+            description: Older balanced model for straightforward work.
             fallbackModels:
               - gpt-5.6-sol
               - gpt-5.6-luna
-              - gpt-5.5
-              - gpt-5.4
           - id: gpt-5.6-luna
             providerModel: gpt-5.6-luna
-            description: GPT-5.6 model for efficient high-volume workloads
+            description: Older fast and efficient model.
             fallbackModels:
               - gpt-5.6-terra
               - gpt-5.6-sol
-              - gpt-5.5
-              - gpt-5.4
-          - id: gpt-5.5
-            providerModel: gpt-5.5
-            fallbackModels:
-              - gpt-5.4
-              - gpt-5.4-mini
-              - kimi-k2.6
-              - kimi-for-coding
-              - gemini-3.5-flash
-              - gemini-3-flash-preview
           - id: gpt-5.5-pro
             providerModel: gpt-5.5-pro
             fallbackModels:
-              - gpt-5.5
               - gpt-5.4-pro
               - kimi-k2.6
               - gemini-3.1-pro-preview
-          - id: gpt-5.4
-            providerModel: gpt-5.4
-            fallbackModels:
-              - gpt-5.5
-              - gpt-5.4-mini
-              - gpt-5.4-nano
-              - kimi-k2.6
-              - kimi-for-coding
-              - gemini-3.5-flash
-              - gemini-3-flash-preview
           - id: gpt-5.4-pro
             providerModel: gpt-5.4-pro
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
-              - gemini-3.1-pro-preview
-          - id: gpt-5.4-mini
-            providerModel: gpt-5.4-mini
-            fallbackModels:
-              - gpt-5.4
-              - gpt-5.5
-              - gpt-5.4-nano
-              - kimi-k2.6
-              - kimi-for-coding
-              - gemini-3.5-flash
               - gemini-3.1-pro-preview
           - id: gpt-5.4-nano
             providerModel: gpt-5.4-nano
             fallbackModels:
-              - gpt-5.4-mini
-              - gpt-5.4
               - gemini-3.1-flash-lite
               - llama-3.1-8b-instant
           - id: gpt-5.3-instant
             providerModel: gpt-5.3-instant
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - gemini-3.5-flash
@@ -216,8 +198,6 @@ data:
           - id: gpt-5.3-chat-latest
             providerModel: gpt-5.3-chat-latest
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - gemini-3.5-flash
           - id: gpt-4.1
@@ -279,8 +259,6 @@ data:
             fallbackModels:
               - kimi-k2.7-code
               - kimi-k2.6
-              - gpt-5.5
-              - gpt-5.4
         responseCommand:
           executable: node
           args:
@@ -337,6 +315,16 @@ data:
         apiKeyEnv: KIMI_CODE_API_KEY
         timeoutMs: 240000
         models:
+          - id: kimi-k3-256k
+            providerModel: k3-256k
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: kimi-code-standard
+            providerModel: kimi-for-coding
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
           - id: kimi-k3
             providerModel: k3
             description: Kimi K3 flagship reasoning model via Kimi Code API
@@ -348,8 +336,6 @@ data:
               - kimi-for-coding
               - kimi-k2.6
               - kimi-k2.5
-              - gpt-5.5
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
           - id: kimi-k2.7-code-highspeed
@@ -359,8 +345,6 @@ data:
               - kimi-for-coding
               - kimi-k2.6
               - kimi-k2.5
-              - gpt-5.5
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
       - id: grok-build-cli
@@ -371,8 +355,6 @@ data:
             providerModel: grok-build
             description: xAI Grok Build coding and reasoning agent
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - deepseek-v4-flash
         responseCommand:
@@ -424,15 +406,12 @@ data:
             providerModel: kimi-k2.6
             fallbackModels:
               - kimi-k2.5
-              - gpt-5.5
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
           - id: kimi-k2.5
             providerModel: kimi-k2.5
             fallbackModels:
               - kimi-k2.6
-              - gpt-5.4
               - gemini-3.5-flash
               - deepseek-v4-flash
 
@@ -457,47 +436,35 @@ data:
           - id: groq/compound
             providerModel: groq/compound
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: groq/compound-mini
             providerModel: groq/compound-mini
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: openai/gpt-oss-120b
             providerModel: openai/gpt-oss-120b
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - openai/gpt-oss-20b
           - id: openai/gpt-oss-20b
             providerModel: openai/gpt-oss-20b
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
               - llama-3.1-8b-instant
           - id: llama-3.3-70b-versatile
             providerModel: llama-3.3-70b-versatile
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: llama-3.1-8b-instant
             providerModel: llama-3.1-8b-instant
             fallbackModels:
-              - gpt-5.5
-              - gpt-5.4
               - kimi-k2.6
               - kimi-for-coding
           - id: meta-llama/llama-4-scout-17b-16e-instruct
@@ -505,7 +472,6 @@ data:
             fallbackModels:
               - llama-3.3-70b-versatile
               - openai/gpt-oss-20b
-              - gpt-5.4
 
       - id: openrouter-free
         type: openai
@@ -514,6 +480,31 @@ data:
         apiKeyEnv: OPENROUTER_API_KEY
         timeoutMs: 120000
         models:
+          - id: poolside/laguna-s-2.1:free
+            providerModel: poolside/laguna-s-2.1:free
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: nvidia/nemotron-3.5-lightning:free
+            providerModel: nvidia/nemotron-3.5-lightning:free
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: thinkingmachines/inkling-small:free
+            providerModel: thinkingmachines/inkling-small:free
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: cohere/north-mini-code:free
+            providerModel: cohere/north-mini-code:free
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
+          - id: google/gemma-4-31b-it:free
+            providerModel: google/gemma-4-31b-it:free
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
           - id: openrouter-free
             providerModel: openrouter/free
             fallbackModels:
@@ -586,29 +577,36 @@ data:
         apiKeyEnv: DEEPSEEK_API_KEY
         timeoutMs: 120000
         models:
+          - id: deepseek-flash
+            providerModel: deepseek-flash
+            capabilities: [chat, responses, tools]
+            manualOnly: true
+            autoEligible: false
           - id: deepseek-v4-flash
             providerModel: deepseek-v4-flash
+            description: Legacy selector now served by DeepSeek-V4.1-Flash
             fallbackModels:
               - deepseek-v4-pro
           - id: deepseek-v4-pro
             providerModel: deepseek-v4-pro
+            description: DeepSeek-V4-Pro-0813
             fallbackModels:
               - deepseek-v4-flash
           - id: deepseek-chat
             providerModel: deepseek-chat
-            description: Backward-compatible DeepSeek non-thinking alias; use deepseek-v4-flash for new traffic
+            description: Legacy non-thinking alias retired by DeepSeek on 2026-07-24; use deepseek-flash
             fallbackModels:
               - deepseek-v4-flash
               - deepseek-v4-pro
           - id: deepseek-coder
             providerModel: deepseek-chat
-            description: Backward-compatible DeepSeek coding alias mapped to deepseek-chat; use deepseek-v4-flash for new traffic
+            description: Legacy coding alias mapped to retired deepseek-chat; use deepseek-flash
             fallbackModels:
               - deepseek-v4-flash
               - deepseek-v4-pro
           - id: deepseek-reasoner
             providerModel: deepseek-reasoner
-            description: Backward-compatible DeepSeek thinking alias; use deepseek-v4-pro for new traffic
+            description: Legacy thinking alias retired by DeepSeek on 2026-07-24; use deepseek-v4-pro
             fallbackModels:
               - deepseek-v4-pro
               - deepseek-v4-flash

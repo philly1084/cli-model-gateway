@@ -1,3 +1,4 @@
+import { UpstreamError } from "../utils/upstream-error.js";
 export type ModelFailureKind =
   | "rate_limited"
   | "capacity_exhausted"
@@ -6,6 +7,7 @@ export type ModelFailureKind =
   | "auth"
   | "provider_exit"
   | "config"
+  | "model_unavailable"
   | "invalid_model"
   | "unknown";
 
@@ -433,6 +435,7 @@ function createEmptyFailureCounts(): Record<ModelFailureKind, number> {
     provider_exit: 0,
     config: 0,
     invalid_model: 0,
+    model_unavailable: 0,
     unknown: 0,
   };
 }
@@ -458,6 +461,7 @@ function classifyFailure(error: unknown): {
 } {
   const message = truncateFailureMessage(getErrorMessage(error));
   const normalized = message.toLowerCase();
+  if (error instanceof UpstreamError && error.code !== "upstream_error") return { kind: error.code as ModelFailureKind, message };
 
   if (includesAny(normalized, ["unknown model:"])) {
     return { kind: "invalid_model", message };
@@ -577,6 +581,7 @@ function computeCooldown(
     quota_exhausted: 3600,
     timeout: 30,
     auth: 600,
+    model_unavailable: 600,
     config: 3600,
   };
 
