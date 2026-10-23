@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -14,6 +14,7 @@ protocolTest('Kimi real bridge passes request-scoped generation cap to its child
 const readline=require('node:readline');
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line); if(m.method==='initialize') {
+ require('node:fs').writeFileSync(require('node:path').join(__dirname,'cap.txt'),String(process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS));
  process.stdout.write(JSON.stringify({id:m.id,error:{message:'OFFLINE_CAP='+process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS}})+'\\n');
  }
 });
@@ -27,7 +28,7 @@ process.stdin.on('end',()=>process.exit(0));
  child.stdin.end(JSON.stringify({metadata:{max_output_tokens:512},messages:[{role:'user',content:'offline'}],tools:[]}));
  try {
   const code=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
-  assert.equal(code,1);assert.equal(stdout,'');assert.match(stderr,/OFFLINE_CAP=512/);
+  assert.equal(code,1);assert.equal(stdout,'');assert.match(stderr,/ACP initialize failed/);assert.equal(readFileSync(join(dir,'cap.txt'),'utf8'),'512');
  } finally {clearTimeout(safety);child.kill();rmSync(dir,{recursive:true,force:true});}
 });
 
