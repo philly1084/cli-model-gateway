@@ -1,3 +1,4 @@
+import { readOutputLimit, copyChatOutputLimit } from "../utils/output-limit.js";
 import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
 import { strictToolCalls, migrateToolHistory, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
 import { createHash } from "node:crypto";
@@ -210,7 +211,7 @@ export class OpenAiCompatibleProvider implements Provider {
       copyNumberMetadata(body, metadata, "top_p");
       copyNumberMetadata(body, metadata, "presence_penalty");
       copyNumberMetadata(body, metadata, "frequency_penalty");
-      copyIntegerMetadata(body, metadata, "max_tokens");
+      copyChatOutputLimit(body, metadata);
     }
     copyStringMetadata(body, metadata, "user");
     if (this.config.profile && metadata?.response_format) body.response_format = metadata.response_format;
@@ -891,13 +892,7 @@ function normalizeAnthropicToolChoice(value: unknown): unknown {
 }
 
 function readKimiCodeMaxTokens(metadata: UnifiedRequest["metadata"]): number {
-  for (const key of ["max_output_tokens", "max_completion_tokens", "max_tokens"]) {
-    const value = readMetadataValue(metadata, key);
-    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-      return value;
-    }
-  }
-  return DEFAULT_KIMI_CODE_MAX_TOKENS;
+  return readOutputLimit(metadata) ?? DEFAULT_KIMI_CODE_MAX_TOKENS;
 }
 
 function extractMessageText(
@@ -1199,12 +1194,7 @@ function copyKimiK2Metadata(
   metadata: UnifiedRequest["metadata"],
   providerModel: string,
 ): void {
-  const maxCompletionTokens = readMetadataValue(metadata, "max_completion_tokens");
-  if (typeof maxCompletionTokens === "number" && Number.isInteger(maxCompletionTokens)) {
-    target.max_completion_tokens = maxCompletionTokens;
-  } else {
-    copyIntegerMetadata(target, metadata, "max_tokens");
-  }
+  copyChatOutputLimit(target, metadata);
 
   if (isKimiK27CodeModel(providerModel)) {
     return;

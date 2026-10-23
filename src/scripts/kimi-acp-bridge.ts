@@ -1,3 +1,4 @@
+import { kimiOutputEnvironment } from "../utils/output-limit.js";
 import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -862,7 +863,7 @@ function shutdownChild(child: ReturnType<typeof spawn>): void {
 
 async function initializeKimiAcp(
   initializeTimeoutMs: number,
-  model: string,
+  env: NodeJS.ProcessEnv,
 ): Promise<{
   child: ReturnType<typeof spawn>;
   rpc: JsonRpcStdioClient;
@@ -871,7 +872,7 @@ async function initializeKimiAcp(
   let lastError: Error | null = null;
 
   for (const command of [kimiAcpCommand()]) {
-    const { child, rpc, childStderrRef } = startKimiAcpProcess(command, kimiAcpEnvironment(model));
+    const { child, rpc, childStderrRef } = startKimiAcpProcess(command, env);
 
     try {
       const initialized = (await rpc.request(
@@ -948,7 +949,10 @@ async function run(): Promise<void> {
   const prompt = buildPrompt(request);
   const reasoningEffort = resolveReasoningEffort(request);
 
-  const { child, rpc, childStderrRef } = await initializeKimiAcp(initializeTimeoutMs, model);
+  const { child, rpc, childStderrRef } = await initializeKimiAcp(
+    initializeTimeoutMs,
+    kimiOutputEnvironment(isRecord(request.metadata) ? request.metadata : undefined, kimiAcpEnvironment(model)),
+  );
 
   try {
     const sessionResult = await rpc.request(
