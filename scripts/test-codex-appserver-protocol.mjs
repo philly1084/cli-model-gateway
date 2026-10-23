@@ -10,7 +10,7 @@ const protocolTest = (name, fn) => test(name, { skip: process.platform === 'win3
 
 protocolTest('Kimi real bridge passes request-scoped generation cap to its child without changing inherited process env', async () => {
  const dir=mkdtempSync(join(tmpdir(),'kimi-output-limit-'));
- writeFileSync(join(dir,'kimi'), `#!/usr/bin/env node
+ writeFileSync(join(dir,'kimi-code'), `#!/usr/bin/env node
 const readline=require('node:readline');
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line); if(m.method==='initialize') {
