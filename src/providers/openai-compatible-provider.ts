@@ -501,8 +501,11 @@ async function fetchDiscoveredModelIds(
       : DEFAULT_DISCOVERY_EXCLUDES;
 
   const discovered: string[] = [];
+  // Google's OpenAI catalog uses resource names; completion requests use model IDs.
+  const googleCatalog = new URL(config.baseUrl).hostname === "generativelanguage.googleapis.com";
   for (const item of data) {
-    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const rawId = typeof item.id === "string" ? item.id.trim() : "";
+    const id = googleCatalog ? rawId.replace(/^models\//, "") : rawId;
     if (!id) {
       continue;
     }

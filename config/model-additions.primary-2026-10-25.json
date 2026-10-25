@@ -1,0 +1,10 @@
+{
+  "baselineSha256": "bd72ad235fe3ac332ccf980137f305696e823acb347c43ad5d570cd6e1b90a8c",
+  "additions": [
+    {"providerId":"openrouter-free","id":"recursive/flint-v1.0:free","providerModel":"recursive/flint-v1.0:free","description":"Free text and tool-use candidate; catalog verified 2026-10-25, execution unverified"},
+    {"providerId":"openrouter-free","id":"xingchen-agi/xing4.0-29b-a4b:free","providerModel":"xingchen-agi/xing4.0-29b-a4b:free","description":"Free structured-output and tool-use candidate; catalog verified 2026-10-25, execution unverified"},
+    {"providerId":"openrouter-free","id":"nvidia/nemotron-3.5-super-vl:free","providerModel":"nvidia/nemotron-3.5-super-vl:free","description":"Free multimodal upstream candidate; gateway image transport and execution require verification"},
+    {"providerId":"openrouter-free","id":"minimax/minimax-m3.1-flash","providerModel":"minimax/minimax-m3.1-flash","description":"Paid long-context tool-use candidate; catalog verified 2026-10-25, execution unverified"},
+    {"providerId":"openrouter-free","id":"deepseek/deepseek-v4.1-flash-1017","providerModel":"deepseek/deepseek-v4.1-flash-1017","description":"Paid long-context reasoning candidate; catalog verified 2026-10-25, tool round-trip requires verification"}
+  ]
+}
