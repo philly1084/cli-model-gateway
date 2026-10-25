@@ -211,7 +211,15 @@ export interface OpenAiCompatibleProviderConfig {
   type: "openai";
   description?: string;
   baseUrl: string;
-  apiKeyEnv: string;
+  apiKeyEnv?: string;
+  credentialBroker?: {
+    url: string;
+    providerId: string;
+    certFile: string;
+    keyFile: string;
+    caFile: string;
+    serverFingerprint: string;
+  };
   timeoutMs?: number;
   models?: ProviderModelConfig[];
   discovery?: ModelDiscoveryConfig;

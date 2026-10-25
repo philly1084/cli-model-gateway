@@ -88,7 +88,15 @@ const openAiProviderSchema = z.object({
   type: z.literal("openai"),
   description: z.string().optional(),
   baseUrl: z.string().min(1),
-  apiKeyEnv: z.string().min(1),
+  apiKeyEnv: z.string().min(1).optional(),
+  credentialBroker: z.object({
+    url: z.string().url().refine(value => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash; }),
+    providerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+    certFile: z.string().refine(path.isAbsolute),
+    keyFile: z.string().refine(path.isAbsolute),
+    caFile: z.string().refine(path.isAbsolute),
+    serverFingerprint: z.string().regex(/^(?:[A-F0-9]{2}:){31}[A-F0-9]{2}$/),
+  }).strict().optional(),
   timeoutMs: z.number().int().positive().default(240000),
   models: z.array(providerModelSchema).default([]),
   discovery: discoverySchema.optional(),
@@ -434,10 +442,13 @@ export function loadProvidersFile(providersPath: string): ProvidersFile {
       return profile.type === "cli"
         ? { responseCommand: { ...profile.command, timeoutMs: profile.quirks.timeouts.total },
             ...(profile.auth.statusCommand ? { auth: { statusCommand: profile.auth.statusCommand } } : {}), ...provider }
-        : { baseUrl: profile.baseUrl, apiKeyEnv: profile.auth.env, timeoutMs: profile.quirks.timeouts.total, ...provider };
+        : { baseUrl: profile.baseUrl, ...(provider.credentialBroker ? {} : { apiKeyEnv: profile.auth.env }), timeoutMs: profile.quirks.timeouts.total, ...provider };
     });
   }
   const config = providersFileSchema.parse(parsed);
+  for (const provider of config.providers) {
+    if (provider.type === 'openai' && Boolean(provider.apiKeyEnv) === Boolean(provider.credentialBroker)) throw Error('Choose exactly one provider credential source: apiKeyEnv or credentialBroker.');
+  }
   for (const provider of config.providers) resolveProviderProfile(provider, profiles);
   config.remoteCliTargets = overrideRemoteTargetHosts(config.remoteCliTargets);
   return config;
