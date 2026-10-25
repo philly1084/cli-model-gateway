@@ -1,3 +1,4 @@
+import { buildReasoningEffortReceipt, normalizeModelReasoningEffort, resolveReasoningEffort } from "../utils/reasoning.js";
 import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
 import { setTimeout as retryDelay } from "node:timers/promises";
 import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
@@ -85,6 +86,18 @@ interface ModelBinding {
   autoEligible: boolean;
   manualOnly: boolean;
   routingIndex: number;
+}
+
+function reasoningReceipt(
+  request: Omit<UnifiedRequest, "model" | "providerModel">,
+  binding: ModelBinding,
+  result: Pick<ProviderResult, "reasoningEffortForwarded" | "reasoningEffortApplied">,
+) {
+  const forwarded = result.reasoningEffortForwarded !== undefined
+    ? result.reasoningEffortForwarded
+    : normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) ?? null;
+  return buildReasoningEffortReceipt(resolveReasoningEffort(request.metadata), forwarded,
+    binding.modelId, binding.provider.id, result.reasoningEffortApplied);
 }
 
 interface RegistryLogger {
@@ -879,13 +892,13 @@ export class ProviderRegistry {
         request.execution?.attempt(binding.modelId, binding.provider.id);
         let rawResult: ProviderResult;
         try {
-          rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
+          rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel, reasoningEffort: normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) });
         } catch (error) {
           if (emergency.used || !(error instanceof UpstreamError) || !profileRetryAllowed(binding.provider.config, error) || !replaySafeChat(request) || !request.execution?.canFallback()) throw error;
           recordUpstreamFailure(request, binding, error);
           await retryDelay(profileBackoff(binding.provider.config, error), undefined, { signal: request.signal });
           request.execution.attempt(binding.modelId, binding.provider.id);
-          rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel });
+          rawResult = await binding.provider.run({ ...request, model: binding.modelId, providerModel: binding.providerModel, reasoningEffort: normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) });
         }
         request.execution?.check();
         const result = normalizeNativeAssistantResult(rawResult);
@@ -903,6 +916,7 @@ export class ProviderRegistry {
         trackProvider(binding.provider.id, binding.modelId, true, Date.now() - startedAt);
         return {
           ...result,
+          reasoningEffortReceipt: reasoningReceipt(request, binding, result),
           resolvedModel: result.resolvedModel ?? binding.modelId,
           servedModel: binding.modelId,
           normalization: resolveProviderProfile(binding.provider.config)?.normalization,
@@ -1196,7 +1210,7 @@ export class ProviderRegistry {
         this.modelStats.recordAttempt(stats);
         try {
           if (!this.modelSupportsRequest(binding.modelId, request)) throw new RequestCapabilityError(`Model ${binding.modelId} does not support this request.`);
-          const providerRequest = { ...request, model: binding.modelId, providerModel: binding.providerModel };
+          const providerRequest = { ...request, model: binding.modelId, providerModel: binding.providerModel, reasoningEffort: normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) };
           let completed = false;
           if (binding.provider.runStream && (binding.provider.supportsStreaming?.() ?? true)) {
             for await (const event of binding.provider.runStream(providerRequest)) {
@@ -1206,7 +1220,7 @@ export class ProviderRegistry {
                 completed = true;
               }
               if ((event.type === "output_text_delta" || event.type === "reasoning_delta") ? !!event.delta : true) emitted = true;
-              yield { ...event, resolvedModel: event.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+              yield { ...event, reasoningEffortReceipt: reasoningReceipt(request, binding, event), resolvedModel: event.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
             }
             if (!completed) throw Error("Provider stream ended without a terminal receipt");
           } else {
@@ -1214,8 +1228,8 @@ export class ProviderRegistry {
             request.execution?.check();
             if (isInvalidProviderResult(result, request)) throw Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
             emitted = true;
-            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
-            yield { type: "done", ...result, resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, reasoningEffortReceipt: reasoningReceipt(request, binding, result), resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
+            yield { type: "done", ...result, reasoningEffortReceipt: reasoningReceipt(request, binding, result), resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
           }
           this.modelStats.recordSuccess({ ...stats, durationMs: Date.now() - startedAt });
           trackProvider(binding.provider.id, binding.modelId, true, Date.now() - startedAt);

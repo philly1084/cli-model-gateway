@@ -1,3 +1,4 @@
+import { confirmedReasoningEffort } from "../utils/reasoning.js";
 import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -28,6 +29,7 @@ interface JsonContract {
   output_text?: string;
   text?: string;
   content?: string;
+  reasoning_effort?: unknown;
   reasoning?: unknown;
   tool_calls?: unknown[];
   finish_reason?: "stop" | "tool_calls" | "length" | "error";
@@ -112,6 +114,8 @@ export class CliProvider implements Provider {
         );
       }
       const parsed = this.parseOutput(output.stdout);
+      parsed.reasoningEffortForwarded = this.forwardedReasoningEffort(request);
+      if (this.usesCodexAppServerBridge()) parsed.reasoningEffortApplied = confirmedReasoningEffort(parsed.raw, request.reasoningEffort);
       const profile = this.config.profile ? resolveProviderProfile(this.config) : undefined;
       if (profile?.quirks.refusal_patterns.some(pattern => new RegExp(pattern, "i").test(parsed.outputText))) throw new UpstreamError(404);
       return normalizeResultToolCalls(parsed, request.tools);
@@ -145,6 +149,7 @@ export class CliProvider implements Provider {
       let terminal: Extract<ProviderStreamEvent, {type:"done"}> | undefined;
       const calls: ProviderToolCall[] = [];
       const accept = (event: ProviderStreamEvent): ProviderStreamEvent | undefined => {
+        event.reasoningEffortForwarded = this.forwardedReasoningEffort(request);
         if (event.type !== "reasoning_delta") clearTimeout(firstTokenTimer);
         if (terminal) throw new ToolContractError("data_after_done", event);
         normalizeStreamToolEvent(event, allowedTools);
@@ -169,6 +174,7 @@ export class CliProvider implements Provider {
           const line = pendingStdout.slice(0, newlineIndex).trim();
           pendingStdout = pendingStdout.slice(newlineIndex + 1);
           const parsedEvent = parseJsonStreamEvent(line);
+          if (parsedEvent && this.usesCodexAppServerBridge()) parsedEvent.reasoningEffortApplied = confirmedReasoningEffort(JSON.parse(line), request.reasoningEffort);
           if (parsedEvent) {
             const accepted = accept(parsedEvent); if (accepted) yield accepted;
           }
@@ -177,6 +183,7 @@ export class CliProvider implements Provider {
       }
 
       const trailingEvent = parseJsonStreamEvent(pendingStdout.trim());
+      if (trailingEvent && this.usesCodexAppServerBridge()) trailingEvent.reasoningEffortApplied = confirmedReasoningEffort(JSON.parse(pendingStdout.trim()), request.reasoningEffort);
       if (trailingEvent) {
         const accepted = accept(trailingEvent); if (accepted) yield accepted;
       }
@@ -185,7 +192,7 @@ export class CliProvider implements Provider {
       const final = terminal as Extract<ProviderStreamEvent, {type:"done"}>;
       if (profile?.quirks.refusal_patterns.some(pattern => new RegExp(pattern, "i").test(final.outputText ?? ""))) throw new UpstreamError(404);
       if ((calls.length > 0) !== (final.finishReason === "tool_calls")) throw new ToolContractError("finish_reason_mismatch", final);
-      for (const call of calls) yield {type:"tool_call",toolCall:call};
+      for (const call of calls) yield {type:"tool_call",toolCall:call, reasoningEffortForwarded: final.reasoningEffortForwarded, reasoningEffortApplied: final.reasoningEffortApplied};
       yield final;
     } finally {
       clearTimeout(firstTokenTimer);
@@ -294,6 +301,13 @@ export class CliProvider implements Provider {
     return this.config.responseCommand.args.some((arg) =>
       arg.includes("codex-appserver-bridge.js"),
     );
+  }
+
+  private forwardedReasoningEffort(request: UnifiedRequest): string | null {
+    const command = this.config.responseCommand;
+    const carriesEffort = command.input === "request_json_stdin"
+      || /\{\{\s*(?:reasoning_effort|reasoningEffort|request_file)\s*\}\}/.test(JSON.stringify(command));
+    return carriesEffort ? request.reasoningEffort ?? null : null;
   }
 
   async startLoginJob(jobManager: JobManager): Promise<LoginJobSummary> {
@@ -764,6 +778,7 @@ function normalizeContract(value: unknown): JsonContract {
         ? source.finish_reason
         : undefined,
     usage: source.usage,
+    reasoning_effort: source.reasoning_effort,
   };
 }
 

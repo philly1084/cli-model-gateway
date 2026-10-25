@@ -1,3 +1,4 @@
+import { returnedReasoningEffort } from "./reasoning.js";
 import type { ProviderProfile } from "../provider-profiles.js";
 import type { ProviderStreamEvent, ProviderToolCall, ProviderResult } from "../types";
 import { normalizeProviderUsage } from "./usage";
@@ -9,7 +10,7 @@ const object = (value: unknown): Record<string, unknown> => {
 };
 
 // Pull-based, bounded SSE decoding. Tools are released only after a complete valid turn.
-export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void, quirks?: ProviderProfile["quirks"], onModel?: (model: string) => void): AsyncGenerator<ProviderStreamEvent> {
+export async function* parseOpenAiStream(response: Response, signal: AbortSignal, onToolSignature?: (call: ProviderToolCall, signature: string) => void, quirks?: ProviderProfile["quirks"], onModel?: (model: string) => void, onReasoningEffort?: (effort: string) => void): AsyncGenerator<ProviderStreamEvent> {
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw Error("Provider did not return an SSE stream");
   const reader = response.body.getReader();
   const abort = () => { void reader.cancel().catch(() => {}); };
@@ -27,6 +28,8 @@ export async function* parseOpenAiStream(response: Response, signal: AbortSignal
     if (Array.isArray(parsed) && parsed.some(item => item?.error)) throw new UpstreamError(undefined, parsed, quirks?.json_array_errors);
     const chunk = object(parsed);
     if (chunk.error) throw new UpstreamError(undefined, chunk);
+    const returnedEffort = returnedReasoningEffort(chunk);
+    if (returnedEffort !== undefined) onReasoningEffort?.(returnedEffort);
     if (typeof chunk.model === "string") { if (model && model !== chunk.model) throw Error("Provider model changed mid-stream"); model = chunk.model; onModel?.(model); }
     if (chunk.usage) usage = normalizeProviderUsage(chunk.usage, "provider");
     if (chunk.choices === undefined && chunk.usage) return;
