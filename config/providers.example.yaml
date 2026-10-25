@@ -533,6 +533,26 @@ providers:
         description: Kimi K3 flagship reasoning model via Kimi Code API
         fallbackModels:
           - gpt-5.6-sol
+      # Kimi K3.1 Pro (released 2026-10-23). Kimi Code endpoint ids are k3.1-pro /
+      # k3.1-pro-highspeed; Moonshot platform/OpenRouter ids are kimi-k3.1-pro and
+      # moonshotai/kimi-k3.1-pro. Manual-only so the auto/default route is unchanged.
+      - id: kimi-k3.1-pro
+        providerModel: k3.1-pro
+        description: Kimi K3.1 Pro via Kimi Code API
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+        fallbackModels:
+          - kimi-k3
+      - id: kimi-k3.1-pro-highspeed
+        providerModel: k3.1-pro-highspeed
+        description: Kimi K3.1 Pro Highspeed via Kimi Code API (higher-tier Kimi Code plan required)
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+        fallbackModels:
+          - kimi-k3.1-pro
+          - kimi-k3
       - id: kimi-k2.7-code
         providerModel: kimi-k2.7-code
         fallbackModels:
