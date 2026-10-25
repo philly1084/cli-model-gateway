@@ -1,4 +1,5 @@
 import { confirmedReasoningEffort } from "../utils/reasoning.js";
+import { requestVaultProvider, type VaultRequestIdentity } from './vault-transport.js';
 import { readOutputLimit, copyChatOutputLimit } from "../utils/output-limit.js";
 import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
 import { strictToolCalls, migrateToolHistory, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
@@ -121,6 +122,8 @@ export class OpenAiCompatibleProvider implements Provider {
   static async create(
     config: OpenAiCompatibleProviderConfig,
   ): Promise<OpenAiCompatibleProvider> {
+    if (Boolean(config.apiKeyEnv) === Boolean(config.credentialBroker)) throw Error('Exactly one provider credential source is required.');
+    if (config.credentialBroker && (config.profile ? resolveProviderProfile(config)!.stream_format === 'anthropic-json' : isKimiCodeApiBaseUrl(config.baseUrl))) throw Error('Vault provider transport requires the OpenAI chat protocol.');
     const models = await resolveProviderModels(config);
     if (models.length === 0) {
       throw new Error(`Provider ${config.id} resolved zero models.`);
@@ -139,6 +142,7 @@ export class OpenAiCompatibleProvider implements Provider {
 
     const providerModel = modelConfig.providerModel || request.providerModel;
     if (request.requestKind === "images_generations") {
+      if (this.config.credentialBroker) throw new RequestCapabilityError('Vault provider image transport is not configured.');
       return await this.runImageGeneration(providerModel, request);
     }
     if (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "anthropic-json" : isKimiCodeApiBaseUrl(this.config.baseUrl)) {
@@ -157,6 +161,7 @@ export class OpenAiCompatibleProvider implements Provider {
       },
       readPositiveIntegerMetadata(metadata, "gateway_benchmark_timeout_ms"),
       request.signal,
+      { requestId: request.requestId, taskId: request.requestId, session: 'gateway-inference' },
     );
 
     return { ...validateToolResult(parseChatCompletionResponse(response), request),
@@ -267,7 +272,7 @@ export class OpenAiCompatibleProvider implements Provider {
     return body;
   }
 
-  supportsStreaming(): boolean { return this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "openai-sse" : !isKimiCodeApiBaseUrl(this.config.baseUrl); }
+  supportsStreaming(): boolean { return !this.config.credentialBroker && (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "openai-sse" : !isKimiCodeApiBaseUrl(this.config.baseUrl)); }
 
   async *runStream(request: UnifiedRequest): AsyncGenerator<ProviderStreamEvent> {
     request = prepareProfileRequest(this.config, request);
@@ -277,7 +282,7 @@ export class OpenAiCompatibleProvider implements Provider {
     const body = this.buildChatBody(model.providerModel || request.providerModel, request);
     const reasoningEffortForwarded = typeof body.reasoning_effort === "string" ? body.reasoning_effort : null;
     body.stream = true;
-    const key = process.env[this.config.apiKeyEnv]?.trim();
+    const key = this.getApiKey();
     if (!key) throw Error("Provider credential unavailable");
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
@@ -402,6 +407,7 @@ export class OpenAiCompatibleProvider implements Provider {
   }
 
   async startLoginJob(_jobManager: JobManager): Promise<LoginJobSummary> {
+    if (this.config.credentialBroker) throw Error('Manage this provider credential through the Brain vault owner flow. CLI login is not supported.');
     throw new Error(
       `Provider ${this.id} uses API keys and does not support login jobs. Set ${this.config.apiKeyEnv} in the environment.`,
     );
@@ -409,7 +415,7 @@ export class OpenAiCompatibleProvider implements Provider {
 
   async checkAuthStatus(): Promise<AuthStatusResult> {
     const apiKey = this.getApiKey();
-    if (!apiKey) {
+    if (!apiKey && !this.config.credentialBroker) {
       return {
         ok: false,
         exitCode: 1,
@@ -447,7 +453,7 @@ export class OpenAiCompatibleProvider implements Provider {
   }
 
   private getApiKey(): string {
-    return process.env[this.config.apiKeyEnv]?.trim() || "";
+    return this.config.apiKeyEnv ? process.env[this.config.apiKeyEnv]?.trim() || "" : "";
   }
 
   private async requestJson(
@@ -455,8 +461,9 @@ export class OpenAiCompatibleProvider implements Provider {
     init: ProviderRequestInit,
     timeoutMsOverride?: number,
     signal?: AbortSignal,
+    identity?: VaultRequestIdentity,
   ): Promise<unknown> {
-    return await requestProviderJson(this.config, pathname, init, timeoutMsOverride, signal);
+    return await requestProviderJson(this.config, pathname, init, timeoutMsOverride, signal, identity);
   }
 }
 
@@ -1110,8 +1117,10 @@ async function requestProviderJson(
   init: ProviderRequestInit,
   timeoutMsOverride?: number,
   signal?: AbortSignal,
+  identity?: VaultRequestIdentity,
 ): Promise<unknown> {
-  const apiKey = process.env[config.apiKeyEnv]?.trim();
+  if (config.credentialBroker) return requestVaultProvider(config.credentialBroker, pathname, init, timeoutMsOverride ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS, signal, identity);
+  const apiKey = config.apiKeyEnv ? process.env[config.apiKeyEnv]?.trim() : undefined;
   if (!apiKey) {
     throw new Error(`${config.apiKeyEnv} is not set.`);
   }
