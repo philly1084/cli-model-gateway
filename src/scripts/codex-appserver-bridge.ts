@@ -5,7 +5,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { resolveReasoningEffort } from "../utils/reasoning";
+import { resolveReasoningEffort, returnedReasoningEffort } from "../utils/reasoning";
 import { getCodexExecutableCandidates } from "../utils/runtime-template-vars";
 
 interface GatewayMessage {
@@ -50,6 +50,7 @@ type FinishReason = "stop" | "tool_calls" | "length" | "error";
 interface JsonContract {
   output_text: string;
   reasoning?: string;
+  reasoning_effort?: string;
   tool_calls?: Array<{
     id: string;
     name: string;
@@ -1451,8 +1452,10 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+let confirmedEffort: string | undefined;
+
 function writeStreamEvent(value: Record<string, unknown>): void {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
+  process.stdout.write(`${JSON.stringify({ ...value, reasoning_effort: confirmedEffort })}\n`);
 }
 
 async function run(): Promise<void> {
@@ -1642,6 +1645,10 @@ async function run(): Promise<void> {
       },
       startupRequestTimeoutMs,
     )) as Record<string, unknown>;
+
+    confirmedEffort = returnedReasoningEffort(turnStartResult)
+      ?? returnedReasoningEffort(turnStartResult.turn as Record<string, unknown> | null)
+      ?? returnedReasoningEffort(threadStartResult) ?? returnedReasoningEffort(thread);
 
     const turn =
       turnStartResult &&
@@ -1894,6 +1901,7 @@ async function run(): Promise<void> {
         if (turnObj && turnId && typeof turnObj.id === "string" && turnObj.id !== turnId) {
           continue;
         }
+        confirmedEffort = returnedReasoningEffort(params) ?? returnedReasoningEffort(turnObj) ?? confirmedEffort;
         const status = turnObj && typeof turnObj.status === "string" ? turnObj.status : "";
         if (status === "failed" && !turnFailedMessage) {
           const errorObj =
@@ -2022,6 +2030,7 @@ async function run(): Promise<void> {
         tool_calls: toolCalls,
         finish_reason: "tool_calls",
       };
+      out.reasoning_effort = confirmedEffort;
       process.stdout.write(JSON.stringify(out));
       return;
     }
@@ -2049,6 +2058,7 @@ async function run(): Promise<void> {
       reasoning: reasoningText || undefined,
       finish_reason: finishReason,
     };
+    out.reasoning_effort = confirmedEffort;
     process.stdout.write(JSON.stringify(out));
   } finally {
     try {

@@ -11,6 +11,15 @@ export const REASONING_EFFORT_VALUES = [
 ] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORT_VALUES)[number];
 
+export interface ReasoningEffortReceipt {
+  requested: ReasoningEffort;
+  forwarded: string | null;
+  applied: boolean | "unconfirmed";
+  model: string;
+  providerId: string;
+  normalizedFrom?: ReasoningEffort;
+}
+
 export interface RemoteReasoningEffortReceipt {
   requested: ReasoningEffort;
   status: "forwarded" | "applied";
@@ -74,6 +83,9 @@ export interface ProviderTokenUsage {
 }
 
 export interface ProviderResult {
+  reasoningEffortReceipt?: ReasoningEffortReceipt;
+  reasoningEffortForwarded?: string | null;
+  reasoningEffortApplied?: boolean | "unconfirmed";
   outputText: string;
   toolCalls: ProviderToolCall[];
   finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";
@@ -105,7 +117,7 @@ export type ProviderStreamEvent = (
     outputText?: string;
     reasoningText?: string;
     usage?: ProviderTokenUsage;
-  }) & { resolvedModel?: string; servedModel?: string; normalization?: { strip_think: boolean; strip_fence: boolean } };
+  }) & { reasoningEffortReceipt?: ReasoningEffortReceipt; reasoningEffortForwarded?: string | null; reasoningEffortApplied?: boolean | "unconfirmed"; resolvedModel?: string; servedModel?: string; normalization?: { strip_think: boolean; strip_fence: boolean } };
 
 export type CommandOutputMode =
   | "text"

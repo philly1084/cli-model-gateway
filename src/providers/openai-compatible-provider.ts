@@ -1,3 +1,4 @@
+import { confirmedReasoningEffort } from "../utils/reasoning.js";
 import { readOutputLimit, copyChatOutputLimit } from "../utils/output-limit.js";
 import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
 import { strictToolCalls, migrateToolHistory, validateToolHistory, validateToolResult, requireOfferedTool, ToolContractError } from "../utils/tool-contract.js";
@@ -141,7 +142,7 @@ export class OpenAiCompatibleProvider implements Provider {
       return await this.runImageGeneration(providerModel, request);
     }
     if (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "anthropic-json" : isKimiCodeApiBaseUrl(this.config.baseUrl)) {
-      return validateToolResult(await this.runKimiCodeAnthropicMessages(providerModel, request), request);
+      return { ...validateToolResult(await this.runKimiCodeAnthropicMessages(providerModel, request), request), reasoningEffortForwarded: null };
     }
 
     const body = this.buildChatBody(providerModel, request);
@@ -158,7 +159,9 @@ export class OpenAiCompatibleProvider implements Provider {
       request.signal,
     );
 
-    return validateToolResult(parseChatCompletionResponse(response), request);
+    return { ...validateToolResult(parseChatCompletionResponse(response), request),
+      reasoningEffortForwarded: typeof body.reasoning_effort === "string" ? body.reasoning_effort : null,
+      reasoningEffortApplied: confirmedReasoningEffort(response, body.reasoning_effort as string | undefined) };
   }
 
   private buildChatBody(providerModel: string, request: UnifiedRequest): Record<string, unknown> {
@@ -216,6 +219,10 @@ export class OpenAiCompatibleProvider implements Provider {
     copyStringMetadata(body, metadata, "user");
     if (this.config.profile && metadata?.response_format) body.response_format = metadata.response_format;
     copyProviderReasoningMetadata(body, metadata, this.config.baseUrl, providerModel);
+    if (request.reasoningEffort && !isGroqBaseUrl(this.config.baseUrl)
+      && !isDeepSeekBaseUrl(this.config.baseUrl) && !isKimiK2ProviderModel(this.config.baseUrl, providerModel)) {
+      body.reasoning_effort = request.reasoningEffort;
+    }
 
     if (shouldForwardRemoteMetadata(this.config.baseUrl)) {
       copyStringMetadataKeys(body, metadata, REMOTE_STRING_METADATA_KEYS);
@@ -268,6 +275,7 @@ export class OpenAiCompatibleProvider implements Provider {
     const model = this.models.find(m => m.id === request.model);
     if (!model) throw Error("Unknown provider model");
     const body = this.buildChatBody(model.providerModel || request.providerModel, request);
+    const reasoningEffortForwarded = typeof body.reasoning_effort === "string" ? body.reasoning_effort : null;
     body.stream = true;
     const key = process.env[this.config.apiKeyEnv]?.trim();
     if (!key) throw Error("Provider credential unavailable");
@@ -287,19 +295,20 @@ export class OpenAiCompatibleProvider implements Provider {
         const payload = tryParseJson(await response.text());
         if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, profile?.quirks.json_array_errors, response.headers.get("retry-after"));
         const result = validateToolResult(parseChatCompletionResponse(payload), request);
-        for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel };
-        yield { type: "done", ...result };
+        for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel, reasoningEffortForwarded, reasoningEffortApplied: confirmedReasoningEffort(payload, reasoningEffortForwarded) };
+        yield { type: "done", ...result, reasoningEffortForwarded, reasoningEffortApplied: confirmedReasoningEffort(payload, reasoningEffortForwarded) };
         return;
       }
       // No implicit retry: remote tools/session metadata can have side effects even before text.
       let servedModel: string | undefined;
+      let reasoningEffortApplied: ProviderResult["reasoningEffortApplied"] = "unconfirmed";
       const offered = new Set(request.tools.map(t => t.function.name));
       const toolEvents: ProviderStreamEvent[] = [];
-      for await (const event of parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature), profile?.quirks, model => { servedModel = model; })) {
+      for await (const event of parseOpenAiStream(response, signal, (call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature), profile?.quirks, model => { servedModel = model; }, effort => { reasoningEffortApplied = effort === reasoningEffortForwarded; })) {
         if (event.type !== "reasoning_delta") clearTimeout(firstTokenTimer);
         if (event.type === "tool_call") { requireOfferedTool(event.toolCall, offered); toolEvents.push(event); continue; }
-        if (event.type === "done") for (const tool of toolEvents) yield { ...tool, resolvedModel: servedModel };
-        yield { ...event, resolvedModel: servedModel };
+        if (event.type === "done") for (const tool of toolEvents) yield { ...tool, resolvedModel: servedModel, reasoningEffortForwarded, reasoningEffortApplied };
+        yield { ...event, resolvedModel: servedModel, reasoningEffortForwarded, reasoningEffortApplied };
       }
     } finally { clearTimeout(firstTokenTimer); clearTimeout(timer); controller.abort(); }
   }
@@ -734,7 +743,7 @@ function normalizeDeepSeekReasoningEffort(
   if (reasoningEffort === "xhigh") {
     return "max";
   }
-  if (reasoningEffort === "low" || reasoningEffort === "medium" || reasoningEffort === "high") {
+  if (reasoningEffort) {
     return "high";
   }
   return undefined;

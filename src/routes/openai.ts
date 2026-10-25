@@ -19,6 +19,7 @@ import type {
   ChatMessage,
   ProviderResult,
   ReasoningEffort,
+  ReasoningEffortReceipt,
   UnifiedToolDefinition,
 } from "../types";
 import { makeId } from "../utils/ids";
@@ -519,6 +520,12 @@ function setServingHeaders(reply: FastifyReply, requested: string, served: strin
   for (const [key, value] of Object.entries(headers)) {
     if (stream) reply.raw.setHeader(key, value); else reply.header(key, value);
   }
+}
+
+function setReasoningReceiptHeader(reply: FastifyReply, receipt: ReasoningEffortReceipt | undefined, stream: boolean): void {
+  if (!receipt || reply.raw.headersSent) return;
+  if (stream) reply.raw.setHeader("x-reasoning-effort-receipt", JSON.stringify(receipt));
+  else reply.header("x-reasoning-effort-receipt", JSON.stringify(receipt));
 }
 
 function startSseStream(reply: FastifyReply): void {
@@ -1027,26 +1034,34 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
             ...payload,
           });
         };
-        startSseStream(reply);
-        await writeResponseStreamEvent({
-          type: "response.created",
-          response: {
-            id: responseId,
-            object: "response",
-            created_at: createdAt,
-            status: "in_progress",
-            model: body.model,
-            previous_response_id: previousResponseId,
-            conversation: {
-              id: conversationId,
+        let responseStreamStarted = false;
+        const beginResponseStream = async () => {
+          if (responseStreamStarted) return;
+          responseStreamStarted = true;
+          startSseStream(reply);
+          await writeResponseStreamEvent({
+            type: "response.created",
+            response: {
+              id: responseId,
+              object: "response",
+              created_at: createdAt,
+              status: "in_progress",
+              model: body.model,
+              previous_response_id: previousResponseId,
+              conversation: {
+                id: conversationId,
+              },
             },
-          },
-        });
+          });
+        };
+        if (!resolveReasoningEffort(body)) await beginResponseStream();
         const streamAbort = new AbortController();
         const disconnect = () => streamAbort.abort();
         reply.raw.once("close", disconnect);
         try {
           for await (const event of options.registry.runModelStream(body.model, { ...runRequest, signal: AbortSignal.any([runRequest.signal, streamAbort.signal]) })) {
+            setReasoningReceiptHeader(reply, event.reasoningEffortReceipt, true);
+            await beginResponseStream();
             if (event.type === "output_text_delta") {
               streamedResult.outputText += event.delta;
               await writeResponseStreamEvent({
@@ -1144,6 +1159,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           }
         } catch (error) {
           if (reply.raw.destroyed) return reply;
+          await beginResponseStream();
           await writeResponseStreamEvent({
             type: "error",
             object: "error",
@@ -1200,6 +1216,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
       }
 
       const result = normalizeNativeAssistantResult(await options.registry.runModel(body.model, runRequest));
+      setReasoningReceiptHeader(reply, result.reasoningEffortReceipt, isStream);
       const returnedModel = resolveReturnedModel(body.model, result);
       logBlankAssistantResult(app.log.warn.bind(app.log), returnedModel, result, "/responses");
       const outputItems = buildResponseOutputItems(result);
@@ -1253,7 +1270,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
         return reply;
       }
 
-      return responsePayload;
+      return { ...responsePayload, ...(result.reasoningEffortReceipt ? { reasoning_effort_receipt: result.reasoningEffortReceipt } : {}) };
     } catch (error) {
       return handleModelError(reply, error);
     }
@@ -1663,6 +1680,7 @@ async function handleChatCompletionsRequest(
             servedModel = event.resolvedModel ?? body.model;
             const servedRouteModel = event.servedModel ?? body.model;
             content = new ContentNormalizer(event.normalization ?? registry.getProfileForModel?.(servedModel)?.normalization);
+            setReasoningReceiptHeader(reply, event.reasoningEffortReceipt, true);
             setServingHeaders(reply, body.model, servedRouteModel, true);
             startSseStream(reply);
             await writeSseData(reply, { id: respId, object: "chat.completion.chunk", created, model: servedModel,
@@ -1723,6 +1741,7 @@ async function handleChatCompletionsRequest(
     result.outputText = normalizeContent(result.outputText, result.normalization ?? registry.getProfileForModel?.(returnedModel)?.normalization);
     result.finishReason = normalizeFinishReason(result.finishReason, result.toolCalls.length > 0);
     const usage = completeUsage(result.usage, messages, rawOutputText + result.toolCalls.map(call => call.name + call.arguments).join(""));
+    setReasoningReceiptHeader(reply, result.reasoningEffortReceipt, isStream);
     setServingHeaders(reply, body.model, servedRouteModel, isStream);
     logBlankAssistantResult(reply.log.warn.bind(reply.log), returnedModel, result, "/chat/completions");
 
@@ -1779,6 +1798,7 @@ async function handleChatCompletionsRequest(
       return {
         id: makeId("chatcmpl"),
         object: "chat.completion",
+        ...(result.reasoningEffortReceipt ? { reasoning_effort_receipt: result.reasoningEffortReceipt } : {}),
         created: Math.floor(Date.now() / 1000),
         model: returnedModel,
         gateway_fallback: servedRouteModel !== body.model,
