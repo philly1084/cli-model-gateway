@@ -1,7 +1,8 @@
 import { strictToolCalls, strictToolArguments, ToolContractError, customToolInputArguments, toolContractErrorPayload } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -59,7 +60,7 @@ interface JsonContract {
   finish_reason: FinishReason;
 }
 
-export function codexAppServerArgs(hasTools: boolean): string[] {
+export function codexAppServerArgs(hasTools: boolean, catalogPath?: string): string[] {
   const args = ["app-server", "--listen", "stdio://"];
   if (hasTools) {
     // Apply before app-server initialization, rather than relying on thread config.
@@ -70,8 +71,32 @@ export function codexAppServerArgs(hasTools: boolean): string[] {
       "-c", "features.code_mode=false",
       "-c", "features.code_mode_only=false",
     );
+    if (catalogPath) args.push("-c", `model_catalog_json=${JSON.stringify(catalogPath)}`);
   }
   return args;
+}
+
+export function prepareToolCatalog(hasTools: boolean, codexHome = process.env.CODEX_HOME || join(homedir(), ".codex")):
+  { path: string; cleanup: () => void } | undefined {
+  if (!hasTools) return undefined;
+  let directory: string | undefined;
+  try {
+    const catalog: unknown = JSON.parse(readFileSync(join(codexHome, "models_cache.json"), "utf8"));
+    if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) return undefined;
+    const record = catalog as Record<string, unknown>;
+    if (!Array.isArray(record.models) || record.models.length === 0 ||
+        record.models.some(model => !model || typeof model !== "object" || Array.isArray(model) || typeof model.slug !== "string")) return undefined;
+    // Cache metadata is harmless to ModelsResponse; retain all fields except tool_mode.
+    const models = record.models.map(model => ({ ...model, tool_mode: "direct" }));
+    directory = mkdtempSync(join(tmpdir(), "codex-tool-catalog-"));
+    const path = join(directory, "models.json");
+    writeFileSync(path, JSON.stringify({ ...record, models }), { mode: 0o600, flag: "wx" });
+    const ownedDirectory = directory;
+    return { path, cleanup: () => rmSync(ownedDirectory, { recursive: true, force: true }) };
+  } catch {
+    if (directory) rmSync(directory, { recursive: true, force: true });
+    return undefined;
+  }
 }
 
 interface ImageGenerationItem {
@@ -1505,6 +1530,20 @@ async function run(): Promise<void> {
     (request.requestKind === "chat_completions" || request.requestKind === "responses");
   let childStderr = "";
   let appServer: ReturnType<typeof spawn> | null = null;
+  const toolCatalog = prepareToolCatalog(dynamicTools.length > 0);
+  const cleanupToolCatalog = () => toolCatalog?.cleanup();
+  const catalogSignalHandlers = (["SIGINT", "SIGTERM"] as const).map(signal => {
+    const handler = () => {
+      cleanupToolCatalog();
+      process.removeListener(signal, handler);
+      process.kill(process.pid, signal);
+    };
+    return { signal, handler };
+  });
+  if (toolCatalog) {
+    process.once("exit", cleanupToolCatalog);
+    for (const { signal, handler } of catalogSignalHandlers) process.once(signal, handler);
+  }
   let rpc: JsonRpcStdioClient | null = null;
 
   try {
@@ -1513,7 +1552,7 @@ async function run(): Promise<void> {
 
     for (const executable of codexExecutableCandidates) {
       childStderr = "";
-      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0);
+      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0, toolCatalog?.path);
 
       if (appServer.stderr) {
         appServer.stderr.setEncoding("utf8");
@@ -2085,6 +2124,11 @@ async function run(): Promise<void> {
     // Child diagnostics can repeat the rejected arguments. Suppress them on this path.
     childStderr = "";
   } finally {
+    cleanupToolCatalog();
+    if (toolCatalog) {
+      process.removeListener("exit", cleanupToolCatalog);
+      for (const { signal, handler } of catalogSignalHandlers) process.removeListener(signal, handler);
+    }
     try {
       appServer?.stdin?.end();
     } catch {
@@ -2110,8 +2154,8 @@ async function run(): Promise<void> {
   }
 }
 
-function spawnCodexAppServer(executable: string, hasTools: boolean): ReturnType<typeof spawn> {
-  return spawn(executable, codexAppServerArgs(hasTools), {
+function spawnCodexAppServer(executable: string, hasTools: boolean, catalogPath?: string): ReturnType<typeof spawn> {
+  return spawn(executable, codexAppServerArgs(hasTools, catalogPath), {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
     shell: shouldSpawnViaShell(executable),
