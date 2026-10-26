@@ -59,6 +59,17 @@ interface JsonContract {
   finish_reason: FinishReason;
 }
 
+export function builtinToolFeatureOverrides(hasTools: boolean): Record<string, false> | undefined {
+  if (!hasTools) return undefined;
+  return {
+    "features.code_mode_host": false,
+    "features.unified_exec": false,
+    "features.shell_tool": false,
+    "features.code_mode": false,
+    "features.code_mode_only": false,
+  };
+}
+
 interface ImageGenerationItem {
   url?: string;
   b64_json?: string;
@@ -1592,6 +1603,7 @@ async function run(): Promise<void> {
           experimentalRawEvents: true,
           persistExtendedHistory: false,
           dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
+          ...(dynamicTools.length > 0 ? { config: builtinToolFeatureOverrides(true) } : {}),
         },
         startupRequestTimeoutMs,
       )) as Record<string, unknown>;
@@ -1617,6 +1629,7 @@ async function run(): Promise<void> {
             experimentalRawEvents: true,
             persistExtendedHistory: false,
             dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
+            ...(dynamicTools.length > 0 ? { config: builtinToolFeatureOverrides(true) } : {}),
           },
           startupRequestTimeoutMs,
         )) as Record<string, unknown>;

@@ -107,3 +107,22 @@ remain required before promotion; no inference or deployment was performed.
 The Windows local suite skips the symlink-result-file test only when Windows cannot
 create the fixture symlink; Linux CI runs it. Real Codex bridge process fixtures use
 a POSIX fake executable and run on Linux CI, without provider calls or credentials.
+
+## Codex built-in tools with dynamic tools
+
+When dynamic tools are present, both Codex `thread/start` paths now pass a `config`
+object with `features.code_mode_host`, `features.unified_exec`, `features.shell_tool`,
+`features.code_mode`, and `features.code_mode_only` set to `false`. This prevents
+built-in exec/shell/code tools from competing with the caller's dynamic tools.
+Requests without dynamic tools omit this object; existing RPC params and app-server
+spawn arguments remain unchanged. There is no thread-resume path in this bridge.
+
+Verified against an isolated temporary install of the release-pinned Codex CLI
+0.144.1 (the local PATH version was 0.159.3): generated experimental JSON Schema and
+TypeScript expose `ThreadStartParams.config`; `features list` accepts all five flags.
+An offline app-server `thread/start` followed by `experimentalFeature/list` for that
+thread confirmed all five disabled, without starting a model turn. The removed flags
+`apply_patch_freeform`, `js_repl`, and `js_repl_tools_only` are deliberately omitted.
+Cross-platform ZZTEST process fixtures assert exact serialized thread-start params
+and unchanged spawn args for tool/no-tool requests, including model fallback. Existing
+tool-contract validation remains strict. This is not a live model tool-round-trip proof.
