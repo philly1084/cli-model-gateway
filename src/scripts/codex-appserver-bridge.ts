@@ -1726,6 +1726,8 @@ async function run(): Promise<void> {
     let firstImageRequestEventSeenAt = 0;
     let streamedOutputText = "";
     let streamedReasoningText = "";
+    let outputTextFinalized = false;
+    const agentMessageIndexes = new Map<string, number>();
     let turnCompleted = false;
     let turnFailedMessage = "";
     let toolCallSeenAt = 0;
@@ -1739,6 +1741,13 @@ async function run(): Promise<void> {
         } else {
           streamedReasoningText = nextText;
         }
+        return;
+      }
+
+      // Contract fragments cannot be retracted once sent to the client.
+      // Keep the emitted cursor empty until the complete JSON can be parsed.
+      if (eventType === "output_text_delta" && !outputTextFinalized &&
+          !streamedOutputText && nextText.trimStart().startsWith("{")) {
         return;
       }
 
@@ -1809,6 +1818,21 @@ async function run(): Promise<void> {
       if (isImageGenerationRequest && params) {
         firstImageRequestEventSeenAt ||= Date.now();
         appendImageItems(collectImageGenerationItems(params));
+      }
+
+      if (method === "item/agentMessage/delta" && params) {
+        if (typeof params.threadId === "string" && params.threadId !== threadId) continue;
+        if (turnId && typeof params.turnId === "string" && params.turnId !== turnId) continue;
+        if (typeof params.itemId !== "string" || typeof params.delta !== "string") continue;
+        let index = agentMessageIndexes.get(params.itemId);
+        if (index === undefined) {
+          index = textParts.length;
+          agentMessageIndexes.set(params.itemId, index);
+          textParts.push("");
+        }
+        textParts[index] = (textParts[index] ?? "") + params.delta;
+        streamAggregateText("output_text_delta", textParts.join("\n").trim());
+        continue;
       }
 
       if (method === "item/tool/call" && params) {
@@ -2039,8 +2063,9 @@ async function run(): Promise<void> {
     }
 
     const parsedContract = parseJsonContractFromText(outputText);
+    outputTextFinalized = true;
     if (parsedContract) {
-      outputText = parsedContract.output_text || outputText;
+      outputText = parsedContract.output_text;
       streamAggregateText("output_text_delta", outputText);
       if (appendUniqueTextPart(reasoningParts, parsedContract.reasoning ?? "")) {
         reasoningText = reasoningParts.join("\n").trim();
@@ -2069,6 +2094,8 @@ async function run(): Promise<void> {
         }
       }
     }
+    // Invalid/partial JSON and ordinary JSON objects remain user-visible text.
+    streamAggregateText("output_text_delta", outputText);
 
     if (toolCalls.length > 0) {
       if (shouldStream) {
