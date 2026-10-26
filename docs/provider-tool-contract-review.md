@@ -1,5 +1,18 @@
 # Provider tool protocol review
 
+## Codex streamed JSON answer contracts
+
+The Codex bridge buffers assistant text beginning with `{` until turn completion,
+including `item/agentMessage/delta` fragments split inside JSON strings and escapes.
+It uses the same top-level contract parser as buffered requests, then emits only
+`output_text`, with the existing reasoning, tool-call validation and finish handling.
+Empty contract answers stay empty. Invalid/partial JSON and non-contract JSON fall
+back to the buffered text without content loss. Plain text still emits incrementally.
+Chat and Responses share this bridge path. Offline ZZTEST node-runner fixtures cover
+both client SSE formats, tool-result continuations, completed agent messages,
+fragmented/invalid envelopes, gated incremental plain text, unchanged non-stream
+answers and native/contract tool calls. No live inference was used.
+
 ## Codex custom tool input compatibility
 
 For raw `custom_tool_call` only, a string containing a JSON object is preserved
