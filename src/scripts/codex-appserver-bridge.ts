@@ -59,15 +59,19 @@ interface JsonContract {
   finish_reason: FinishReason;
 }
 
-export function builtinToolFeatureOverrides(hasTools: boolean): Record<string, false> | undefined {
-  if (!hasTools) return undefined;
-  return {
-    "features.code_mode_host": false,
-    "features.unified_exec": false,
-    "features.shell_tool": false,
-    "features.code_mode": false,
-    "features.code_mode_only": false,
-  };
+export function codexAppServerArgs(hasTools: boolean): string[] {
+  const args = ["app-server", "--listen", "stdio://"];
+  if (hasTools) {
+    // Apply before app-server initialization, rather than relying on thread config.
+    args.push(
+      "-c", "features.code_mode_host=false",
+      "-c", "features.unified_exec=false",
+      "-c", "features.shell_tool=false",
+      "-c", "features.code_mode=false",
+      "-c", "features.code_mode_only=false",
+    );
+  }
+  return args;
 }
 
 interface ImageGenerationItem {
@@ -1509,7 +1513,7 @@ async function run(): Promise<void> {
 
     for (const executable of codexExecutableCandidates) {
       childStderr = "";
-      appServer = spawnCodexAppServer(executable);
+      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0);
 
       if (appServer.stderr) {
         appServer.stderr.setEncoding("utf8");
@@ -1603,7 +1607,6 @@ async function run(): Promise<void> {
           experimentalRawEvents: true,
           persistExtendedHistory: false,
           dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
-          ...(dynamicTools.length > 0 ? { config: builtinToolFeatureOverrides(true) } : {}),
         },
         startupRequestTimeoutMs,
       )) as Record<string, unknown>;
@@ -1629,7 +1632,6 @@ async function run(): Promise<void> {
             experimentalRawEvents: true,
             persistExtendedHistory: false,
             dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
-            ...(dynamicTools.length > 0 ? { config: builtinToolFeatureOverrides(true) } : {}),
           },
           startupRequestTimeoutMs,
         )) as Record<string, unknown>;
@@ -2108,8 +2110,8 @@ async function run(): Promise<void> {
   }
 }
 
-function spawnCodexAppServer(executable: string): ReturnType<typeof spawn> {
-  return spawn(executable, ["app-server", "--listen", "stdio://"], {
+function spawnCodexAppServer(executable: string, hasTools: boolean): ReturnType<typeof spawn> {
+  return spawn(executable, codexAppServerArgs(hasTools), {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
     shell: shouldSpawnViaShell(executable),

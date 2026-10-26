@@ -4,20 +4,23 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { builtinToolFeatureOverrides } from "../scripts/codex-appserver-bridge.js";
+import { codexAppServerArgs } from "../scripts/codex-appserver-bridge.js";
 
-const overrides = {
-  "features.code_mode_host": false,
-  "features.unified_exec": false,
-  "features.shell_tool": false,
-  "features.code_mode": false,
-  "features.code_mode_only": false,
-};
+const originalArgs = ["app-server", "--listen", "stdio://"];
+const toolArgs = [
+  ...originalArgs,
+  "-c", "features.code_mode_host=false",
+  "-c", "features.unified_exec=false",
+  "-c", "features.shell_tool=false",
+  "-c", "features.code_mode=false",
+  "-c", "features.code_mode_only=false",
+];
 
-test("builtin tool overrides are conditional and return independent objects", () => {
-  assert.equal(builtinToolFeatureOverrides(false), undefined);
-  assert.deepEqual(builtinToolFeatureOverrides(true), overrides);
-  assert.notEqual(builtinToolFeatureOverrides(true), builtinToolFeatureOverrides(true));
+test("app-server feature args are conditional and return independent arrays", () => {
+  assert.deepEqual(codexAppServerArgs(false), originalArgs);
+  assert.deepEqual(codexAppServerArgs(true), toolArgs);
+  assert.notEqual(codexAppServerArgs(true), codexAppServerArgs(true));
+  assert.notEqual(codexAppServerArgs(false), codexAppServerArgs(false));
 });
 
 const fake = `const {appendFileSync,writeFileSync}=require('node:fs');
@@ -39,9 +42,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  }
 });`;
 
-for (const hasTools of [false, true]) {
+for (const tools of ["omitted", "empty", "dynamic"] as const) {
+  const hasTools = tools === "dynamic";
   for (const fallback of [false, true]) {
-    test(`thread/start preserves params with tools=${hasTools}, fallback=${fallback}`, async () => {
+    test(`app-server spawn and thread/start preserve params with tools=${tools}, fallback=${fallback}`, async () => {
       const dir = await mkdtemp(join(tmpdir(), "ZZTEST-builtin-tools-"));
       let child: ReturnType<typeof spawn> | undefined;
       try {
@@ -58,19 +62,19 @@ for (const hasTools of [false, true]) {
         let stderr = "";
         child.stderr?.on("data", value => { stderr += value; });
         child.stdout?.resume();
-        child.stdin?.end(JSON.stringify({ messages: [{ role: "user", content: "ZZTEST" }], reasoningEffort: "low", tools: hasTools ? [{ type: "function", function: { name: "ZZTEST", description: "ZZTEST", parameters: { type: "object", properties: {} } } }] : [] }));
+        child.stdin?.end(JSON.stringify({ messages: [{ role: "user", content: "ZZTEST" }], reasoningEffort: "low", tools: hasTools ? [{ type: "function", function: { name: "ZZTEST", description: "ZZTEST", parameters: { type: "object", properties: {} } } }] : tools === "empty" ? [] : undefined }));
         const code = await new Promise<number | null>((done, reject) => {
           child!.on("error", reject);
           child!.on("close", done);
         });
         assert.equal(code, 0, stderr);
-        assert.equal(await readFile(join(dir, "ZZTEST-args.json"), "utf8"), '["app-server","--listen","stdio://"]');
+        assert.equal(await readFile(join(dir, "ZZTEST-args.json"), "utf8"), JSON.stringify(hasTools ? toolArgs : originalArgs));
         const starts = (await readFile(join(dir, "ZZTEST-starts.jsonl"), "utf8")).trim().split("\n");
         const models = fallback ? ["codex-latest", "ZZTEST"] : ["ZZTEST"];
         assert.equal(starts.length, models.length);
         for (const [index, model] of models.entries()) {
           const oldParams = { model, modelProvider: "ZZTEST", reasoningEffort: "low", approvalPolicy: "never", sandbox: "read-only", experimentalRawEvents: true, persistExtendedHistory: false };
-          const expected = hasTools ? { ...oldParams, dynamicTools: [{ name: "ZZTEST", description: "ZZTEST", inputSchema: { type: "object", properties: {} } }], config: overrides } : oldParams;
+          const expected = hasTools ? { ...oldParams, dynamicTools: [{ name: "ZZTEST", description: "ZZTEST", inputSchema: { type: "object", properties: {} } }] } : oldParams;
           assert.equal(starts[index], JSON.stringify(expected));
         }
       } finally {

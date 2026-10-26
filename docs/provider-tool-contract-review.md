@@ -110,19 +110,74 @@ a POSIX fake executable and run on Linux CI, without provider calls or credentia
 
 ## Codex built-in tools with dynamic tools
 
-When dynamic tools are present, both Codex `thread/start` paths now pass a `config`
-object with `features.code_mode_host`, `features.unified_exec`, `features.shell_tool`,
-`features.code_mode`, and `features.code_mode_only` set to `false`. This prevents
-built-in exec/shell/code tools from competing with the caller's dynamic tools.
-Requests without dynamic tools omit this object; existing RPC params and app-server
-spawn arguments remain unchanged. There is no thread-resume path in this bridge.
+When parsed dynamic tools are present, the bridge now starts Codex with these exact
+arguments (including executable fallback attempts):
 
-Verified against an isolated temporary install of the release-pinned Codex CLI
-0.144.1 (the local PATH version was 0.159.3): generated experimental JSON Schema and
-TypeScript expose `ThreadStartParams.config`; `features list` accepts all five flags.
-An offline app-server `thread/start` followed by `experimentalFeature/list` for that
-thread confirmed all five disabled, without starting a model turn. The removed flags
-`apply_patch_freeform`, `js_repl`, and `js_repl_tools_only` are deliberately omitted.
-Cross-platform ZZTEST process fixtures assert exact serialized thread-start params
-and unchanged spawn args for tool/no-tool requests, including model fallback. Existing
-tool-contract validation remains strict. This is not a live model tool-round-trip proof.
+```text
+app-server --listen stdio:// -c features.code_mode_host=false -c features.unified_exec=false -c features.shell_tool=false -c features.code_mode=false -c features.code_mode_only=false
+```
+
+These are process-start configuration overrides, applied before initialization and
+thread creation. Codex 0.144.1 `app-server --help` documents `-c key=value` and its
+repeatable equivalent `--disable <feature>`. All five flags are recognized by
+`features list`; removed flags such as `apply_patch_freeform`, `js_repl`, and
+`js_repl_tools_only` are not used. Both thread/start paths omit the former redundant
+`config` object and retain the dynamic tool declarations. Requests with omitted or
+empty tools retain the exact original spawn arguments
+`["app-server","--listen","stdio://"]` and serialized RPC params. The request was
+already parsed before spawning; no input-order restructuring was needed. There is
+no thread-resume path in this bridge.
+
+Offline verification on 2026-10-26 used `npx --yes --package=@openai/codex@0.144.1
+codex` in an OS temporary directory outside the repository (PATH was 0.159.3).
+The install/cache, generated experimental JSON Schema, recorder scripts and separate
+CODEX_HOME directories were deleted afterwards. No user credentials were copied.
+Schema inspection established the `config/read` and `experimentalFeature/list`
+request shapes. Each fresh stdio app-server received `initialize` with
+`capabilities.experimentalApi=true`, `initialized`, then
+`config/read {"includeLayers":true}` and
+`experimentalFeature/list {"limit":200}`:
+
+| Feature | Empty-home enabled state (Windows) | Spawn overrides | Home explicitly enables all five, then spawn overrides |
+| --- | --- | --- | --- |
+| `code_mode_host` | true | false | false |
+| `unified_exec` | false | false | false |
+| `shell_tool` | true | false | false |
+| `code_mode` | false | false | false |
+| `code_mode_only` | false | false | false |
+
+The all-enabled home without overrides reported all five true. With overrides,
+`config/read` reported all five false in effective `config.features` and a
+highest-priority `sessionFlags` layer containing exactly those five false entries
+(SHA-256 `7fd2b4b654c381c32a29ead5b61ed8aaebd7835ee98c5201a16977d41c91ac2f`).
+Thus the check establishes effective app-server startup state, rather than merely
+acceptance of fields in a thread/start request.
+
+A second offline check inspected the actual serialized Responses API `tools` array.
+A temporary Node HTTP recorder listened only on `127.0.0.1`; a custom provider used
+that loopback base URL, `wire_api="responses"`, `requires_openai_auth=false`, and
+zero request/stream retries. The model id `gpt-5.4` selected embedded model metadata;
+there was no model behind the recorder. An ephemeral read-only thread declared
+`ZZTEST` as a dynamic function, then a synthetic turn triggered request serialization.
+The recorder captured tool names and returned HTTP 400 without model output:
+
+- With all five features enabled in the temporary home, the wire list contained
+  `{"type":"custom","name":"exec"}` (plus `wait`, `request_user_input`, web search).
+- With code mode disabled but unified exec enabled, it contained `exec_command`
+  and `write_stdin`; the empty-home shell baseline contained `shell_command`.
+- With the five spawn overrides, the list contained `ZZTEST` and none of `exec`,
+  `wait`, `exec_command`, `write_stdin`, `shell`, or `shell_command`.
+  Other built-ins, including `update_plan`, `request_user_input`, `apply_patch`,
+  `view_image`, tool search and web search, remain outside this change's scope.
+
+Thread/start-only overrides also removed these tools in this isolated Windows
+recorder, so the deployed PR #41 failure was not reproduced here. The earlier
+feature-query-only evidence did not establish deployed wire tool exposure; it must
+not be treated as proof of that runtime. Startup overrides are independently
+verified above and no longer depend on thread-level feature application. No live
+model inference, provider credentials, deployment, or tool execution was used.
+
+Cross-platform ZZTEST process fixtures assert exact serialized spawn arguments and
+thread-start params for dynamic, empty and omitted tools, including model fallback.
+Existing tool-contract validation remains strict. This offline wire check does not
+constitute a live model tool-round-trip proof.
