@@ -181,3 +181,96 @@ Cross-platform ZZTEST process fixtures assert exact serialized spawn arguments a
 thread-start params for dynamic, empty and omitted tools, including model fallback.
 Existing tool-contract validation remains strict. This offline wire check does not
 constitute a live model tool-round-trip proof.
+
+## Catalog tool mode override (Codex 0.144.1, offline proof)
+
+The feature flags above do **not** override a model catalog entry's
+`tool_mode: "code_mode_only"`. The supported solution is a process-start
+`-c model_catalog_json="<absolute JSON path>"` pointing at a catalog whose model
+entries use `tool_mode: "direct"`. The binary's adjacent enum strings are
+`direct`, `code_mode`, `code_mode_only`; `debug models` round-trips each of those
+values. An invalid value is silently omitted from the normalized model metadata,
+so mere acceptance of a made-up value is not evidence of a valid enum. The
+generated experimental app-server schema does not describe this catalog enum.
+A top-level `-c tool_mode="direct"` (also tested with `"standard"` and `"invalid"`) left the
+code-mode-only wire declarations unchanged; it is not the mechanism used here.
+
+For requests with parsed dynamic tools, the bridge reads
+`CODEX_HOME/models_cache.json` (default `~/.codex/models_cache.json`). The cache
+and `model_catalog_json` both accept the `{"models":[ModelInfo,...]}` envelope;
+cache metadata such as `fetched_at`, `etag`, and `client_version` can remain in
+that envelope. It copies all JSON fields, changing only every model's `tool_mode`
+to `direct`, including fallback candidates. It creates a private OS temporary
+directory and exclusively writes a 0600 JSON file, adds the catalog config after
+the five existing feature flags, and removes the file/directory in `finally`,
+at process exit, or on handled SIGINT/SIGTERM. Missing, unreadable, malformed, or
+structurally invalid caches skip the override. The original cache is never changed.
+Empty/omitted tools retain byte-identical spawn arguments and thread parameters,
+without reading or writing a catalog. No environment configuration is changed.
+
+Verification on 2026-10-26 installed `@openai/codex@0.144.1` using npx into an
+isolated temporary npm cache outside the repository, confirmed `codex-cli 0.144.1`,
+and used that package's executable for stdio probes. All CODEX_HOME directories,
+recorder scripts, schemas, catalogs, and npm cache were isolated outside the repo
+and deleted afterwards. No user credentials, live inference, tool execution,
+production process, commit, or deployment was used.
+
+The fixture copied the binary's complete bundled frontier ModelInfo, renamed it
+`gpt-6-astra`, set `prefer_websockets=false`, and retained the model's other fields.
+A custom provider used only `http://127.0.0.1:<ephemeral>/v1`, `wire_api="responses"`,
+`requires_openai_auth=false`, and zero retries. Both variants used all five feature
+flags. The declared dynamic tool was `blender_build`, with this schema:
+
+```json
+{"type":"object","properties":{"script":{"type":"string","maxLength":65536},"timeoutSeconds":{"type":"number"}},"required":["script"]}
+```
+
+Captured serialized declarations (namespace children abbreviated):
+
+| Catalog tool_mode | Tools on the wire |
+| --- | --- |
+| `code_mode_only` | custom `exec`; function `wait`, `request_user_input`; namespace `collaboration` |
+| `code_mode` | custom `exec`, `apply_patch`; function `wait`, `update_plan`, `request_user_input`, `view_image`, **`blender_build`**; namespace `collaboration` |
+| `direct` | function `update_plan`, `request_user_input`, `view_image`, **`blender_build`**; custom `apply_patch`; namespace `collaboration`; **no `exec`** |
+
+With the model's `use_responses_lite=true`, these declarations occur in
+`input[]` entries of type `additional_tools`, rather than the top-level `tools`
+array. Repeating with only `use_responses_lite=false` places the same declarations
+in top-level `tools`, additionally containing the unnamed `web_search` built-in.
+Both forms reproduce the code-mode-only issue and prove the direct override.
+
+The recorder returned SSE `response.created`, `response.output_item.added`,
+`response.function_call_arguments.delta`, `response.output_item.done`, and
+`response.completed`, including this synthetic item:
+
+```json
+{"type":"function_call","id":"fc_ZZTEST","call_id":"call_ZZTEST","name":"blender_build","arguments":"{\"script\":\"ZZTEST\",\"timeoutSeconds\":1}"}
+```
+
+App-server emitted both `rawResponseItem/completed` with that function_call and
+`item/tool/call` with `callId="call_ZZTEST"`, `tool="blender_build"`, and parsed
+arguments. A separate full compiled-bridge run seeded the isolated cache with
+`code_mode_only` and used the bridge-created direct catalog. The recorder observed
+the function declaration without `exec`; the bridge exited 0 with:
+
+```json
+{"output_text":"","tool_calls":[{"id":"call_ZZTEST","name":"blender_build","arguments":"{\"script\":\"ZZTEST\",\"timeoutSeconds\":1}"}],"finish_reason":"tool_calls"}
+```
+
+The bridge's delegated-tool acknowledgement reached app-server, and a second
+synthetic completed response let its turn complete successfully. This proves
+serialization and bridge parsing against the pinned binary, not model intelligence
+or a real Blender execution.
+
+ZZTEST regression fixtures cover valid/missing/malformed catalogs for dynamic,
+empty, and omitted tools, with and without model fallback; exact spawn and thread
+params; preservation of nested fields and cache metadata; cleanup after bridge
+exit; malformed shapes; idempotent cleanup; POSIX 0600 file mode; and exact parsing
+of the recorder's function-call ID and argument bytes. Windows shell wrappers strip
+TOML quotes in captured argv; direct executable probes retain the JSON/TOML quoting.
+
+Validation after implementation: `npm run check` and `npm run build` passed;
+`npm test` passed (compiled tests: 591 passed, 1 skipped; protocol/snapshot/vault
+scripts: 12 passed, 17 skipped); `npm run test:remote-agent-handoff-release` passed
+(141 passed, 3 skipped). Skips are the existing platform-dependent fixtures.
+The focused catalog/argument suite passed all 21 tests. `git diff --check` passed.
