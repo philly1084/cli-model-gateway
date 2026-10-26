@@ -1,5 +1,36 @@
 # Provider tool protocol review
 
+## Codex custom tool input compatibility
+
+For raw `custom_tool_call` only, a string containing a JSON object is preserved
+byte-for-byte. Otherwise the offered function's object schema must identify one
+string field: use its sole required property if that property is a string; failing
+that, use its sole property if it is a string. Free text becomes
+`JSON.stringify({ [field]: input })`. Thus `blender_build` with required `script`
+and optional numeric `timeoutSeconds` receives the original text in `script`.
+Non-string input, absent schemas, and ambiguous schemas fail with
+`custom_tool_input_unmappable`. A declared field `maxLength` counts Unicode code
+points and fails with `custom_tool_input_too_long`; text is never truncated. The
+256 KB UTF-8 argument limit applies both before and after wrapping. This conversion
+does not rename tools, guess fields, or change raw `function_call` validation.
+
+The existing app-server `dynamicTools` declaration already supplies `inputSchema`.
+No additional JSON function-call selector is established by this repository's
+protocol, so the declaration remains unchanged; the adapter conversion is required
+even when the schema was supplied.
+
+Tool contract failures terminate the bridge successfully (exit 0) with a JSONL
+error event rather than a broken process stream:
+`{"type":"error","error":{"message":"Provider tool contract rejected: custom_tool_input_unmappable.","type":"provider_tool_contract_invalid","code":"custom_tool_input_unmappable","param":null,"retryable":true}}`.
+There is no success `done` after this terminal error. The CLI provider decodes it
+as `ToolContractError`, discards buffered tool proposals, and preserves the issue
+code. Chat SSE sends `data: {"error":{...}}`; Responses SSE sends an `error` event
+whose data adds `type:"error",object:"error"` to that envelope. Both terminate with
+`data: [DONE]` and close normally. Buffered requests return HTTP 502 with the same
+error envelope. Retryable describes a new planning attempt, never automatic tool
+execution or replay. Error messages contain only the issue code; rejected input
+and child stderr are not forwarded on this path.
+
 This draft addresses a reproduced adapter failure: when only one function was offered,
 the CLI adapter changed an unrelated function name to that function, repaired malformed
 JSON, and renamed argument keys. That could turn an invalid proposal into an executable

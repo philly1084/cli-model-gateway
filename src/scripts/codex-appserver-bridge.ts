@@ -1,4 +1,4 @@
-import { strictToolCalls, strictToolArguments, ToolContractError } from "../utils/tool-contract.js";
+import { strictToolCalls, strictToolArguments, ToolContractError, customToolInputArguments, toolContractErrorPayload } from "../utils/tool-contract.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -643,7 +643,7 @@ function extractReasoningValue(record: Record<string, unknown>): unknown {
 
 function asToolCallArguments(value: unknown): string { return strictToolArguments(value); }
 
-function parseToolCallFromRawItem(item: unknown):
+export function parseToolCallFromRawItem(item: unknown, dynamicTools: ReadonlyArray<DynamicToolSpec> = []):
   | {
       id: string;
       name: string;
@@ -672,7 +672,9 @@ function parseToolCallFromRawItem(item: unknown):
       ? record.call_id
       : "";
 
-  const argsRaw = record.type === "custom_tool_call" ? record.input : record.arguments;
+  const argsRaw = record.type === "custom_tool_call"
+    ? customToolInputArguments(record.input, dynamicTools.find(tool => tool.name === name)?.inputSchema)
+    : record.arguments;
   return strictToolCalls([{
     id,
     name,
@@ -1807,7 +1809,7 @@ async function run(): Promise<void> {
           continue;
         }
 
-        const call = parseToolCallFromRawItem(params.item);
+        const call = parseToolCallFromRawItem(params.item, dynamicTools);
         const mappedName = call ? allowedToolNames.get(call.name) : undefined;
         if (call && !mappedName) throw new ToolContractError("tool_not_offered",call.name);
         const existing = call && toolCalls.find(previous=>previous.id===call.id);
@@ -2060,6 +2062,13 @@ async function run(): Promise<void> {
     };
     out.reasoning_effort = confirmedEffort;
     process.stdout.write(JSON.stringify(out));
+  } catch (error) {
+    if (!(error instanceof ToolContractError)) throw error;
+    const payload = toolContractErrorPayload(error);
+    if (shouldStream) writeStreamEvent({ type: "error", ...payload });
+    else process.stdout.write(JSON.stringify(payload));
+    // Child diagnostics can repeat the rejected arguments. Suppress them on this path.
+    childStderr = "";
   } finally {
     try {
       appServer?.stdin?.end();

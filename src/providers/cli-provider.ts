@@ -19,7 +19,7 @@ import type {
 import { runCommand, runCommandStream, resolveCommand } from "../utils/command";
 import { buildPrompt } from "../utils/prompt";
 import { withRuntimeTemplateVars } from "../utils/runtime-template-vars";
-import { strictToolCalls, migrateToolHistory, requireOfferedTool, ToolContractError, validateToolHistory } from "../utils/tool-contract.js";
+import { strictToolCalls, migrateToolHistory, requireOfferedTool, ToolContractError, validateToolHistory, rejectToolContractError } from "../utils/tool-contract.js";
 import { normalizeNativeAssistantResult } from "../utils/assistant-output";
 import { normalizeProviderUsage } from "../utils/usage";
 import type { Provider } from "./provider";
@@ -638,6 +638,7 @@ function parseJsonStreamEvent(line: string): ProviderStreamEvent | null {
     throw new ToolContractError("stream_invalid_json", line);
   }
 
+  rejectToolContractError(parsed);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof parsed.type !== "string") {
     throw new ToolContractError("stream_invalid_event", parsed);
   }
@@ -725,6 +726,7 @@ function tryParseJsonContract(stdout: string): JsonContract {
   let value: unknown;
   try { value = JSON.parse(stdout.trim()); }
   catch { throw new ToolContractError("contract_invalid_json", stdout); }
+  rejectToolContractError(value);
   return normalizeContract(value);
 }
 

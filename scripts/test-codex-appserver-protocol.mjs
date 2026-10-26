@@ -138,5 +138,5 @@ protocolTest('outer text example cannot become execution; explicit top-level con
 });
 
 for(const scenario of ['missing-id','unoffered','alias-name','malformed-arguments'])protocolTest('invalid native delegated call fails without execution: '+scenario,async()=>{
- const result=await run(scenario);assert.equal(result.code,1);assert.equal(result.stdout,'');assert.match(result.stderr,/Provider tool contract rejected/);
+ const result=await run(scenario);assert.equal(result.code,0);assert.equal(JSON.parse(result.stdout).error.type,'provider_tool_contract_invalid');assert.equal(JSON.parse(result.stdout).error.retryable,true);
 });
