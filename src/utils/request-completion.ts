@@ -31,7 +31,7 @@ export function markStreamToken(reply: FastifyReply): void {
 
 export function failChatStream(reply: FastifyReply, errorType = "upstream_stream_failed"): void {
   const state = streams.get(reply.request);
-  if (state) state.errorType ??= errorType;
+  if (state && (!state.errorType || (state.errorType === "upstream_stream_failed" && errorType === "provider_tool_contract_invalid"))) state.errorType = errorType;
 }
 
 export function recordExecution(reply: FastifyReply, receipt: ExecutionReceipt): void {

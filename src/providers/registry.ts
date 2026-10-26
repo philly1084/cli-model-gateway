@@ -4,6 +4,7 @@ import { setTimeout as retryDelay } from "node:timers/promises";
 import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
 import { ExecutionPolicy } from "../utils/execution-policy";
 import { RequestCapabilityError, requestRequiresTools } from "../utils/request-capability.js";
+import { ToolContractError } from "../utils/tool-contract.js";
 import type {
   AutoRouterBenchmarkMeasurement,
   AutoRouterBenchmarkPromptKind,
@@ -960,7 +961,7 @@ export class ProviderRegistry {
       }
     }
 
-    if (attempted.length <= 1 || lastError instanceof RequestCapabilityError) {
+    if (attempted.length <= 1 || lastError instanceof RequestCapabilityError || lastError instanceof ToolContractError) {
       throw lastError instanceof Error
         ? lastError
         : new Error("Model execution failed with an unknown provider error.");

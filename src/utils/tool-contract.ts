@@ -4,12 +4,53 @@ import type { ProviderToolCall, UnifiedRequest, ProviderResult, ChatMessage } fr
 /** Protocol failures contain evidence hashes, never model arguments or credentials. */
 export class ToolContractError extends Error {
   readonly code = "provider_tool_contract_invalid";
+  readonly retryable = true;
   readonly evidenceSha256: string;
   constructor(readonly issue: string, evidence: unknown) {
     super(`Provider tool contract rejected: ${issue}.`);
     this.name = "ToolContractError";
     this.evidenceSha256 = createHash("sha256").update(JSON.stringify(evidence) ?? "undefined").digest("hex");
   }
+}
+
+export function toolContractErrorPayload(error: ToolContractError) {
+  return { error: { message: error.message, type: error.code, code: error.issue, param: null, retryable: error.retryable } };
+}
+
+/** Decode only the bridge's sanitized contract failure, never its upstream message. */
+export function rejectToolContractError(value: unknown): void {
+  if (!value || typeof value !== "object") return;
+  const error = (value as { error?: unknown }).error;
+  if (!error || typeof error !== "object") return;
+  const record = error as Record<string, unknown>;
+  if (record.type === "provider_tool_contract_invalid" && typeof record.code === "string" && /^[a-z_]{1,80}$/.test(record.code)) {
+    throw new ToolContractError(record.code, record.code);
+  }
+}
+
+/** Convert custom free text only when the offered schema identifies one string field. */
+export function customToolInputArguments(input: unknown, schema: unknown): string {
+  if (typeof input !== "string") throw new ToolContractError("custom_tool_input_unmappable", typeof input);
+  if (Buffer.byteLength(input) > 262144) throw new ToolContractError("arguments_missing_or_oversized", input.length);
+  let parsed: unknown;
+  try { parsed = JSON.parse(input); } catch { /* Free text requires an unambiguous schema. */ }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return strictToolArguments(input);
+  const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+  if (!object(schema) || schema.type !== "object" || !object(schema.properties)) {
+    throw new ToolContractError("custom_tool_input_unmappable", input.length);
+  }
+  const properties = schema.properties;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const isStringField = (key: unknown): key is string => typeof key === "string" && Object.hasOwn(properties, key) && object(properties[key]) && properties[key].type === "string";
+  const keys = Object.keys(properties);
+  const field = required.length === 1 && isStringField(required[0]) ? required[0]
+    : keys.length === 1 && isStringField(keys[0]) ? keys[0] : undefined;
+  if (field === undefined) throw new ToolContractError("custom_tool_input_unmappable", input.length);
+  const maxLength = (properties[field] as Record<string, unknown>).maxLength;
+  if (typeof maxLength === "number" && Array.from(input).length > maxLength) {
+    throw new ToolContractError("custom_tool_input_too_long", input.length);
+  }
+  return strictToolArguments(JSON.stringify({ [field]: input }));
 }
 
 export function strictToolArguments(value: unknown): string {

@@ -1,6 +1,6 @@
 import { ContentNormalizer, normalizeContent, normalizeFinishReason, completeUsage, stripProviderFields, gatewayError } from "../utils/output-normalization.js";
 import { UpstreamError } from "../utils/upstream-error.js";
-import { strictToolCalls, migrateToolHistory } from "../utils/tool-contract.js";
+import { strictToolCalls, migrateToolHistory, ToolContractError, toolContractErrorPayload } from "../utils/tool-contract.js";
 import { registerEmbeddingsRoutes } from "./embeddings.js";
 import type { EmbeddingsConfig } from "../types.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
@@ -1163,7 +1163,7 @@ export const openAiRoutes: FastifyPluginAsync<OpenAiRoutesOptions> = async (
           await writeResponseStreamEvent({
             type: "error",
             object: "error",
-            error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof ToolContractError ? toolContractErrorPayload(error) : { error: error instanceof Error ? error.message : String(error) }),
           });
           reply.raw.write("data: [DONE]\n\n");
           reply.raw.end();
@@ -1815,11 +1815,11 @@ async function handleChatCompletionsRequest(
   } catch (error) {
     if (isStream && !reply.raw.headersSent && !(error instanceof UpstreamError) && !(error instanceof RequestCapabilityError) && registry.canStreamModel(body.model)) startSseStream(reply);
     if (isStream && reply.raw.headersSent) {
-      failChatStream(reply);
+      failChatStream(reply, error instanceof ToolContractError ? error.code : "upstream_stream_failed");
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         try {
           await writeSseData(reply, {
-            ...gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError ? error.code : "upstream_stream_failed"),
+            ...(error instanceof ToolContractError ? toolContractErrorPayload(error) : gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError ? error.code : "upstream_stream_failed")),
           });
           reply.raw.write("data: [DONE]\n\n");
         reply.raw.end();
@@ -2348,6 +2348,7 @@ function sendOpenAiError(
 }
 
 function handleModelError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof ToolContractError) return reply.code(502).send(toolContractErrorPayload(error));
   if (error instanceof UpstreamError) {
     const status = error.code === "auth" ? 401 : error.code === "model_unavailable" ? 404
       : error.code === "rate_limited" ? 429 : error.code === "capacity_exhausted" ? 503 : 502;
