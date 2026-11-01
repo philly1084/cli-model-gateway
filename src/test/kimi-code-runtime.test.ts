@@ -63,7 +63,7 @@ for (const mode of ["eol-out", "eol-err", "exit"]) test(`Kimi fails fast on ${mo
 test("Kimi image keeps gateway on Node 20 and installs a pinned standalone Node 22 CLI", () => {
   const docker = readFileSync("Dockerfile", "utf8");
   assert.match(docker, /FROM node:22-bookworm-slim AS kimi-code/);
-  assert.match(docker, /ARG KIMI_CODE_VERSION=2\.3\.0/);
+  assert.match(docker, /ARG KIMI_CODE_VERSION=2\.4\.1/);
   assert.match(docker, /--omit=optional --ignore-scripts @moonshot-ai\/kimi-code@\$\{KIMI_CODE_VERSION\}/);
   assert.match(docker, /node:20-bookworm-slim AS runtime/);
   assert.match(docker, /exec \/opt\/node22\/bin\/node \/opt\/kimi-code\/node_modules\/@moonshot-ai\/kimi-code\/dist\/main.mjs "\$@"/);
