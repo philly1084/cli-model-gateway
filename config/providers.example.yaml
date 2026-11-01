@@ -686,7 +686,7 @@ providers:
           - deepseek-v4-flash
           - deepseek-v4-pro
       - id: deepseek-v4-flash
-        providerModel: deepseek-v4-flash
+        providerModel: deepseek-flash
         description: Legacy selector now served by DeepSeek-V4.1-Flash
         fallbackModels:
           - deepseek-v4-pro
