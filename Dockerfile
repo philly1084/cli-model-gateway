@@ -11,7 +11,7 @@ RUN npm ci
 RUN npm run build
 
 FROM node:22-bookworm-slim AS kimi-code
-ARG KIMI_CODE_VERSION=2.3.0
+ARG KIMI_CODE_VERSION=2.4.1
 RUN npm install --prefix /opt/kimi-code --omit=optional --ignore-scripts @moonshot-ai/kimi-code@${KIMI_CODE_VERSION}
 
 FROM --platform=$TARGETPLATFORM node:20-bookworm-slim AS runtime
@@ -19,7 +19,7 @@ FROM --platform=$TARGETPLATFORM node:20-bookworm-slim AS runtime
 ARG TARGETARCH
 ARG SOPS_VERSION=3.13.3
 ARG AGE_VERSION=1.3.2
-ARG EXTRA_NPM_GLOBAL_PACKAGES="@google/gemini-cli@0.46.0 @openai/codex@0.144.1 opencode-ai@1.17.7 @xai-official/grok@0.2.93"
+ARG EXTRA_NPM_GLOBAL_PACKAGES="@google/gemini-cli@0.66.0 @openai/codex@0.166.0 opencode-ai@1.19.5 @xai-official/grok@1.0.70"
 
 WORKDIR /app
 ENV NODE_ENV=production
