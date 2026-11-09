@@ -1,0 +1,272 @@
+{
+  "type": "gateway.exact-fingerprint-dispositions/v1",
+  "ownerAuthorization": {
+    "source": "Owner approval reported in the active session",
+    "card": "t3550s14472",
+    "reportedAt": "2026-11-08 20:51 America/Halifax",
+    "scope": "Only the23 exact reviewed historical placeholder findings; all other scanning remains active"
+  },
+  "proposalSha256": "d54876dcb7ffcaab02dc1c5e61af933ef42b442f781b7b119f40b67cf64f340c",
+  "entries": [
+    {
+      "fingerprint": "1720ed351f4a22e947babddd31e8f36780fc4501:README.md:curl-auth-header:415",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "1720ed351f4a22e947babddd31e8f36780fc4501",
+      "startLine": 415,
+      "endLine": 416,
+      "blobSha256": "7d893919f377d6c56f458720145d11d0ae758b6075d8503389b0a7471e3f2b91",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "37646814bc2a30e13f34222d4dea2b76034e3661:README.md:curl-auth-header:401",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "37646814bc2a30e13f34222d4dea2b76034e3661",
+      "startLine": 401,
+      "endLine": 402,
+      "blobSha256": "96fe88f8d0cbe9919d414b97b9b92526b572f3e863ec89c030212384a6d39abc",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "37646814bc2a30e13f34222d4dea2b76034e3661:README.md:curl-auth-header:408",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "37646814bc2a30e13f34222d4dea2b76034e3661",
+      "startLine": 408,
+      "endLine": 409,
+      "blobSha256": "96fe88f8d0cbe9919d414b97b9b92526b572f3e863ec89c030212384a6d39abc",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:181",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "77e9e0e13db9d4ca90270ad633288ca133ffa10a",
+      "startLine": 181,
+      "endLine": 182,
+      "blobSha256": "575162171785dc19e13337f11cee71ce64bf86678d952c087663049f755e58dc",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:206",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "77e9e0e13db9d4ca90270ad633288ca133ffa10a",
+      "startLine": 206,
+      "endLine": 207,
+      "blobSha256": "575162171785dc19e13337f11cee71ce64bf86678d952c087663049f755e58dc",
+      "classification": "proven-example-placeholder",
+      "reason": "Explicit replacement-instruction literal, alphabetic separator words only, repeated identically across four fenced localhost curl examples; no provider credential syntax. Not classified merely from low entropy."
+    },
+    {
+      "fingerprint": "77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:210",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "77e9e0e13db9d4ca90270ad633288ca133ffa10a",
+      "startLine": 210,
+      "endLine": 211,
+      "blobSha256": "575162171785dc19e13337f11cee71ce64bf86678d952c087663049f755e58dc",
+      "classification": "proven-example-placeholder",
+      "reason": "Explicit replacement-instruction literal, alphabetic separator words only, repeated identically across four fenced localhost curl examples; no provider credential syntax. Not classified merely from low entropy."
+    },
+    {
+      "fingerprint": "77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:216",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "77e9e0e13db9d4ca90270ad633288ca133ffa10a",
+      "startLine": 216,
+      "endLine": 217,
+      "blobSha256": "575162171785dc19e13337f11cee71ce64bf86678d952c087663049f755e58dc",
+      "classification": "proven-example-placeholder",
+      "reason": "Explicit replacement-instruction literal, alphabetic separator words only, repeated identically across four fenced localhost curl examples; no provider credential syntax. Not classified merely from low entropy."
+    },
+    {
+      "fingerprint": "77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:222",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "77e9e0e13db9d4ca90270ad633288ca133ffa10a",
+      "startLine": 222,
+      "endLine": 223,
+      "blobSha256": "575162171785dc19e13337f11cee71ce64bf86678d952c087663049f755e58dc",
+      "classification": "proven-example-placeholder",
+      "reason": "Explicit replacement-instruction literal, alphabetic separator words only, repeated identically across four fenced localhost curl examples; no provider credential syntax. Not classified merely from low entropy."
+    },
+    {
+      "fingerprint": "45195806bbed51307b0053e84271abeb652b7f40:scripts/apply-groq-via-kubectl.sh:curl-auth-header:158",
+      "rule": "curl-auth-header",
+      "file": "scripts/apply-groq-via-kubectl.sh",
+      "commit": "45195806bbed51307b0053e84271abeb652b7f40",
+      "startLine": 158,
+      "endLine": 158,
+      "blobSha256": "f3627d44604d2a43f0a7e0d1ad779fd18dc429aeeffd7a04bb97301a275c8a81",
+      "classification": "proven-example-placeholder",
+      "reason": "Header occurs in an echo-printed example command, not an executed authentication request. Entire header value matches uppercase YOUR_ placeholder notation; no provider credential prefix."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:123",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 123,
+      "endLine": 124,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:130",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 130,
+      "endLine": 131,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:137",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 137,
+      "endLine": 138,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:144",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 144,
+      "endLine": 145,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:151",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 151,
+      "endLine": 152,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:158",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 158,
+      "endLine": 159,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:165",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 165,
+      "endLine": 166,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:172",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "6024aefa7d5464326fe9444de2f07dd85142dc3c",
+      "startLine": 172,
+      "endLine": 173,
+      "blobSha256": "ccf1b28335e75b26b3cf4a7f9d5fc20791177f6511958d53efff56e25423cd53",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "e585f8424185130012b8bde05712a0298f04ab1a:README.md:curl-auth-header:121",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "e585f8424185130012b8bde05712a0298f04ab1a",
+      "startLine": 121,
+      "endLine": 122,
+      "blobSha256": "aeed2c0b6c0a6db27219850408bec0724780ab2a471aec2e43a73dbfcf258a6e",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "e585f8424185130012b8bde05712a0298f04ab1a:README.md:curl-auth-header:128",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "e585f8424185130012b8bde05712a0298f04ab1a",
+      "startLine": 128,
+      "endLine": 129,
+      "blobSha256": "aeed2c0b6c0a6db27219850408bec0724780ab2a471aec2e43a73dbfcf258a6e",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:86",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "94bb8ae54653029e277d133e4dab44559a79e8f7",
+      "startLine": 86,
+      "endLine": 87,
+      "blobSha256": "0480f7fde3ce59ba520e75298e35cf4bdb0451dd434750e57eda89c9a9e06c4b",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:93",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "94bb8ae54653029e277d133e4dab44559a79e8f7",
+      "startLine": 93,
+      "endLine": 94,
+      "blobSha256": "0480f7fde3ce59ba520e75298e35cf4bdb0451dd434750e57eda89c9a9e06c4b",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:100",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "94bb8ae54653029e277d133e4dab44559a79e8f7",
+      "startLine": 100,
+      "endLine": 101,
+      "blobSha256": "0480f7fde3ce59ba520e75298e35cf4bdb0451dd434750e57eda89c9a9e06c4b",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    },
+    {
+      "fingerprint": "94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:107",
+      "rule": "curl-auth-header",
+      "file": "README.md",
+      "commit": "94bb8ae54653029e277d133e4dab44559a79e8f7",
+      "startLine": 107,
+      "endLine": 108,
+      "blobSha256": "0480f7fde3ce59ba520e75298e35cf4bdb0451dd434750e57eda89c9a9e06c4b",
+      "classification": "proven-example-placeholder",
+      "reason": "Existing audit: fixed-vocabulary explicit placeholder in fenced README example."
+    }
+  ],
+  "rulesUnchanged": true,
+  "historyScanRequired": true,
+  "stagedAndProposedDiffScansRequired": true,
+  "negativeUnmatchedFindingProofRequired": true,
+  "credentialValuesIncluded": false,
+  "credentialRotationPerformed": false,
+  "historyRewritten": false
+}

@@ -1,0 +1,26 @@
+# Exact historical example findings authorized by owner disposition t3550s14472.
+# Rationale and immutable blob identities: docs/security/gitleaks-dispositions-20261108.json
+# No rule/path patterns or future findings are excluded.
+1720ed351f4a22e947babddd31e8f36780fc4501:README.md:curl-auth-header:415
+37646814bc2a30e13f34222d4dea2b76034e3661:README.md:curl-auth-header:401
+37646814bc2a30e13f34222d4dea2b76034e3661:README.md:curl-auth-header:408
+45195806bbed51307b0053e84271abeb652b7f40:scripts/apply-groq-via-kubectl.sh:curl-auth-header:158
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:123
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:130
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:137
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:144
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:151
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:158
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:165
+6024aefa7d5464326fe9444de2f07dd85142dc3c:README.md:curl-auth-header:172
+77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:181
+77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:206
+77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:210
+77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:216
+77e9e0e13db9d4ca90270ad633288ca133ffa10a:README.md:curl-auth-header:222
+94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:100
+94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:107
+94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:86
+94bb8ae54653029e277d133e4dab44559a79e8f7:README.md:curl-auth-header:93
+e585f8424185130012b8bde05712a0298f04ab1a:README.md:curl-auth-header:121
+e585f8424185130012b8bde05712a0298f04ab1a:README.md:curl-auth-header:128
