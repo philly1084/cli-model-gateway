@@ -1,3 +1,4 @@
+import { imageInput } from "../utils/image-input.js";
 import { ContentNormalizer, normalizeContent, normalizeFinishReason, completeUsage, stripProviderFields, gatewayError } from "../utils/output-normalization.js";
 import { UpstreamError } from "../utils/upstream-error.js";
 import { strictToolCalls, migrateToolHistory, ToolContractError, toolContractErrorPayload } from "../utils/tool-contract.js";
@@ -1978,6 +1979,7 @@ export function normalizeChatMessages(raw: unknown[]): ChatMessage[] {
       continue;
     }
 
+    const inputImages = imageInput(record.content, role);
     const content = normalizeMessageContentForRole(
       role,
       record.content,
@@ -1995,6 +1997,7 @@ export function normalizeChatMessages(raw: unknown[]): ChatMessage[] {
     const message: ChatMessage = {
       role,
       content,
+      ...(inputImages.length ? { inputImages } : {}),
       ...(role === "assistant" && hasToolContext(record.tool_calls ?? record.tool_call ?? record.function_call) ? {toolCalls: normalizeToolCallContext(record.tool_calls ?? record.tool_call ?? record.function_call)} : {}),
     };
     if (typeof record.name === "string") {

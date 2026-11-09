@@ -1,3 +1,4 @@
+import { imageRequest, hasImageInput } from "../utils/image-input.js";
 import { buildReasoningEffortReceipt, normalizeModelReasoningEffort, resolveReasoningEffort } from "../utils/reasoning.js";
 import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
 import { setTimeout as retryDelay } from "node:timers/promises";
@@ -773,6 +774,7 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): Promise<ProviderResult> {
+    request = imageRequest(request, this.models.get(modelId)?.provider.id);
     const execution = new ExecutionPolicy({ ...request, model: modelId });
     let success = false;
     try { execution.check(); const result = await execution.wait(this.runModelWithin(modelId, { ...request, execution, signal: execution.signal })); success = true; return result; }
@@ -1162,6 +1164,7 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): AsyncIterable<ProviderStreamEvent> {
+    if (hasImageInput(request.messages)) throw Error("IMAGE_STREAM_UNSUPPORTED");
     const execution = new ExecutionPolicy({ ...request, model: modelId });
     let success = false, completed = false;
     const iterator = this.runModelStreamWithin(modelId, { ...request, execution, signal: execution.signal })[Symbol.asyncIterator]();

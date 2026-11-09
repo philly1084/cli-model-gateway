@@ -30,6 +30,7 @@ export interface RemoteReasoningEffortReceipt {
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  inputImages?: import("./utils/image-input.js").InputImage[];
   phase?: AssistantPhase;
   name?: string;
   tool_call_id?: string;

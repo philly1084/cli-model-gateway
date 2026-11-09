@@ -1,3 +1,4 @@
+import { hasImageInput, IMAGE_INPUT_FLAG } from "../utils/image-input.js";
 import { confirmedReasoningEffort } from "../utils/reasoning.js";
 import { requestVaultProvider, type VaultRequestIdentity } from './vault-transport.js';
 import { readOutputLimit, copyChatOutputLimit } from "../utils/output-limit.js";
@@ -141,6 +142,7 @@ export class OpenAiCompatibleProvider implements Provider {
     }
 
     const providerModel = modelConfig.providerModel || request.providerModel;
+    if (hasImageInput(request.messages) && (process.env[IMAGE_INPUT_FLAG] !== "1" || this.id !== "kimi-code-api" || !isKimiCodeApiBaseUrl(this.config.baseUrl))) throw Error("IMAGE_ROUTE_UNSUPPORTED");
     if (request.requestKind === "images_generations") {
       if (this.config.credentialBroker) throw new RequestCapabilityError('Vault provider image transport is not configured.');
       return await this.runImageGeneration(providerModel, request);
@@ -826,7 +828,10 @@ function buildAnthropicMessages(
 
     out.push({
       role: "user",
-      content: message.content,
+      content: message.inputImages?.length ? [
+        ...(message.content ? [{ type: "text", text: message.content }] : []),
+        ...message.inputImages.map(image => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+      ] : message.content,
     });
   }
 
