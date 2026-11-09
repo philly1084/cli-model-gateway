@@ -20,7 +20,7 @@ import { REMOTE_AGENT_HANDOFF_VERSION } from "./jobs/agent-handoff-store";
 import { ProviderRegistry } from "./providers/registry";
 import { LruMap } from "./utils/lru-map";
 import { makeId } from "./utils/ids";
-import { installRequestCompletionLogging } from "./utils/request-completion.js";
+import { installRequestCompletionLogging, recordProviderFailure } from "./utils/request-completion.js";
 import { metrics, trackRequest } from "./metrics";
 
 // Rate limit configuration constants
@@ -276,8 +276,7 @@ export function buildServer(
   });
 
   app.setErrorHandler((error, request, reply) => {
-    const requestId = request.headers["x-request-id"];
-    request.log.error({ error, requestId }, "Request error");
+    recordProviderFailure(reply, error);
     if (reply.sent) {
       return;
     }

@@ -168,7 +168,7 @@ for (const streamed of [false, true]) for (const status of [401, 403, 404, 429, 
       assert.equal(reply.statusCode, 200);
       assert.equal(streamed ? brainText(reply.body) : reply.json().choices[0].message.content, "fallback answer");
       assert.deepEqual(seen, status === 401 || status === 403 ? ["chosen"] : status === 429 || status === 503 ? ["chosen", "chosen", "same-provider", "same-provider"] : ["chosen", "same-provider"]);
-      const failure = f.logs.find(log => log.msg === "Upstream request failed");
+      const failure = f.logs.find(log => log.type === "gateway.upstream.failure");
       assert.equal(failure?.upstreamStatus, status);
       assert.equal(failure?.errorCode, status < 404 ? "auth" : status === 404 ? "model_unavailable" : status === 429 ? "rate_limited" : "capacity_exhausted");
       assert.doesNotMatch(JSON.stringify(f.logs), /sensitive upstream text|synthetic/);
@@ -218,7 +218,7 @@ test("stream retry/fallback obeys attempt budgets and records one terminal recei
 test("stream transport loss stays uncertain and is not replayed", async () => {
   let count = 0;
   const f = await fixture((async () => { count++; throw TypeError("mock connection lost"); }) as typeof fetch);
-  try { const reply = await f.inject(); assert.match(reply.body, /"error":/); assert.match(reply.body, /data: \[DONE\]\n\n$/); assert.equal(count, 1); assert.equal(f.fallbackCalls(), 0); }
+  try { const reply = await f.inject(); assert.equal(reply.statusCode, 502); assert.equal(reply.json().error.code, "upstream_transport"); assert.equal(count, 1); assert.equal(f.fallbackCalls(), 0); }
   finally { await f.close(); }
 });
 
@@ -233,6 +233,6 @@ for (const ending of ["", sse({ choices: [{ delta: {}, finish_reason: "error" }]
 
 test("length finish remains visible to Brain rather than becoming a false success", async () => {
   const f = await fixture((async () => stream(sse(chunk("truncated", "length")) + sse("[DONE]"))) as typeof fetch);
-  try { assert.match((await f.inject()).body, /"finish_reason":"length"/); assert.equal(f.fallbackCalls(), 0); }
+  try { assert.match((await f.inject()).body, /"code":"output_truncated"/); assert.equal(f.fallbackCalls(), 0); }
   finally { await f.close(); }
 });

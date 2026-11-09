@@ -1,5 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ExecutionReceipt } from "./execution-policy.js";
+import { ProviderFailure, safeFinishReason } from "./provider-failure.js";
+import { UpstreamError } from "./upstream-error.js";
+import { RequestCapabilityError } from "./request-capability.js";
+import { ToolContractError } from "./tool-contract.js";
 
 interface StreamOutcome {
   requestedModel: string;
@@ -10,6 +14,19 @@ interface StreamOutcome {
 }
 
 const streams = new WeakMap<FastifyRequest, StreamOutcome>();
+const failures = new WeakMap<FastifyRequest, Record<string, unknown>>();
+const routes = new WeakMap<FastifyRequest, Record<string, string>>();
+const identifier = (value: unknown) => typeof value === "string" && /^[\w./:-]{1,128}$/.test(value) ? value : "unknown";
+
+export function recordProviderFailure(reply: FastifyReply, error: unknown): void {
+  const fields = error instanceof ProviderFailure ? { errorClass: error.name, code: error.code,
+    finish_reason: error.finishReason, prompt_tokens: error.promptTokens, completion_tokens: error.completionTokens }
+    : error instanceof UpstreamError ? { errorClass: "UpstreamError", code: error.code }
+    : error instanceof RequestCapabilityError ? { errorClass: "RequestCapabilityError", code: "model_capability_mismatch" }
+    : error instanceof ToolContractError ? { errorClass: "ToolContractError", code: "provider_tool_contract_invalid" }
+    : { errorClass: "ProviderError", code: "provider_error" };
+  failures.set(reply.request, fields);
+}
 
 export function trackChatStream(reply: FastifyReply, requestedModel: string): void {
   const state: StreamOutcome = { requestedModel, selectedModel: requestedModel, bytesSent: 0, stage: "before_first_token" };
@@ -35,7 +52,9 @@ export function failChatStream(reply: FastifyReply, errorType = "upstream_stream
 }
 
 export function recordExecution(reply: FastifyReply, receipt: ExecutionReceipt): void {
-  if (receipt.type === "gateway.upstream.failure") reply.log.warn(receipt, "Upstream request failed");
+  if (receipt.type === "gateway.execution.attempt") routes.set(reply.request, {
+    operationId: identifier(receipt.operationId), provider: identifier(receipt.providerId), model: identifier(receipt.model),
+  });
   const state = streams.get(reply.request);
   if (!state) return;
   if (typeof receipt.model === "string") state.selectedModel = receipt.model;
@@ -58,8 +77,14 @@ export function installRequestCompletionLogging(app: FastifyInstance): void {
       responseTime: latencyMs, latencyMs, ...state,
       ...(state ? { outcome: state.errorType ? "stream_failed" : "ok" } : {}),
     };
-    if (state?.errorType) request.log.error(fields, "request completed");
-    else request.log.info(fields, "request completed");
+    if (reply.raw.statusCode >= 400 || state?.errorType || failures.has(request)) {
+      const body = request.body as { model?: unknown; gateway_policy?: { operationId?: unknown } } | undefined;
+      request.log.error({ ...fields, type: "gateway.request.failure/v1", reqId: identifier(request.id),
+        operationId: identifier(body?.gateway_policy?.operationId), provider: "unknown", model: identifier(body?.model),
+        ...routes.get(request), finish_reason: safeFinishReason(undefined),
+        errorClass: "RequestError", code: "unknown", ...failures.get(request),
+        httpStatus: reply.raw.statusCode, latencyMs }, "request completed");
+    } else request.log.info(fields, "request completed");
   };
   app.addHook("onRequest", async (request, reply) => {
     started.set(request, Date.now());

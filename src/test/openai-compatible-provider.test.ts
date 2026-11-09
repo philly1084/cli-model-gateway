@@ -491,7 +491,7 @@ test("OpenAiCompatibleProvider rejects malformed DeepSeek thinking tool continua
         ],
         metadata: { thinking: { type: "enabled" } },
       }),
-      /requires reasoning_content/i,
+      /reasoning_content_required/i,
     );
     assert.equal(providerCalled, false);
   } finally {

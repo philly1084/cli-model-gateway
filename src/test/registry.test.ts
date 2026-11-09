@@ -515,7 +515,7 @@ test("registry skips text-only fallbacks for image generation requests", async (
           prompt: "A lighthouse.",
         },
       }),
-      /Model execution failed after fallback chain/i,
+      { code: "empty_completion", httpStatus: 502 },
     );
     assert.deepEqual(requestedProviderModels, ["empty-image-model", "working-image-model"]);
   } finally {
