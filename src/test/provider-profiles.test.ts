@@ -397,8 +397,8 @@ test("profile first-token deadline cancels a stalled mock upstream", async () =>
   try {
     const response = await f.post({ stream: true });
     assert.equal(cancelled, true);
-    assert.equal(events(response.body).filter(event => event.error).length, 1);
-    assert.match(response.body, /data: \[DONE\]\n\n$/);
+    assert.equal(response.statusCode, 504);
+    assert.equal(response.json().error.code, "upstream_timeout");
   } finally { await f.close(); globalThis.setTimeout = original; }
 });
 

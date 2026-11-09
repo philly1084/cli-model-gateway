@@ -24,6 +24,7 @@ import { extractTextContent } from "../utils/prompt";
 import type { Provider } from "./provider";
 import { normalizeProviderUsage } from "../utils/usage";
 import { UpstreamError, hasUpstreamError } from "../utils/upstream-error.js";
+import { ProviderFailure, rejectTruncatedPayload } from "../utils/provider-failure.js";
 
 const DEFAULT_TIMEOUT_MS = 240000;
 const DEFAULT_KIMI_CODE_MAX_TOKENS = 8192;
@@ -184,9 +185,7 @@ export class OpenAiCompatibleProvider implements Provider {
       );
     }
     if (shouldRejectMalformedDeepSeekToolContinuation(this.config.baseUrl, request)) {
-      throw new Error(
-        `Model ${providerModel} requires reasoning_content on assistant tool-call messages while thinking mode is enabled.`,
-      );
+      throw new ProviderFailure("reasoning_content_required");
     }
     const deepSeekProvider = isDeepSeekBaseUrl(this.config.baseUrl);
     const body: Record<string, unknown> = {
@@ -317,6 +316,10 @@ export class OpenAiCompatibleProvider implements Provider {
         if (event.type === "done") for (const tool of toolEvents) yield { ...tool, resolvedModel: servedModel, reasoningEffortForwarded, reasoningEffortApplied };
         yield { ...event, resolvedModel: servedModel, reasoningEffortForwarded, reasoningEffortApplied };
       }
+    } catch (error) {
+      if (controller.signal.aborted) throw new ProviderFailure("upstream_timeout", { uncertain: true });
+      if (error instanceof TypeError || (error instanceof Error && error.name === "AbortError")) throw new ProviderFailure("upstream_transport", { uncertain: true });
+      throw error;
     } finally { clearTimeout(firstTokenTimer); clearTimeout(timer); controller.abort(); }
   }
 
@@ -656,6 +659,7 @@ function buildApiMessages(
 
 
 function parseChatCompletionResponse(payload: unknown): ProviderResult {
+  rejectTruncatedPayload(payload);
   if (!payload || typeof payload !== "object") {
     throw new Error("Provider API returned a non-object response.");
   }
@@ -842,6 +846,7 @@ function buildAnthropicMessages(
 }
 
 function parseAnthropicMessagesResponse(payload: unknown): ProviderResult {
+  rejectTruncatedPayload(payload);
   if (!payload || typeof payload !== "object") {
     throw new Error("Provider API returned a non-object response.");
   }
@@ -1161,10 +1166,8 @@ async function requestProviderJson(
 
     return payload;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw Object.assign(new Error(`Provider API request timed out after ${timeoutMs}ms.`), { uncertain: true });
-    }
-    if (!responseComplete && error instanceof Error) Object.assign(error, { uncertain: true });
+    if (controller.signal.aborted) throw new ProviderFailure("upstream_timeout", { uncertain: true });
+    if (!responseComplete) throw new ProviderFailure("upstream_transport", { uncertain: true });
     throw error;
   } finally {
     clearTimeout(timer);

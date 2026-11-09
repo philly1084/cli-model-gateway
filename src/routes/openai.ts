@@ -5,7 +5,8 @@ import { strictToolCalls, migrateToolHistory, ToolContractError, toolContractErr
 import { registerEmbeddingsRoutes } from "./embeddings.js";
 import type { EmbeddingsConfig } from "../types.js";
 import type { ExecutionReceipt } from "../utils/execution-policy";
-import { trackChatStream, markStreamToken, failChatStream, recordExecution } from "../utils/request-completion.js";
+import { trackChatStream, markStreamToken, failChatStream, recordExecution, recordProviderFailure } from "../utils/request-completion.js";
+import { ProviderFailure } from "../utils/provider-failure.js";
 import { EXECUTION_POLICY_VERSION } from "../utils/execution-policy";
 import { RequestCapabilityError } from "../utils/request-capability.js";
 import { createHash } from "node:crypto";
@@ -1814,13 +1815,14 @@ async function handleChatCompletionsRequest(
       usage,
     };
   } catch (error) {
-    if (isStream && !reply.raw.headersSent && !(error instanceof UpstreamError) && !(error instanceof RequestCapabilityError) && registry.canStreamModel(body.model)) startSseStream(reply);
+    recordProviderFailure(reply, error);
+    if (isStream && !reply.raw.headersSent && !(error instanceof UpstreamError) && !(error instanceof ProviderFailure) && !(error instanceof RequestCapabilityError) && registry.canStreamModel(body.model)) startSseStream(reply);
     if (isStream && reply.raw.headersSent) {
       failChatStream(reply, error instanceof ToolContractError ? error.code : "upstream_stream_failed");
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         try {
           await writeSseData(reply, {
-            ...(error instanceof ToolContractError ? toolContractErrorPayload(error) : gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError ? error.code : "upstream_stream_failed")),
+            ...(error instanceof ToolContractError ? toolContractErrorPayload(error) : gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError || error instanceof ProviderFailure ? error.code : "upstream_stream_failed")),
           });
           reply.raw.write("data: [DONE]\n\n");
         reply.raw.end();
@@ -2351,6 +2353,8 @@ function sendOpenAiError(
 }
 
 function handleModelError(reply: FastifyReply, error: unknown): FastifyReply {
+  recordProviderFailure(reply, error);
+  if (error instanceof ProviderFailure) return sendOpenAiError(reply, error.httpStatus, error.message, "provider_error", error.code);
   if (error instanceof ToolContractError) return reply.code(502).send(toolContractErrorPayload(error));
   if (error instanceof UpstreamError) {
     const status = error.code === "auth" ? 401 : error.code === "model_unavailable" ? 404
@@ -2364,9 +2368,7 @@ function handleModelError(reply: FastifyReply, error: unknown): FastifyReply {
     return sendOpenAiError(reply, 404, error.message, "invalid_model");
   }
 
-  const message =
-    error instanceof Error ? error.message : "Unexpected provider execution error.";
-  return sendOpenAiError(reply, 500, message, "provider_error");
+  return sendOpenAiError(reply, 500, "Unexpected provider execution error.", "provider_error", "provider_error");
 }
 
 type OpenAiImageItem = {

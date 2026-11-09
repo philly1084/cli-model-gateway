@@ -6,6 +6,7 @@ import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
 import { ExecutionPolicy } from "../utils/execution-policy";
 import { RequestCapabilityError, requestRequiresTools } from "../utils/request-capability.js";
 import { ToolContractError } from "../utils/tool-contract.js";
+import { ProviderFailure, invalidCompletion } from "../utils/provider-failure.js";
 import type {
   AutoRouterBenchmarkMeasurement,
   AutoRouterBenchmarkPromptKind,
@@ -906,7 +907,7 @@ export class ProviderRegistry {
         request.execution?.check();
         const result = normalizeNativeAssistantResult(rawResult);
         if (isInvalidProviderResult(result, request)) {
-          throw new Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
+          throw invalidCompletion(result);
         }
         this.modelStats.recordSuccess({
           modelId: binding.modelId,
@@ -963,7 +964,7 @@ export class ProviderRegistry {
       }
     }
 
-    if (attempted.length <= 1 || lastError instanceof RequestCapabilityError || lastError instanceof ToolContractError) {
+    if (attempted.length <= 1 || lastError instanceof RequestCapabilityError || lastError instanceof ToolContractError || lastError instanceof ProviderFailure) {
       throw lastError instanceof Error
         ? lastError
         : new Error("Model execution failed with an unknown provider error.");
@@ -1220,6 +1221,7 @@ export class ProviderRegistry {
             for await (const event of binding.provider.runStream(providerRequest)) {
               request.execution?.check();
               if (event.type === "done") {
+                if (event.finishReason === "length") throw new ProviderFailure("output_truncated", { finishReason: "length", usage: event.usage });
                 if (event.finishReason === "error") throw Error("Provider terminal reported failure");
                 completed = true;
               }
@@ -1230,7 +1232,7 @@ export class ProviderRegistry {
           } else {
             const result = normalizeNativeAssistantResult(await binding.provider.run(providerRequest));
             request.execution?.check();
-            if (isInvalidProviderResult(result, request)) throw Error(buildInvalidProviderResultError(binding.provider.id, binding.modelId, result));
+            if (isInvalidProviderResult(result, request)) throw invalidCompletion(result);
             emitted = true;
             for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, reasoningEffortReceipt: reasoningReceipt(request, binding, result), resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
             yield { type: "done", ...result, reasoningEffortReceipt: reasoningReceipt(request, binding, result), resolvedModel: result.resolvedModel ?? binding.modelId, servedModel: binding.modelId, normalization: resolveProviderProfile(binding.provider.config)?.normalization };
@@ -1729,7 +1731,7 @@ function isInvalidProviderResult(
   if (isImageGenerationRequest(request)) {
     return isBlankImageGenerationResult(result) || isSyntheticFailureProviderResult(result);
   }
-
+  if (result.finishReason === "length") return true;
   return (result.finishReason !== "content_filter" && isBlankProviderResult(result)) || isSyntheticFailureProviderResult(result);
 }
 
@@ -1816,39 +1818,6 @@ function isSyntheticFailureProviderResult(result: ProviderResult): boolean {
   return isSyntheticAssistantOutputText(result.outputText);
 }
 
-function buildInvalidProviderResultError(
-  providerId: string,
-  modelId: string,
-  result: ProviderResult,
-): string {
-  const raw = result.raw && typeof result.raw === "object"
-    ? (result.raw as Record<string, unknown>)
-    : undefined;
-  const choice =
-    raw && Array.isArray(raw.choices) && raw.choices[0] && typeof raw.choices[0] === "object"
-      ? (raw.choices[0] as Record<string, unknown>)
-      : undefined;
-  const responseId = raw && typeof raw.id === "string" ? raw.id : undefined;
-  const providerFinishReason =
-    choice && typeof choice.finish_reason === "string" ? choice.finish_reason : undefined;
-
-  const details = [
-    `provider=${providerId}`,
-    `model=${modelId}`,
-    `normalized_finish_reason=${result.finishReason}`,
-    providerFinishReason ? `provider_finish_reason=${providerFinishReason}` : undefined,
-    responseId ? `response_id=${responseId}` : undefined,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" ");
-
-  if (isBlankProviderResult(result)) {
-    return `Provider returned a blank assistant completion. ${details}`.trim();
-  }
-
-  const excerpt = result.outputText.trim().replace(/\s+/g, " ").slice(0, 160);
-  return `Provider returned a synthetic failure assistant completion. ${details} output_excerpt=${JSON.stringify(excerpt)}`.trim();
-}
 
 function requestTextForScoring(
   request: Omit<UnifiedRequest, "model" | "providerModel">,
