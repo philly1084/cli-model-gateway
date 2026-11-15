@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { codexAppServerArgs, prepareToolCatalog, parseToolCallFromRawItem } from "../scripts/codex-appserver-bridge.js";
+import { boundedOpenAiProvider, codexAppServerArgs, prepareToolCatalog, parseToolCallFromRawItem } from "../scripts/codex-appserver-bridge.js";
 
 const originalArgs = ["app-server", "--listen", "stdio://"];
 const toolArgs = [
@@ -55,6 +55,23 @@ const fixtureCatalog = { fetched_at: "ZZTEST", etag: "ZZTEST", client_version: "
   { slug: "ZZTEST", tool_mode: "code_mode_only", base_instructions: "ZZTEST", use_responses_lite: true, nested: { ZZTEST: [1, 2] } },
   { slug: "ZZTEST-fallback", tool_mode: "code_mode", description: "ZZTEST" },
 ] };
+for (const bounded of [false,true]) test(`OpenAI app-server bounds reach actual spawn and thread provider, bounded=${bounded}`,async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"ZZTEST-retry-policy-"));let child:ReturnType<typeof spawn>|undefined;
+  try{
+    const cli=join(dir,process.platform==="win32"?"ZZTEST-codex.cmd":"ZZTEST-codex"),script=join(dir,"ZZTEST-fake.cjs");
+    await writeFile(script,fake);
+    await writeFile(cli,process.platform==="win32"?`@echo off\r\n"${process.execPath}" "%~dp0ZZTEST-fake.cjs" %*\r\n`:`#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`,{mode:0o700});
+    child=spawn(process.execPath,[resolve("dist/scripts/codex-appserver-bridge.js"),"gpt-6-astra"],{env:{...process.env,CODEX_HOME:dir,CODEX_EXECUTABLE:cli,CODEX_APPSERVER_MODEL_PROVIDER:"openai",CODEX_APPSERVER_TIMEOUT_MS:"5000"},stdio:["pipe","pipe","pipe"]});
+    let stderr="";child.stderr?.on("data",v=>{stderr+=v;});child.stdout?.resume();
+    child.stdin?.end(JSON.stringify({messages:[{role:"user",content:"ZZTEST"}],metadata:bounded?{gateway_policy:{operationId:"ZZTEST",maxAttempts:1,maxLatencyMs:5000,allowFallback:false}}:undefined}));
+    const code=await new Promise<number|null>((resolve,reject)=>{child!.on("error",reject);child!.on("close",resolve);});assert.equal(code,0,stderr);
+    const args:string[]=JSON.parse(await readFile(join(dir,"ZZTEST-args.json"),"utf8"));
+    assert.deepEqual(args,codexAppServerArgs(false,undefined,bounded));
+    const starts=(await readFile(join(dir,"ZZTEST-starts.jsonl"),"utf8")).trim().split("\n").map(line=>JSON.parse(line));
+    assert.equal(starts.length,1);assert.equal(starts[0].modelProvider,bounded?boundedOpenAiProvider:"openai");
+    if(bounded)for(const setting of ['request_max_retries=0','stream_max_retries=0','requires_openai_auth=true','supports_websockets=true'])assert.ok(args.includes(`model_providers.${boundedOpenAiProvider}.${setting}`));
+  }finally{child?.kill();await rm(dir,{recursive:true,force:true});}
+});
 for (const catalog of ["missing", "valid", "invalid"] as const) {
 for (const tools of ["omitted", "empty", "dynamic"] as const) {
   const hasTools = tools === "dynamic";
