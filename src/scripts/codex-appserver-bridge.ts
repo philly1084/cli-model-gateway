@@ -70,8 +70,15 @@ interface JsonContract {
   finish_reason: FinishReason;
 }
 
-export function codexAppServerArgs(hasTools: boolean, catalogPath?: string): string[] {
+export const boundedOpenAiProvider = "gateway_bounded_openai";
+export function codexAppServerArgs(hasTools: boolean, catalogPath?: string, boundedOpenAi = false): string[] {
   const args = ["app-server", "--listen", "stdio://"];
+  if (boundedOpenAi) {
+    // Built-in provider IDs are reserved by Codex. Register an ephemeral alias
+    // with the same OpenAI authentication and transport, but no hidden retries.
+    for (const setting of ["name=OpenAI", "wire_api=responses", "requires_openai_auth=true", "supports_websockets=true", "request_max_retries=0", "stream_max_retries=0"])
+      args.push("-c", `model_providers.${boundedOpenAiProvider}.${setting}`);
+  }
   if (hasTools) {
     // Apply before app-server initialization, rather than relying on thread config.
     args.push(
@@ -1516,7 +1523,7 @@ async function run(): Promise<void> {
   const initializeTimeoutMs = parseInitializeTimeoutMs(timeoutMs);
   const startupRequestTimeoutMs = parseStartupRequestTimeoutMs(timeoutMs);
   const imageNoProgressTimeoutMs = parseImageNoProgressTimeoutMs(timeoutMs);
-  const modelProvider = parseModelProvider();
+  const configuredModelProvider = parseModelProvider();
   const chatGptFallbackModel = parseChatGptFallbackModel();
   const startedAt = Date.now();
 
@@ -1528,6 +1535,8 @@ async function run(): Promise<void> {
   }
 
   const request = parseRequest(requestJson);
+  const boundedOpenAi = configuredModelProvider === "openai" && getRequestMetadata(request)?.gateway_policy !== undefined;
+  const modelProvider = boundedOpenAi ? boundedOpenAiProvider : configuredModelProvider;
   const allowedToolNames = extractAllowedToolNames(request);
   const dynamicTools = extractDynamicTools(request);
   const prompt = buildPrompt(request);
@@ -1562,7 +1571,7 @@ async function run(): Promise<void> {
 
     for (const executable of codexExecutableCandidates) {
       childStderr = "";
-      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0, toolCatalog?.path);
+      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0, toolCatalog?.path, boundedOpenAi);
 
       if (appServer.stderr) {
         appServer.stderr.setEncoding("utf8");
@@ -2192,8 +2201,8 @@ async function run(): Promise<void> {
   }
 }
 
-function spawnCodexAppServer(executable: string, hasTools: boolean, catalogPath?: string): ReturnType<typeof spawn> {
-  return spawn(executable, codexAppServerArgs(hasTools, catalogPath), {
+function spawnCodexAppServer(executable: string, hasTools: boolean, catalogPath?: string, boundedOpenAi = false): ReturnType<typeof spawn> {
+  return spawn(executable, codexAppServerArgs(hasTools, catalogPath, boundedOpenAi), {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
     shell: shouldSpawnViaShell(executable),
