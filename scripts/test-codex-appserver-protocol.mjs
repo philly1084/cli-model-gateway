@@ -66,7 +66,7 @@ const scenario = process.env.FAKE_SCENARIO;
 readline.createInterface({input:process.stdin}).on('line', line => {
  const m=JSON.parse(line);
  if(m.method==='initialize') send({id:m.id,result:{}});
- if(m.method==='thread/start') { if(scenario==='alias') { process.stderr.write('MODEL:'+m.params.model+'\\n'); if(m.params.model==='codex-latest') { send({id:m.id,error:{message:'codex-latest not supported for ChatGPT account'}}); return; } } send({id:m.id,result:{thread:{id:'t'}}}); }
+ if(m.method==='thread/start') { if(scenario==='alias') { require('node:fs').appendFileSync(require('node:path').join(__dirname,'model-attempts.txt'),m.params.model+'\\n'); process.stderr.write('MODEL:'+m.params.model+'\\n'); if(m.params.model==='codex-latest') { send({id:m.id,error:{message:'codex-latest not supported for ChatGPT account'}}); return; } } send({id:m.id,result:{thread:{id:'t'}}}); }
  if(m.method==='turn/start') {
   send({id:m.id,result:{turn:{id:'u'}}});
   setTimeout(()=>{
@@ -114,7 +114,7 @@ async function run(scenario, stream = false, metadata) {
  child.stdin.end(JSON.stringify({requestKind:'responses',metadata,messages:[{role:'user',content:'offline protocol test'}],tools:scenario==='text'?[]:[{type:'function',function:{name:'exec_command',parameters:{type:'object'}}}],stream}));
  try {
   const result=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',(code,signal)=>resolve({code,signal}));});
-  return {...result,stdout,stderr,cancelError,elapsed:Date.now()-started};
+  return {...result,stdout,stderr,cancelError,elapsed:Date.now()-started,modelAttempts:scenario==='alias'?readFileSync(join(dir,'model-attempts.txt'),'utf8').trim().split('\n'):[]};
  } finally {clearTimeout(safety);clearTimeout(cancel);killGroup();rmSync(dir,{recursive:true,force:true});}
 }
 
@@ -147,8 +147,8 @@ protocolTest('bridge process cancellation yields no completed response',async()=
 });
 
 protocolTest('bounded policies disable hidden Codex alias fallback; unbounded compatibility remains',async()=>{
- for(const allowFallback of [false,true]) { const r=await run('alias',false,{gateway_policy:{operationId:'alias-fixture',allowFallback,maxAttempts:2,maxLatencyMs:5000}});assert.equal(r.code,1);assert.equal((r.stderr.match(/MODEL:/g)||[]).length,1);assert.equal(r.stdout,''); }
- const legacy=await run('alias');assert.equal(legacy.code,0,legacy.stderr);assert.match(JSON.parse(legacy.stdout).output_text,/alias fixture answer/);
+ for(const allowFallback of [false,true]) { const r=await run('alias',false,{gateway_policy:{operationId:'alias-fixture',allowFallback,maxAttempts:2,maxLatencyMs:5000}});assert.equal(r.code,1);assert.equal(r.modelAttempts.length,1);assert.equal(r.stdout,''); }
+ const legacy=await run('alias');assert.equal(legacy.code,0,legacy.stderr);assert.equal(legacy.modelAttempts.length,2);assert.match(JSON.parse(legacy.stdout).output_text,/alias fixture answer/);
 });
 
 protocolTest('outer text example cannot become execution; explicit top-level contract retains identity',async()=>{

@@ -222,6 +222,8 @@ export class CliProvider implements Provider {
       this.config.responseCommand.input === "prompt_stdin"
         ? buildPromptWithTools(basePrompt, request.tools)
         : basePrompt;
+    const actorPreview = request.metadata?.brain_scene_preview !== undefined;
+    if (actorPreview && (!this.usesCodexAppServerBridge() || this.config.responseCommand.input !== "request_json_stdin")) throw new Error("ACTOR_PREVIEW_TRANSPORT_UNSUPPORTED");
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), "n8n-openai-gateway-"));
     const promptFile = path.join(tmpDir, "prompt.txt");
     const requestFile = path.join(tmpDir, "request.json");
@@ -232,8 +234,6 @@ export class CliProvider implements Provider {
 
     await writeFile(promptFile, prompt, "utf8");
     // Scoped preview bytes travel only on stdin, never through a retained file.
-    const actorPreview = request.metadata?.brain_scene_preview !== undefined;
-    if (actorPreview && (!this.usesCodexAppServerBridge() || this.config.responseCommand.input !== "request_json_stdin")) throw new Error("ACTOR_PREVIEW_TRANSPORT_UNSUPPORTED");
     await writeFile(requestFile, actorPreview ? JSON.stringify({requestId:request.requestId,imagesOmitted:true}) : JSON.stringify(requestPayload, null, 2), "utf8");
 
     const vars = withRuntimeTemplateVars({
