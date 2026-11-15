@@ -4,9 +4,32 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 // The fake executable uses a POSIX shebang. CI runs these checks on Linux.
 const protocolTest = (name, fn) => test(name, { skip: process.platform === 'win32' }, fn);
+
+protocolTest('actor preview reaches the real bridge as one ephemeral app-server image turn without logging image bytes',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'actor-preview-protocol-')),cli=join(dir,'fake-codex');
+ const data=Buffer.from([255,216,255,217]),url='data:image/jpeg;base64,'+data.toString('base64');
+ writeFileSync(cli,`#!/usr/bin/env node
+const readline=require('node:readline'),send=o=>process.stdout.write(JSON.stringify(o)+'\\n');let ephemeral=false,turns=0;
+readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);
+ if(m.method==='initialize')send({id:m.id,result:{}});
+ if(m.method==='thread/start'){ephemeral=m.params.ephemeral===true;send({id:m.id,result:{thread:{id:'t'}}});}
+ if(m.method==='turn/start'){
+  turns++;const images=m.params.input.filter(i=>i.type==='image');
+  if(!ephemeral||turns!==1||images.length!==1||images[0].url!==${JSON.stringify(url)}){send({id:m.id,error:{message:'FIXTURE_INPUT_MISMATCH'}});return;}
+  send({id:m.id,result:{turn:{id:'u'}}});
+  send({method:'item/completed',params:{threadId:'t',turnId:'u',item:{type:'agentMessage',text:'synthetic image received'}}});
+  send({method:'turn/completed',params:{threadId:'t',turn:{id:'u',status:'completed'}}});
+ }});process.stdin.on('end',()=>process.exit(0));`,{mode:0o700});
+ const child=spawn(process.execPath,[resolve('dist/scripts/codex-appserver-bridge.js'),'gpt-6-astra'],{env:{PATH:process.env.PATH,HOME:dir,CODEX_EXECUTABLE:cli,GATEWAY_BRAIN_SCENE_ACTOR_IMAGES:'1',CODEX_APPSERVER_DEBUG_RPC:'1',CODEX_APPSERVER_TIMEOUT_MS:'6000'},stdio:['pipe','pipe','pipe']});
+ let stdout='',stderr='';child.stdout.on('data',d=>stdout+=d);child.stderr.on('data',d=>stderr+=d);const timer=setTimeout(()=>child.kill('SIGKILL'),8000);
+ child.stdin.end(JSON.stringify({requestKind:'chat_completions',metadata:{brain_scene_preview:{version:1,role:'actor',source:'scene_preview',images:[{sha256:createHash('sha256').update(data).digest('hex'),bytes:data.length,mime:'image/jpeg'}]},gateway_policy:{allowFallback:false,maxAttempts:1,maxLatencyMs:6000}},messages:[{role:'user',content:'Synthetic transport fixture',inputImages:[{mediaType:'image/jpeg',data:data.toString('base64')}]}],tools:[]}));
+ try{const code=await new Promise((res,rej)=>{child.on('error',rej);child.on('close',res);});assert.equal(code,0,stderr);assert.equal(JSON.parse(stdout).output_text,'synthetic image received');assert.ok(!stderr.includes(url));assert.ok(!stderr.includes(data.toString('base64')));}
+ finally{clearTimeout(timer);child.kill();rmSync(dir,{recursive:true,force:true});}
+});
 
 protocolTest('Kimi real bridge passes request-scoped generation cap to its child without changing inherited process env', async () => {
  const dir=mkdtempSync(join(tmpdir(),'kimi-output-limit-'));

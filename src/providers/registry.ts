@@ -775,7 +775,7 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): Promise<ProviderResult> {
-    request = imageRequest(request, this.models.get(modelId)?.provider.id);
+    request = imageRequest(request, this.models.get(modelId)?.provider.id, modelId);
     const execution = new ExecutionPolicy({ ...request, model: modelId });
     let success = false;
     try { execution.check(); const result = await execution.wait(this.runModelWithin(modelId, { ...request, execution, signal: execution.signal })); success = true; return result; }
