@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import type { ChatMessage, UnifiedRequest } from "../types.js";
+import { validateActorPreviewMessages } from "./actor-preview-input.js";
 
 export const IMAGE_INPUT_FLAG = "GATEWAY_KIMI_IMAGE_INPUT";
-export type InputImage = { mediaType: "image/jpeg"; data: string };
+export type InputImage = { mediaType: "image/jpeg" | "image/png"; data: string };
 const reject = (code: string): never => { throw Object.assign(new Error(code), { code, statusCode: 400 }); };
 
 /** Data-only media: no URL fetch, filesystem access, source text or credentials. */
@@ -24,8 +25,17 @@ export function imageInput(content: unknown, role: string, enabled = process.env
 export const hasImageInput = (messages: ChatMessage[]) => messages.some(m => Boolean(m.inputImages?.length));
 
 /** The initial supported adapter is the existing configured Kimi API binding. */
-export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerModel">, providerId: string | undefined) {
+export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerModel">, providerId: string | undefined, modelId?: string) {
   if (!hasImageInput(request.messages)) return request;
+  if (request.metadata?.brain_scene_preview !== undefined) {
+    if (providerId !== "codex-cli" || modelId !== "gpt-6-astra" || request.stream || request.requestKind !== "chat_completions") return reject("ACTOR_PREVIEW_ROUTE_UNSUPPORTED");
+    const images = validateActorPreviewMessages(request.messages, request.metadata.brain_scene_preview);
+    const previous = request.metadata.gateway_policy as Record<string, unknown> | undefined;
+    request.receipt?.({type:"gateway.actor_preview_input/v1",requestId:request.requestId,images:images.length,bytes:images.reduce((n,i)=>n+Buffer.byteLength(i.data,"base64"),0),fallback:false});
+    // Raw API messages must not be duplicated in metadata or provider logs.
+    const metadata = { ...request.metadata }; delete metadata.messages;
+    return {...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs === "number"?previous.maxLatencyMs:120000,120000)}}};
+  }
   if (process.env[IMAGE_INPUT_FLAG] !== "1") return reject("IMAGE_INPUT_DISABLED");
   if (providerId !== "kimi-code-api" || request.stream || request.requestKind !== "chat_completions") return reject("IMAGE_ROUTE_UNSUPPORTED");
   const images = request.messages.flatMap(m => m.inputImages ?? []);

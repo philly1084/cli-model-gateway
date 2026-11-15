@@ -1,4 +1,6 @@
 import { strictToolCalls, strictToolArguments, ToolContractError, customToolInputArguments, toolContractErrorPayload } from "../utils/tool-contract.js";
+import { validateActorPreviewMessages } from "../utils/actor-preview-input.js";
+import type { ChatMessage } from "../types.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -12,6 +14,14 @@ import { getCodexExecutableCandidates } from "../utils/runtime-template-vars";
 interface GatewayMessage {
   role?: unknown;
   content?: unknown;
+}
+
+export function actorPreviewTurnInput(request: GatewayRequest): Array<{type:"image";url:string}> {
+  const metadata = request.metadata as Record<string, unknown> | undefined;
+  const messages = (Array.isArray(request.messages) ? request.messages : []) as ChatMessage[];
+  if (!messages.some(m=>m.inputImages?.length)) return [];
+  const images = validateActorPreviewMessages(messages, metadata?.brain_scene_preview);
+  return images.map(i=>({type:"image",url:`data:${i.mediaType};base64,${i.data}`}));
 }
 
 interface GatewayRequest {
@@ -1523,7 +1533,7 @@ async function run(): Promise<void> {
   const prompt = buildPrompt(request);
   const reasoningEffort = resolveReasoningEffort(request);
   const isImageGenerationRequest = request.requestKind === "images_generations";
-  const debugRpc = isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC);
+  const debugRpc = !actorPreviewTurnInput(request).length && isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC);
   const codexExecutableCandidates = getCodexExecutableCandidates();
   const shouldStream =
     request.stream === true &&
@@ -1645,6 +1655,7 @@ async function run(): Promise<void> {
           sandbox: "read-only",
           experimentalRawEvents: true,
           persistExtendedHistory: false,
+          ...(actorPreviewTurnInput(request).length ? { ephemeral: true } : {}),
           dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
         },
         startupRequestTimeoutMs,
@@ -1695,7 +1706,7 @@ async function run(): Promise<void> {
       "turn/start",
       {
         threadId,
-        input: [{ type: "text", text: prompt }],
+        input: [{ type: "text", text: prompt }, ...actorPreviewTurnInput(request)],
         model: selectedModel,
         reasoningEffort,
       },
