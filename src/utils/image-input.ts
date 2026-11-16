@@ -42,7 +42,8 @@ export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerMo
     const metadata={...request.metadata};delete metadata.messages;
     const previous=metadata.gateway_policy as Record<string,unknown>|undefined;
     request.receipt?.({type:"gateway.reviewer_image_input/v1",requestId:request.requestId,images:images.length,contentSha256:createHash("sha256").update(JSON.stringify(images)).digest("hex"),fallback:false});
-    return {...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs==="number"?previous.maxLatencyMs:150000,180000)}}};
+    const latencyCap=providerId==="kimi-code-api"?120000:180000;
+    return {...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs==="number"?previous.maxLatencyMs:150000,latencyCap)}}};
   }
   if (!hasImageInput(request.messages)) return request;
   if (request.metadata?.brain_scene_preview !== undefined) {

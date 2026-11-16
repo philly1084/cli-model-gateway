@@ -73,6 +73,9 @@ test('review admission is closed by default, route scoped, bounded and suppresse
  process.env[REVIEWER_IMAGE_ROUTES]=JSON.stringify([{provider:'codex-cli',model:'gpt-6-astra'}]);
  const result=imageRequest(request,'codex-cli','gpt-6-astra');assert.equal(result.metadata?.messages,undefined);assert.deepEqual(result.metadata?.gateway_policy,{operationId:'review-test',allowFallback:false,maxAttempts:1,maxLatencyMs:4000});
  assert.equal(actorPreviewTurnInput(result).length,1);
+ process.env[IMAGE_INPUT_FLAG]='1';
+ assert.equal((imageRequest({...request,metadata:{brain_scene_review:reviewScope}},'kimi-code-api','kimi-k3').metadata?.gateway_policy as {maxLatencyMs:number}).maxLatencyMs,120000);
+ delete process.env[IMAGE_INPUT_FLAG];
  assert.throws(()=>imageRequest(request,'codex-cli','other'));assert.throws(()=>imageRequest(input(),'codex-cli','gpt-6-astra'));
  assert.throws(()=>imageRequest({...request,stream:true},'codex-cli','gpt-6-astra'));
  assert.throws(()=>imageRequest({...request,messages:Array(4).fill(input().messages[0])},'codex-cli','gpt-6-astra'));
