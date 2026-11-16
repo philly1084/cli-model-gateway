@@ -1165,6 +1165,7 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): AsyncIterable<ProviderStreamEvent> {
+    request = imageRequest(request, this.models.get(modelId)?.provider.id, modelId);
     if (hasImageInput(request.messages)) throw Error("IMAGE_STREAM_UNSUPPORTED");
     const execution = new ExecutionPolicy({ ...request, model: modelId });
     let success = false, completed = false;

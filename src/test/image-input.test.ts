@@ -59,3 +59,37 @@ test("actual Kimi adapter receives identical normalized JPEG bytes in Anthropic 
   assert.equal(count, 1); assert.equal(result.outputText, "Fixture only");
   assert.deepEqual(captured.messages[0].content, [{ type: "text", text: "Inspect" }, { type: "image", source: { type: "base64", media_type: "image/jpeg", data } }]);
 });
+
+import {REVIEWER_IMAGE_ROUTES,privateSceneTurn} from '../utils/scene-review-input.js';
+import {actorPreviewTurnInput} from '../scripts/codex-appserver-bridge.js';
+import {ProviderRegistry} from '../providers/registry.js';
+import {UpstreamError} from '../utils/upstream-error.js';
+const reviewScope={version:1,role:'verifier',source:'scene_review'};
+test('review admission is closed by default, route scoped, bounded and suppresses caller fallback',t=>{
+ const old=process.env[REVIEWER_IMAGE_ROUTES],kimi=process.env[IMAGE_INPUT_FLAG];delete process.env[REVIEWER_IMAGE_ROUTES];delete process.env[IMAGE_INPUT_FLAG];
+ t.after(()=>{if(old===undefined)delete process.env[REVIEWER_IMAGE_ROUTES];else process.env[REVIEWER_IMAGE_ROUTES]=old;if(kimi===undefined)delete process.env[IMAGE_INPUT_FLAG];else process.env[IMAGE_INPUT_FLAG]=kimi;});
+ const request={...input(),metadata:{brain_scene_review:reviewScope,messages:['PRIVATE'],gateway_policy:{operationId:'review-test',allowFallback:true,maxAttempts:8,maxLatencyMs:4000}}};
+ assert.throws(()=>imageRequest(request,'codex-cli','gpt-6-astra'));
+ process.env[REVIEWER_IMAGE_ROUTES]=JSON.stringify([{provider:'codex-cli',model:'gpt-6-astra'}]);
+ const result=imageRequest(request,'codex-cli','gpt-6-astra');assert.equal(result.metadata?.messages,undefined);assert.deepEqual(result.metadata?.gateway_policy,{operationId:'review-test',allowFallback:false,maxAttempts:1,maxLatencyMs:4000});
+ assert.equal(actorPreviewTurnInput(result).length,1);
+ process.env[IMAGE_INPUT_FLAG]='1';
+ assert.equal((imageRequest({...request,metadata:{brain_scene_review:reviewScope}},'kimi-code-api','kimi-k3').metadata?.gateway_policy as {maxLatencyMs:number}).maxLatencyMs,120000);
+ delete process.env[IMAGE_INPUT_FLAG];
+ assert.throws(()=>imageRequest(request,'codex-cli','other'));assert.throws(()=>imageRequest(input(),'codex-cli','gpt-6-astra'));
+ assert.throws(()=>imageRequest({...request,stream:true},'codex-cli','gpt-6-astra'));
+ assert.throws(()=>imageRequest({...request,messages:Array(4).fill(input().messages[0])},'codex-cli','gpt-6-astra'));
+ assert.throws(()=>imageRequest({...request,messages:[]},'codex-cli','gpt-6-astra'));
+ assert.throws(()=>normalizeChatMessages([{role:'user',content:[image]}],undefined,{...reviewScope,role:'actor'}));
+ assert.equal(normalizeChatMessages([{role:'user',content:[image]}],undefined,reviewScope)[0]?.inputImages?.length,1);
+ const knowledge={...input(),messages:[{role:'user' as const,content:'synthetic private reference'}],metadata:{brain_scene_knowledge:{version:1,role:'actor',source:'scene_knowledge'},messages:['PRIVATE']}};
+ const ephemeral=imageRequest(knowledge,'codex-cli','gpt-6-astra');assert.equal(ephemeral.metadata?.messages,undefined);assert.equal(privateSceneTurn(ephemeral.metadata),true);assert.equal(actorPreviewTurnInput(ephemeral).length,0);
+ assert.throws(()=>imageRequest(knowledge,'other','gpt-6-astra'));
+});
+for(const provider of ['codex-cli','kimi-code-api'])for(const status of [429,503])test(`review ${provider} suppresses profile retry_on and fallback on ${status}`,async t=>{
+ const old=process.env[REVIEWER_IMAGE_ROUTES];process.env[REVIEWER_IMAGE_ROUTES]=JSON.stringify([{provider,model:'chosen'}]);t.after(()=>{if(old===undefined)delete process.env[REVIEWER_IMAGE_ROUTES];else process.env[REVIEWER_IMAGE_ROUTES]=old;});
+ const models=[{id:'chosen',fallbackModels:['fallback']},{id:'fallback'}];
+ const registry=await ProviderRegistry.create([provider==='codex-cli'?{id:provider,type:'cli',profile:provider,models,responseCommand:{executable:process.execPath,args:[],input:'request_json_stdin',output:'json_contract',timeoutMs:1000}}:{id:provider,type:'openai',profile:provider,models,baseUrl:'https://api.kimi.com/coding/v1',apiKeyEnv:'REVIEW_FIXTURE_UNUSED',discovery:{enabled:false}}]);
+ let calls=0;registry.getProvider(provider)!.run=async()=>{calls++;throw new UpstreamError(status,{});};
+ await assert.rejects(registry.runModel('chosen',{...input(),metadata:{brain_scene_review:reviewScope,gateway_policy:{operationId:'retry-test',allowFallback:true,maxAttempts:8,maxLatencyMs:1000}}}));assert.equal(calls,1);
+});

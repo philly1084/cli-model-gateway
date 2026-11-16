@@ -1,3 +1,4 @@
+import { reviewerRouteAllowed, validateReviewerMessages } from "../utils/scene-review-input.js";
 import { hasImageInput, IMAGE_INPUT_FLAG } from "../utils/image-input.js";
 import { confirmedReasoningEffort } from "../utils/reasoning.js";
 import { requestVaultProvider, type VaultRequestIdentity } from './vault-transport.js';
@@ -142,8 +143,9 @@ export class OpenAiCompatibleProvider implements Provider {
       throw new Error(`Provider ${this.id} does not expose model ${request.model}.`);
     }
 
+    if(request.metadata?.brain_scene_review!==undefined)validateReviewerMessages(request.messages,request.metadata.brain_scene_review);
     const providerModel = modelConfig.providerModel || request.providerModel;
-    if (hasImageInput(request.messages) && (process.env[IMAGE_INPUT_FLAG] !== "1" || this.id !== "kimi-code-api" || !isKimiCodeApiBaseUrl(this.config.baseUrl))) throw Error("IMAGE_ROUTE_UNSUPPORTED");
+    if (hasImageInput(request.messages) && ((process.env[IMAGE_INPUT_FLAG] !== "1" && !(request.metadata?.brain_scene_review && reviewerRouteAllowed(this.id,request.model))) || this.id !== "kimi-code-api" || !isKimiCodeApiBaseUrl(this.config.baseUrl))) throw Error("IMAGE_ROUTE_UNSUPPORTED");
     if (request.requestKind === "images_generations") {
       if (this.config.credentialBroker) throw new RequestCapabilityError('Vault provider image transport is not configured.');
       return await this.runImageGeneration(providerModel, request);

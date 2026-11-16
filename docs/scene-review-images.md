@@ -1,0 +1,6 @@
+# Scoped scene review input
+
+`GATEWAY_REVIEWER_IMAGE_ROUTES` defaults to an empty JSON list. Entries are `{provider,model}` literal identities. The supported reviewer transports are `codex-cli` and `kimi-code-api`; the scoped Astra binding is `[{"provider":"codex-cli","model":"gpt-6-astra"}]`.
+Only chat-completion requests carrying top-level `brain_scene_review:{version:1,role:"verifier",source:"scene_review"}` can use this admission. It is separate from actor previews. JPEG only, 1-3 images, 48000 decoded bytes per image, user role and non-streaming remain mandatory. Legacy `GATEWAY_KIMI_IMAGE_INPUT=1` remains compatible.
+Review requests force one attempt and no fallback before execution-policy construction, overriding caller retry policy and provider-profile retry_on. Codex uses the existing zero-retry provider alias and cannot internally substitute a model.
+Reviewer and `brain_scene_knowledge:{version:1,role:"actor",source:"scene_knowledge"}` requests use stdin, omit temporary prompt/request bodies, disable RPC debug content, and start ephemeral Codex threads with extended-history persistence disabled. Knowledge requests fail closed for unsupported transports. Receipts contain counts/hashes only. No credentials or default provider settings change.
