@@ -1,3 +1,4 @@
+import { privateSceneTurn, validateReviewerMessages } from "../utils/scene-review-input.js";
 import { strictToolCalls, strictToolArguments, ToolContractError, customToolInputArguments, toolContractErrorPayload } from "../utils/tool-contract.js";
 import { validateActorPreviewMessages } from "../utils/actor-preview-input.js";
 import type { ChatMessage } from "../types.js";
@@ -20,7 +21,7 @@ export function actorPreviewTurnInput(request: GatewayRequest): Array<{type:"ima
   const metadata = request.metadata as Record<string, unknown> | undefined;
   const messages = (Array.isArray(request.messages) ? request.messages : []) as ChatMessage[];
   if (!messages.some(m=>m.inputImages?.length)) return [];
-  const images = validateActorPreviewMessages(messages, metadata?.brain_scene_preview);
+  const images = metadata?.brain_scene_review!==undefined ? validateReviewerMessages(messages,metadata.brain_scene_review) : validateActorPreviewMessages(messages, metadata?.brain_scene_preview);
   return images.map(i=>({type:"image",url:`data:${i.mediaType};base64,${i.data}`}));
 }
 
@@ -1542,7 +1543,7 @@ async function run(): Promise<void> {
   const prompt = buildPrompt(request);
   const reasoningEffort = resolveReasoningEffort(request);
   const isImageGenerationRequest = request.requestKind === "images_generations";
-  const debugRpc = !actorPreviewTurnInput(request).length && isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC);
+  const debugRpc = !privateSceneTurn(request.metadata as Record<string,unknown>|undefined) && isTruthyEnv(process.env.CODEX_APPSERVER_DEBUG_RPC);
   const codexExecutableCandidates = getCodexExecutableCandidates();
   const shouldStream =
     request.stream === true &&
@@ -1664,7 +1665,7 @@ async function run(): Promise<void> {
           sandbox: "read-only",
           experimentalRawEvents: true,
           persistExtendedHistory: false,
-          ...(actorPreviewTurnInput(request).length ? { ephemeral: true } : {}),
+          ...(privateSceneTurn(request.metadata as Record<string,unknown>|undefined) ? { ephemeral: true } : {}),
           dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
         },
         startupRequestTimeoutMs,
@@ -1690,6 +1691,7 @@ async function run(): Promise<void> {
             sandbox: "read-only",
             experimentalRawEvents: true,
             persistExtendedHistory: false,
+            ...(privateSceneTurn(request.metadata as Record<string,unknown>|undefined) ? { ephemeral: true } : {}),
             dynamicTools: dynamicTools.length > 0 ? dynamicTools : undefined,
           },
           startupRequestTimeoutMs,

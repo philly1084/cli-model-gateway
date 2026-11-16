@@ -1,3 +1,4 @@
+import { reviewInputEnabled } from "../utils/scene-review-input.js";
 import { imageInput } from "../utils/image-input.js";
 import { actorPreviewInput } from "../utils/actor-preview-input.js";
 import { ContentNormalizer, normalizeContent, normalizeFinishReason, completeUsage, stripProviderFields, gatewayError } from "../utils/output-normalization.js";
@@ -1573,7 +1574,7 @@ async function handleChatCompletionsRequest(
   const isStream = Boolean(body.stream);
   if (isStream) trackChatStream(reply, body.model);
 
-  const messages = normalizeChatMessages(body.messages, (body as Record<string, unknown>).brain_scene_preview);
+  const messages = normalizeChatMessages(body.messages, (body as Record<string, unknown>).brain_scene_preview, (body as Record<string, unknown>).brain_scene_review);
   if (messages.length === 0) {
     return sendOpenAiError(reply, 400, "messages must include at least one item.");
   }
@@ -1965,7 +1966,7 @@ function firstDefined(...candidates: unknown[]): unknown {
   return undefined;
 }
 
-export function normalizeChatMessages(raw: unknown[], previewScope?: unknown): ChatMessage[] {
+export function normalizeChatMessages(raw: unknown[], previewScope?: unknown, reviewScope?: unknown): ChatMessage[] {
   if (!Array.isArray(raw)) {
     return [];
   }
@@ -1983,7 +1984,7 @@ export function normalizeChatMessages(raw: unknown[], previewScope?: unknown): C
     }
 
     const hasImages = Array.isArray(record.content) && record.content.some(p => p?.type === "image_url" || p?.type === "input_image");
-    const inputImages = previewScope !== undefined && hasImages ? actorPreviewInput(record.content, role, previewScope) : imageInput(record.content, role);
+    const inputImages = previewScope !== undefined && hasImages ? actorPreviewInput(record.content, role, previewScope) : imageInput(record.content, role, reviewScope===undefined?undefined:reviewInputEnabled(reviewScope));
     const content = normalizeMessageContentForRole(
       role,
       record.content,

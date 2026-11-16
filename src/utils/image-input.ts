@@ -1,3 +1,4 @@
+import { reviewerRouteAllowed, validateReviewerMessages, privateSceneTurn } from "./scene-review-input.js";
 import { createHash } from "node:crypto";
 import type { ChatMessage, UnifiedRequest } from "../types.js";
 import { validateActorPreviewMessages } from "./actor-preview-input.js";
@@ -26,6 +27,23 @@ export const hasImageInput = (messages: ChatMessage[]) => messages.some(m => Boo
 
 /** The initial supported adapter is the existing configured Kimi API binding. */
 export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerModel">, providerId: string | undefined, modelId?: string) {
+  if (request.metadata?.brain_scene_knowledge !== undefined) {
+    privateSceneTurn(request.metadata);
+    if(providerId!=="codex-cli"||request.stream||request.requestKind!=="chat_completions")return reject("KNOWLEDGE_TRANSPORT_UNSUPPORTED");
+    const metadata={...request.metadata};delete metadata.messages;
+    const previous=metadata.gateway_policy as Record<string,unknown>|undefined;
+    request={...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs==="number"?previous.maxLatencyMs:150000,180000)}}};
+  }
+  if (request.metadata?.brain_scene_review !== undefined) {
+    const images=validateReviewerMessages(request.messages,request.metadata.brain_scene_review);
+    if(request.metadata.brain_scene_preview!==undefined||request.metadata.brain_scene_knowledge!==undefined||request.stream||request.requestKind!=="chat_completions")return reject("REVIEWER_ROUTE_UNSUPPORTED");
+    if(!reviewerRouteAllowed(providerId,modelId)&&!(providerId==="kimi-code-api"&&process.env[IMAGE_INPUT_FLAG]==="1"))return reject("REVIEWER_ROUTE_UNSUPPORTED");
+    if(providerId!=="codex-cli"&&providerId!=="kimi-code-api")return reject("REVIEWER_ROUTE_UNSUPPORTED");
+    const metadata={...request.metadata};delete metadata.messages;
+    const previous=metadata.gateway_policy as Record<string,unknown>|undefined;
+    request.receipt?.({type:"gateway.reviewer_image_input/v1",requestId:request.requestId,images:images.length,contentSha256:createHash("sha256").update(JSON.stringify(images)).digest("hex"),fallback:false});
+    return {...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs==="number"?previous.maxLatencyMs:150000,180000)}}};
+  }
   if (!hasImageInput(request.messages)) return request;
   if (request.metadata?.brain_scene_preview !== undefined) {
     if (providerId !== "codex-cli" || modelId !== "gpt-6-astra" || request.stream || request.requestKind !== "chat_completions") return reject("ACTOR_PREVIEW_ROUTE_UNSUPPORTED");
