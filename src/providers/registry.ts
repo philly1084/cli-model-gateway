@@ -1,6 +1,6 @@
 import { requireGpt62Binding } from "../utils/route-table.js";
 import { imageRequest, hasImageInput } from "../utils/image-input.js";
-import { buildReasoningEffortReceipt, normalizeModelReasoningEffort, resolveReasoningEffort } from "../utils/reasoning.js";
+import { buildReasoningEffortReceipt, normalizeModelReasoningEffort, resolveReasoningEffort, rawReasoningEffort, validateGpt62RequestEffort } from "../utils/reasoning.js";
 import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
 import { setTimeout as retryDelay } from "node:timers/promises";
 import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
@@ -100,7 +100,7 @@ function reasoningReceipt(
   const forwarded = result.reasoningEffortForwarded !== undefined
     ? result.reasoningEffortForwarded
     : normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) ?? null;
-  return buildReasoningEffortReceipt(request.metadata?.reasoning_effort==="max"?"max":resolveReasoningEffort(request.metadata), forwarded,
+  return buildReasoningEffortReceipt(rawReasoningEffort(request.metadata)==="max"?"max":resolveReasoningEffort(request.metadata,binding.modelId.startsWith('gpt-6.2-')?request.reasoningEffort:undefined), forwarded,
     binding.modelId, binding.provider.id, result.reasoningEffortApplied);
 }
 
@@ -778,6 +778,7 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): Promise<ProviderResult> {
+    request = { ...request, reasoningEffort: validateGpt62RequestEffort(modelId,request.metadata,request.reasoningEffort) };
     request = imageRequest(request, this.models.get(modelId)?.provider.id, modelId);
     const execution = new ExecutionPolicy({ ...request, model: modelId });
     let success = false;
@@ -1168,6 +1169,7 @@ export class ProviderRegistry {
     modelId: string,
     request: Omit<UnifiedRequest, "model" | "providerModel">,
   ): AsyncIterable<ProviderStreamEvent> {
+    request = { ...request, reasoningEffort: validateGpt62RequestEffort(modelId,request.metadata,request.reasoningEffort) };
     request = imageRequest(request, this.models.get(modelId)?.provider.id, modelId);
     if (hasImageInput(request.messages)) throw Error("IMAGE_STREAM_UNSUPPORTED");
     const execution = new ExecutionPolicy({ ...request, model: modelId });

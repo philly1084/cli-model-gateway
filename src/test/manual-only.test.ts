@@ -30,6 +30,12 @@ test('6.2 manual routes never enter automatic selection, benchmarks, judges or f
  for(const m of models)assert.equal(access.selectQualityEvaluatorBinding(m.id,'primary').binding,undefined);
  registry.getProvider('codex-cli')!.run=async input=>{called.push(input.model);if(input.model==='primary')throw Error('synthetic failure');return {outputText:'READY',toolCalls:[],finishReason:'stop',reasoningEffortForwarded:input.reasoningEffort??null,reasoningEffortApplied:true};};
  await assert.rejects(registry.runModel('primary',request));assert.deepEqual(called,['primary']);
+ called.length=0;
+ for(const metadata of [{reasoning_effort:'bogus'},{reasoningEffort:'ultra'},{reasoning:{effort:42}}]){
+  await assert.rejects(registry.runModel('gpt-6.2-sol',{...request,metadata}),/MODEL_EFFORT_UNSUPPORTED/);
+  await assert.rejects(async()=>{for await(const event of registry.runModelStream('gpt-6.2-sol',{...request,metadata})){void event;}},/MODEL_EFFORT_UNSUPPORTED/);
+ }
+ assert.deepEqual(called,[]);
  for(const m of models){called.length=0;const result=await registry.runModel(m.id,{...request,reasoningEffort:'none',metadata:{reasoning_effort:'none'}});assert.deepEqual(called,[m.id]);assert.equal(result.reasoningEffortReceipt?.requested,'none');assert.equal(result.reasoningEffortReceipt?.normalized,'low');assert.equal(result.reasoningEffortReceipt?.forwarded,'low');assert.equal(result.reasoningEffortReceipt?.applied,true);}
 });
 

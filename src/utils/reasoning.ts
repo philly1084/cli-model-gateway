@@ -3,6 +3,18 @@ import { REASONING_EFFORT_VALUES, type ReasoningEffort, type ReasoningEffortRece
 
 const REASONING_EFFORT_SET = new Set<ReasoningEffort>(REASONING_EFFORT_VALUES);
 
+export function rawReasoningEffort(value: unknown): unknown {
+  const record=asRecord(value);
+  return record?.reasoning_effort ?? record?.reasoningEffort ?? asRecord(record?.reasoning)?.effort;
+}
+
+export function validateGpt62RequestEffort(model:string, metadata:unknown, fallback?:ReasoningEffort):ReasoningEffort|undefined {
+  if(!model.startsWith('gpt-6.2-'))return fallback;
+  const raw=rawReasoningEffort(metadata) ?? fallback;
+  if(raw!==undefined && typeof raw!=='string')throw Object.assign(Error('MODEL_EFFORT_UNSUPPORTED'),{code:'MODEL_EFFORT_UNSUPPORTED',statusCode:400});
+  return normalizeRouteEffort(model,raw as string|undefined) as ReasoningEffort;
+}
+
 export function normalizeModelReasoningEffort(model: string, effort?: ReasoningEffort): ReasoningEffort | undefined {
   if(model.startsWith("gpt-6.2-"))return normalizeRouteEffort(model,effort) as ReasoningEffort;
   if (!effort) return undefined;

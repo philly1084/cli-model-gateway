@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {routeTable,modelRoute,normalizeRouteEffort,routeAdmits,requireGpt62Binding} from '../utils/route-table.js';
-import {normalizeModelReasoningEffort,buildReasoningEffortReceipt} from '../utils/reasoning.js';
+import {normalizeModelReasoningEffort,buildReasoningEffortReceipt,validateGpt62RequestEffort} from '../utils/reasoning.js';
 import {imageRequest} from '../utils/image-input.js';
 import type {UnifiedRequest} from '../types.js';
 test('shared schema and exact content digest agree with Brain publication',()=>{
@@ -19,6 +19,9 @@ test('6.2 accepts the four efforts, maps aliases and rejects unsupported values'
   for(const effort of ['none','minimal'] as const)assert.equal(normalizeModelReasoningEffort(model,effort),'low');
   assert.equal(normalizeRouteEffort(model,'max'),'xhigh');assert.equal(normalizeModelReasoningEffort(model),'medium');
   assert.throws(()=>normalizeRouteEffort(model,'ultra'));assert.throws(()=>normalizeRouteEffort(model,'bogus'));
+  for(const fields of [{reasoning_effort:'bogus'},{reasoningEffort:'ultra'},{reasoning:{effort:42}}])assert.throws(()=>validateGpt62RequestEffort(model,fields,'medium'),/MODEL_EFFORT_UNSUPPORTED/);
+  assert.equal(validateGpt62RequestEffort(model,{reasoning:{effort:'max'}},'medium'),'xhigh');
+  assert.equal(validateGpt62RequestEffort(model,{},'high'),'high');
   assert.deepEqual(buildReasoningEffortReceipt('max','xhigh',model,'codex-cli',true),{requested:'max',normalized:'xhigh',forwarded:'xhigh',applied:true,appliedEffort:'xhigh',normalizedFrom:'max',model,providerId:'codex-cli'});
  }
 });
