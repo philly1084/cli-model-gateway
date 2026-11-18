@@ -5,12 +5,14 @@ const REASONING_EFFORT_SET = new Set<ReasoningEffort>(REASONING_EFFORT_VALUES);
 
 export function rawReasoningEffort(value: unknown): unknown {
   const record=asRecord(value);
-  return record?.reasoning_effort ?? record?.reasoningEffort ?? asRecord(record?.reasoning)?.effort;
+  if(record && Object.hasOwn(record,'reasoning_effort'))return record.reasoning_effort;
+  if(record && Object.hasOwn(record,'reasoningEffort'))return record.reasoningEffort;
+  return asRecord(record?.reasoning)?.effort;
 }
 
 export function validateGpt62RequestEffort(model:string, metadata:unknown, fallback?:ReasoningEffort):ReasoningEffort|undefined {
   if(!model.startsWith('gpt-6.2-'))return fallback;
-  const raw=rawReasoningEffort(metadata) ?? fallback;
+  const value=rawReasoningEffort(metadata),raw=value===undefined?fallback:value;
   if(raw!==undefined && typeof raw!=='string')throw Object.assign(Error('MODEL_EFFORT_UNSUPPORTED'),{code:'MODEL_EFFORT_UNSUPPORTED',statusCode:400});
   return normalizeRouteEffort(model,raw as string|undefined) as ReasoningEffort;
 }

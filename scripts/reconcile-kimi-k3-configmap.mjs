@@ -126,7 +126,7 @@ export function parseArgs(args, env = process.env) {
   return options;
 }
 
-function requireApplyGates(env) {
+export function requireApplyGates(env) {
   if (env.ALLOW_PROD_WRITE !== 'yes'
     || env.HUMAN_APPROVED !== 'yes'
     || !CHANGE_TICKET_PATTERN.test(env.CHANGE_TICKET ?? '')) {
@@ -589,7 +589,7 @@ async function writeRestrictedFile(file, content, options = {}) {
   await chmod(file, 0o600);
 }
 
-async function writeRollbackBackup(directory, configMap, beforeHash, content) {
+export async function writeRollbackBackup(directory, configMap, beforeHash, content) {
   const createdPath = await mkdir(directory, { recursive: true, mode: 0o700 });
   const directoryDetails = await lstat(directory);
   if (!directoryDetails.isDirectory() || directoryDetails.isSymbolicLink()) {
@@ -629,7 +629,7 @@ async function writeRollbackBackup(directory, configMap, beforeHash, content) {
   return file;
 }
 
-async function withPatchFile(patch, callback) {
+export async function withPatchFile(patch, callback) {
   const directory = await mkdtemp(path.join(tmpdir(), 'router-kimi-k3-reconcile-'));
   try {
     await chmod(directory, 0o700);

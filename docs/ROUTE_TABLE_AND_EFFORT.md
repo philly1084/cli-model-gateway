@@ -53,6 +53,10 @@ Release runtime support before mounted gateway configuration. The reconciliation
 script verifies the deployed table, backs up old config, uses resourceVersion
 and exact-content tests, preserves existing entries and prints hashes only.
 Restore config before binary rollback. Keep live and rollback images pinned.
+An immutable mounted ConfigMap is retained and replaced by a new snapshot using
+the existing promotion snapshot contract. The deployment patch tests its UID,
+resource version and entire previous spec, and changes only the config volume
+reference. A restricted rollback record and original config backup precede it.
 New entries are manual-only and excluded from automatic routing, benchmarks,
 quality judges and implicit fallback. Profile-on default role chains contain
 one explicit model. Legacy gpt-5.6-sol was still present in the authenticated
