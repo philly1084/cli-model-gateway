@@ -36,6 +36,7 @@ export const providerProfileSchema = z.object({
     system_prompt: z.enum(["native", "prepend_to_user", "cli_flag"]),
     system_flag: z.string().min(1).optional(),
   }).strict(),
+  models: z.array(z.object({id:z.string(),providerModel:z.string(),capabilities:z.array(z.enum(["chat","responses","tools"])),manualOnly:z.literal(true),autoEligible:z.literal(false)}).strict()).optional(),
   normalization: z.object({ strip_think: z.boolean().default(true), strip_fence: z.boolean().default(false) }).strict(),
 }).strict().superRefine((profile, ctx) => {
   if (profile.type === "cli" && !profile.command) ctx.addIssue({ code: "custom", message: "CLI profile requires command" });

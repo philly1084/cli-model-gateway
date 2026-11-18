@@ -184,6 +184,16 @@ providers:
     type: cli
     description: OpenAI Codex app-server bridge adapter
     models:
+      - id: gpt-6.2-astra
+        providerModel: gpt-6.2-astra
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
+      - id: gpt-6.2-sol
+        providerModel: gpt-6.2-sol
+        capabilities: [chat, responses, tools]
+        manualOnly: true
+        autoEligible: false
       - id: gpt-6.1-sol
         providerModel: gpt-6.1-sol
         capabilities: [chat, responses, tools]

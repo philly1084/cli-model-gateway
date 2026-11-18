@@ -1,3 +1,4 @@
+import { routeAdmits } from "./route-table.js";
 import { reviewerRouteAllowed, validateReviewerMessages, privateSceneTurn } from "./scene-review-input.js";
 import { createHash } from "node:crypto";
 import type { ChatMessage, UnifiedRequest } from "../types.js";
@@ -29,7 +30,7 @@ export const hasImageInput = (messages: ChatMessage[]) => messages.some(m => Boo
 export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerModel">, providerId: string | undefined, modelId?: string) {
   if (request.metadata?.brain_scene_knowledge !== undefined) {
     privateSceneTurn(request.metadata);
-    if(providerId!=="codex-cli"||request.stream||request.requestKind!=="chat_completions")return reject("KNOWLEDGE_TRANSPORT_UNSUPPORTED");
+    if(!routeAdmits(providerId,modelId,"knowledge")||request.stream||request.requestKind!=="chat_completions")return reject("KNOWLEDGE_TRANSPORT_UNSUPPORTED");
     const metadata={...request.metadata};delete metadata.messages;
     const previous=metadata.gateway_policy as Record<string,unknown>|undefined;
     request={...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs==="number"?previous.maxLatencyMs:150000,180000)}}};
@@ -47,7 +48,7 @@ export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerMo
   }
   if (!hasImageInput(request.messages)) return request;
   if (request.metadata?.brain_scene_preview !== undefined) {
-    if (providerId !== "codex-cli" || modelId !== "gpt-6-astra" || request.stream || request.requestKind !== "chat_completions") return reject("ACTOR_PREVIEW_ROUTE_UNSUPPORTED");
+    if (!routeAdmits(providerId,modelId,"actorPreview") || request.stream || request.requestKind !== "chat_completions") return reject("ACTOR_PREVIEW_ROUTE_UNSUPPORTED");
     const images = validateActorPreviewMessages(request.messages, request.metadata.brain_scene_preview);
     const previous = request.metadata.gateway_policy as Record<string, unknown> | undefined;
     request.receipt?.({type:"gateway.actor_preview_input/v1",requestId:request.requestId,images:images.length,bytes:images.reduce((n,i)=>n+Buffer.byteLength(i.data,"base64"),0),fallback:false});
