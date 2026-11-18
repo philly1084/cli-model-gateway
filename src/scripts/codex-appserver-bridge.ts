@@ -72,7 +72,10 @@ interface JsonContract {
 }
 
 export const boundedOpenAiProvider = "gateway_bounded_openai";
-export function codexAppServerArgs(hasTools: boolean, catalogPath?: string, boundedOpenAi = false): string[] {
+// GPT-6.2 models reserve the function name "web.run"; Codex's built-in web search tool collides with it (HTTP 400, surfaced as provider_error 500)
+// whenever dynamic tools are sent. Disable the built-in search for those models only, so legacy model argv stays byte-identical.
+export function disablesBuiltinWebSearch(model: string): boolean { return /^gpt-6\.2-/.test(model); }
+export function codexAppServerArgs(hasTools: boolean, catalogPath?: string, boundedOpenAi = false, disableWebSearch = false): string[] {
   const args = ["app-server", "--listen", "stdio://"];
   if (boundedOpenAi) {
     // Built-in provider IDs are reserved by Codex. Register an ephemeral alias
@@ -90,6 +93,7 @@ export function codexAppServerArgs(hasTools: boolean, catalogPath?: string, boun
       "-c", "features.code_mode_only=false",
     );
     if (catalogPath) args.push("-c", `model_catalog_json=${JSON.stringify(catalogPath)}`);
+    if (disableWebSearch) args.push("-c", 'web_search="disabled"');
   }
   return args;
 }
@@ -1572,7 +1576,7 @@ async function run(): Promise<void> {
 
     for (const executable of codexExecutableCandidates) {
       childStderr = "";
-      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0, toolCatalog?.path, boundedOpenAi);
+      appServer = spawnCodexAppServer(executable, dynamicTools.length > 0, toolCatalog?.path, boundedOpenAi, disablesBuiltinWebSearch(model));
 
       if (appServer.stderr) {
         appServer.stderr.setEncoding("utf8");
@@ -2203,8 +2207,8 @@ async function run(): Promise<void> {
   }
 }
 
-function spawnCodexAppServer(executable: string, hasTools: boolean, catalogPath?: string, boundedOpenAi = false): ReturnType<typeof spawn> {
-  return spawn(executable, codexAppServerArgs(hasTools, catalogPath, boundedOpenAi), {
+function spawnCodexAppServer(executable: string, hasTools: boolean, catalogPath?: string, boundedOpenAi = false, disableWebSearch = false): ReturnType<typeof spawn> {
+  return spawn(executable, codexAppServerArgs(hasTools, catalogPath, boundedOpenAi, disableWebSearch), {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
     shell: shouldSpawnViaShell(executable),
