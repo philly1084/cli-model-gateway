@@ -75,6 +75,12 @@ export const boundedOpenAiProvider = "gateway_bounded_openai";
 // GPT-6.2 models reserve the function name "web.run"; Codex's built-in web search tool collides with it (HTTP 400, surfaced as provider_error 500)
 // whenever dynamic tools are sent. Disable the built-in search for those models only, so legacy model argv stays byte-identical.
 export function disablesBuiltinWebSearch(model: string): boolean { return /^gpt-6\.2-/.test(model); }
+// The app-server ignores top-level `reasoningEffort` on thread/start and turn/start (thread result stays null, behaviour is the default effort).
+// It applies AND echoes the effort when it is passed as thread config model_reasoning_effort. Scoped to gpt-6.2-* so legacy argv/params stay identical.
+const THREAD_CONFIG_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
+export function threadEffortConfig(model: string, effort: unknown): { config: { model_reasoning_effort: string } } | Record<string, never> {
+  return /^gpt-6\.2-/.test(model) && typeof effort === "string" && THREAD_CONFIG_EFFORTS.has(effort) ? { config: { model_reasoning_effort: effort } } : {};
+}
 export function codexAppServerArgs(hasTools: boolean, catalogPath?: string, boundedOpenAi = false, disableWebSearch = false): string[] {
   const args = ["app-server", "--listen", "stdio://"];
   if (boundedOpenAi) {
@@ -1665,6 +1671,7 @@ async function run(): Promise<void> {
           model: selectedModel,
           modelProvider,
           reasoningEffort,
+          ...threadEffortConfig(selectedModel, reasoningEffort),
           approvalPolicy: "never",
           sandbox: "read-only",
           experimentalRawEvents: true,
@@ -1691,6 +1698,7 @@ async function run(): Promise<void> {
             model: selectedModel,
             modelProvider,
             reasoningEffort,
+            ...threadEffortConfig(selectedModel, reasoningEffort),
             approvalPolicy: "never",
             sandbox: "read-only",
             experimentalRawEvents: true,

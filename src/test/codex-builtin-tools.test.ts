@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { boundedOpenAiProvider, codexAppServerArgs, disablesBuiltinWebSearch, prepareToolCatalog, parseToolCallFromRawItem } from "../scripts/codex-appserver-bridge.js";
+import { boundedOpenAiProvider, codexAppServerArgs, disablesBuiltinWebSearch, threadEffortConfig, prepareToolCatalog, parseToolCallFromRawItem } from "../scripts/codex-appserver-bridge.js";
 
 const originalArgs = ["app-server", "--listen", "stdio://"];
 const toolArgs = [
@@ -160,4 +160,12 @@ test('gpt-6.2 tool turns disable the built-in web search; other models and tool-
   assert.deepEqual(codexAppServerArgs(true,'ZZTEST',false,true),[...codexAppServerArgs(true,'ZZTEST'),'-c','web_search=\"disabled\"']);
   assert.deepEqual(codexAppServerArgs(false,undefined,false,true),codexAppServerArgs(false));
   assert.deepEqual(codexAppServerArgs(true,'ZZTEST',false,false),codexAppServerArgs(true,'ZZTEST'));
+});
+
+test('gpt-6.2 thread/start carries effort as thread config; other models and unsupported values are unchanged',()=>{
+  assert.deepEqual(threadEffortConfig('gpt-6.2-sol','low'),{config:{model_reasoning_effort:'low'}});
+  assert.deepEqual(threadEffortConfig('gpt-6.2-astra','xhigh'),{config:{model_reasoning_effort:'xhigh'}});
+  assert.deepEqual(threadEffortConfig('gpt-6.2-astra','disabled'),{});
+  assert.deepEqual(threadEffortConfig('gpt-6.2-sol',undefined),{});
+  assert.deepEqual(threadEffortConfig('gpt-6-astra','high'),{});
 });
