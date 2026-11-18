@@ -1,8 +1,10 @@
+import { normalizeRouteEffort } from "./route-table.js";
 import { REASONING_EFFORT_VALUES, type ReasoningEffort, type ReasoningEffortReceipt } from "../types";
 
 const REASONING_EFFORT_SET = new Set<ReasoningEffort>(REASONING_EFFORT_VALUES);
 
 export function normalizeModelReasoningEffort(model: string, effort?: ReasoningEffort): ReasoningEffort | undefined {
+  if(model.startsWith("gpt-6.2-"))return normalizeRouteEffort(model,effort) as ReasoningEffort;
   if (!effort) return undefined;
   const id = model.split("/").pop()!.toLowerCase();
   const supported: readonly ReasoningEffort[] = /^gpt-6\.1-sol(?:-|$)/.test(id)
@@ -17,14 +19,16 @@ export function normalizeModelReasoningEffort(model: string, effort?: ReasoningE
 }
 
 export function buildReasoningEffortReceipt(
-  requested: ReasoningEffort | undefined,
+  requested: ReasoningEffort | "max" | undefined,
   forwarded: string | null,
   model: string,
   providerId: string,
   applied: boolean | "unconfirmed" = "unconfirmed",
 ): ReasoningEffortReceipt | undefined {
+  if (!requested && model.startsWith("gpt-6.2-")) requested="medium";
   if (!requested) return undefined;
   return { requested, forwarded, applied, model, providerId,
+    ...(model.startsWith("gpt-6.2-")?{normalized:normalizeRouteEffort(model,requested),appliedEffort:applied===true?forwarded:null}:{}),
     ...(requested !== forwarded ? { normalizedFrom: requested } : {}) };
 }
 

@@ -1,3 +1,4 @@
+import { requireGpt62Binding } from "../utils/route-table.js";
 import { imageRequest, hasImageInput } from "../utils/image-input.js";
 import { buildReasoningEffortReceipt, normalizeModelReasoningEffort, resolveReasoningEffort } from "../utils/reasoning.js";
 import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
@@ -99,7 +100,7 @@ function reasoningReceipt(
   const forwarded = result.reasoningEffortForwarded !== undefined
     ? result.reasoningEffortForwarded
     : normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) ?? null;
-  return buildReasoningEffortReceipt(resolveReasoningEffort(request.metadata), forwarded,
+  return buildReasoningEffortReceipt(request.metadata?.reasoning_effort==="max"?"max":resolveReasoningEffort(request.metadata), forwarded,
     binding.modelId, binding.provider.id, result.reasoningEffortApplied);
 }
 
@@ -170,6 +171,8 @@ export class ProviderRegistry {
       registry.providers.set(provider.id, provider);
 
       for (const model of provider.models) {
+        requireGpt62Binding(provider.id,model.id,model.providerModel||model.id);
+        if(model.id.startsWith('gpt-6.2-')&&(model.manualOnly!==true||model.autoEligible!==false||(model.fallbackModels?.length??0)>0))throw Error('GPT62_MANUAL_ONLY_REQUIRED');
         if (model.id === AUTO_MODEL_ID) {
           throw new Error(`Model id ${AUTO_MODEL_ID} is reserved for gateway auto routing.`);
         }

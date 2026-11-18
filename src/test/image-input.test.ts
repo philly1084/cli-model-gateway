@@ -87,9 +87,10 @@ test('review admission is closed by default, route scoped, bounded and suppresse
  assert.throws(()=>imageRequest(knowledge,'other','gpt-6-astra'));
 });
 for(const provider of ['codex-cli','kimi-code-api'])for(const status of [429,503])test(`review ${provider} suppresses profile retry_on and fallback on ${status}`,async t=>{
- const old=process.env[REVIEWER_IMAGE_ROUTES];process.env[REVIEWER_IMAGE_ROUTES]=JSON.stringify([{provider,model:'chosen'}]);t.after(()=>{if(old===undefined)delete process.env[REVIEWER_IMAGE_ROUTES];else process.env[REVIEWER_IMAGE_ROUTES]=old;});
- const models=[{id:'chosen',fallbackModels:['fallback']},{id:'fallback'}];
+ const chosen=provider==='codex-cli'?'gpt-6-astra':'kimi-k3';
+ const old=process.env[REVIEWER_IMAGE_ROUTES];process.env[REVIEWER_IMAGE_ROUTES]=JSON.stringify([{provider,model:chosen}]);t.after(()=>{if(old===undefined)delete process.env[REVIEWER_IMAGE_ROUTES];else process.env[REVIEWER_IMAGE_ROUTES]=old;});
+ const models=[{id:chosen,fallbackModels:['fallback']},{id:'fallback'}];
  const registry=await ProviderRegistry.create([provider==='codex-cli'?{id:provider,type:'cli',profile:provider,models,responseCommand:{executable:process.execPath,args:[],input:'request_json_stdin',output:'json_contract',timeoutMs:1000}}:{id:provider,type:'openai',profile:provider,models,baseUrl:'https://api.kimi.com/coding/v1',apiKeyEnv:'REVIEW_FIXTURE_UNUSED',discovery:{enabled:false}}]);
  let calls=0;registry.getProvider(provider)!.run=async()=>{calls++;throw new UpstreamError(status,{});};
- await assert.rejects(registry.runModel('chosen',{...input(),metadata:{brain_scene_review:reviewScope,gateway_policy:{operationId:'retry-test',allowFallback:true,maxAttempts:8,maxLatencyMs:1000}}}));assert.equal(calls,1);
+ await assert.rejects(registry.runModel(chosen,{...input(),metadata:{brain_scene_review:reviewScope,gateway_policy:{operationId:'retry-test',allowFallback:true,maxAttempts:8,maxLatencyMs:1000}}}));assert.equal(calls,1);
 });

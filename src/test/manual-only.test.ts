@@ -22,6 +22,17 @@ type Internals = {
 };
 const internal = (registry: ProviderRegistry) => registry as unknown as Internals;
 
+test('6.2 manual routes never enter automatic selection, benchmarks, judges or fallback', async()=>{
+ const models:ProviderModelConfig[]=['gpt-6.2-astra','gpt-6.2-sol'].map(id=>({id,providerModel:id,manualOnly:true,autoEligible:false,capabilities:['chat','responses','tools']}));
+ const config={...provider([{id:'primary',fallbackModels:models.map(m=>m.id)},...models]),id:'codex-cli'};
+ const registry=await ProviderRegistry.create([config]),access=internal(registry),called:string[]=[];
+ assert.deepEqual(access.selectBenchmarkCandidates(100).map(b=>b.modelId),['primary']);
+ for(const m of models)assert.equal(access.selectQualityEvaluatorBinding(m.id,'primary').binding,undefined);
+ registry.getProvider('codex-cli')!.run=async input=>{called.push(input.model);if(input.model==='primary')throw Error('synthetic failure');return {outputText:'READY',toolCalls:[],finishReason:'stop',reasoningEffortForwarded:input.reasoningEffort??null,reasoningEffortApplied:true};};
+ await assert.rejects(registry.runModel('primary',request));assert.deepEqual(called,['primary']);
+ for(const m of models){called.length=0;const result=await registry.runModel(m.id,{...request,reasoningEffort:'none',metadata:{reasoning_effort:'none'}});assert.deepEqual(called,[m.id]);assert.equal(result.reasoningEffortReceipt?.requested,'none');assert.equal(result.reasoningEffortReceipt?.normalized,'low');assert.equal(result.reasoningEffortReceipt?.forwarded,'low');assert.equal(result.reasoningEffortReceipt?.applied,true);}
+});
+
 test("manualOnly schema is optional and accepts only booleans", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "gateway-manual-only-"));
   const file = path.join(dir, "providers.json");

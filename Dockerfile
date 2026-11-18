@@ -19,7 +19,7 @@ FROM --platform=$TARGETPLATFORM node:20-bookworm-slim AS runtime
 ARG TARGETARCH
 ARG SOPS_VERSION=3.13.3
 ARG AGE_VERSION=1.3.2
-ARG EXTRA_NPM_GLOBAL_PACKAGES="@google/gemini-cli@0.66.0 @openai/codex@0.166.0 opencode-ai@1.19.5 @xai-official/grok@1.0.70"
+ARG EXTRA_NPM_GLOBAL_PACKAGES="@google/gemini-cli@0.66.0 @openai/codex@0.170.0 opencode-ai@1.19.5 @xai-official/grok@1.0.70"
 
 WORKDIR /app
 ENV NODE_ENV=production

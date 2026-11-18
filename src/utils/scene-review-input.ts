@@ -1,3 +1,4 @@
+import { routeAdmits } from "./route-table.js";
 import type { ChatMessage } from "../types.js";
 export const REVIEWER_IMAGE_ROUTES = "GATEWAY_REVIEWER_IMAGE_ROUTES";
 const reject=(code:string):never=>{throw Object.assign(Error(code),{code,statusCode:400});};
@@ -11,7 +12,7 @@ export function reviewerRoutes(): Array<{provider:string;model:string}> {
   if(!Array.isArray(rows)||rows.length>16||rows.some(r=>!r||typeof r!=="object"||Object.keys(r).sort().join()!=="model,provider"||![r.provider,r.model].every(v=>typeof v==="string"&&/^[A-Za-z0-9][\w./:-]{0,199}$/.test(v))))return reject("REVIEWER_ROUTES_INVALID");
   return rows;
 }
-export const reviewerRouteAllowed=(provider:string|undefined,model:string|undefined)=>reviewerRoutes().some(r=>r.provider===provider&&r.model===model);
+export const reviewerRouteAllowed=(provider:string|undefined,model:string|undefined)=>routeAdmits(provider,model,"reviewerImages")&&reviewerRoutes().some(r=>r.provider===provider&&r.model===model);
 export function reviewInputEnabled(scope:unknown){sceneScope(scope,"verifier","scene_review");return process.env.GATEWAY_KIMI_IMAGE_INPUT==="1"||reviewerRoutes().length>0;}
 export function validateReviewerMessages(messages:ChatMessage[],scope:unknown){
   sceneScope(scope,"verifier","scene_review");

@@ -12,12 +12,14 @@ export const REASONING_EFFORT_VALUES = [
 export type ReasoningEffort = (typeof REASONING_EFFORT_VALUES)[number];
 
 export interface ReasoningEffortReceipt {
-  requested: ReasoningEffort;
+  requested: ReasoningEffort | "max";
+  normalized?: string;
+  appliedEffort?: string | null;
   forwarded: string | null;
   applied: boolean | "unconfirmed";
   model: string;
   providerId: string;
-  normalizedFrom?: ReasoningEffort;
+  normalizedFrom?: ReasoningEffort | "max";
 }
 
 export interface RemoteReasoningEffortReceipt {

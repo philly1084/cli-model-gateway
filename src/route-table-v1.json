@@ -1,0 +1,354 @@
+{
+  "schemaVersion": 1,
+  "profile": "gpt62",
+  "effortAliases": {
+    "none": "low",
+    "minimal": "low",
+    "max": "xhigh"
+  },
+  "routes": [
+    {
+      "model": "gpt-6.2-astra",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-6.2-astra",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "hardest",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": true,
+        "reviewerImages": true
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gpt-6.2-sol",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-6.2-sol",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "everyday",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": true
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gpt-6-astra",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-6-astra",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "hardest",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": true,
+        "reviewerImages": true
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-6.1-sol",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "everyday",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gpt-6-sol",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-6-sol",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "everyday",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gpt-6-luna",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-6-luna",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "focused",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "providerId": "codex-cli",
+      "providerModel": "gpt-5.6-sol",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": true,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "tier": "legacy",
+      "costClass": "subscription",
+      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "deepseek-v4-pro",
+      "providerId": "deepseek-api",
+      "providerModel": "deepseek-v4-pro",
+      "capabilities": {
+        "tools": true,
+        "images": false,
+        "knowledge": false,
+        "reasoning": false
+      },
+      "allowedEfforts": [
+        "disabled"
+      ],
+      "defaultEffort": "disabled",
+      "tier": "existing",
+      "costClass": "existing-subscription",
+      "availabilityNotes": "Existing approved route only; no credential or billing change.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "kimi-k3",
+      "providerId": "kimi-code-api",
+      "providerModel": "k3",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": false,
+        "reasoning": false
+      },
+      "allowedEfforts": [
+        "provider-default"
+      ],
+      "defaultEffort": "provider-default",
+      "tier": "existing",
+      "costClass": "existing-subscription",
+      "availabilityNotes": "Existing approved route only; no credential or billing change.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": true
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "providerId": "kimi-code-api",
+      "providerModel": "k3.1-pro",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": false,
+        "reasoning": false
+      },
+      "allowedEfforts": [
+        "provider-default"
+      ],
+      "defaultEffort": "provider-default",
+      "tier": "existing",
+      "costClass": "existing-subscription",
+      "availabilityNotes": "Existing approved route only; no credential or billing change.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": true
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    }
+  ],
+  "workClasses": {
+    "planner": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "intent": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "plan": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "research": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "critique": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "choreography": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "audio": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    },
+    "animation": {
+      "model": "gpt-6.2-astra",
+      "effort": "high"
+    },
+    "layout": {
+      "model": "gpt-6.2-astra",
+      "effort": "high"
+    },
+    "builder": {
+      "model": "gpt-6.2-astra",
+      "effort": "high"
+    },
+    "builder-code": {
+      "model": "gpt-6.2-astra",
+      "effort": "high"
+    },
+    "hardest": {
+      "model": "gpt-6.2-astra",
+      "effort": "xhigh"
+    },
+    "actor": {
+      "model": "deepseek-v4-pro",
+      "effort": "disabled"
+    },
+    "materials": {
+      "model": "deepseek-v4-pro",
+      "effort": "disabled"
+    },
+    "reviewer": {
+      "model": "kimi-k3",
+      "effort": "provider-default"
+    },
+    "critic": {
+      "model": "kimi-k3",
+      "effort": "provider-default"
+    },
+    "reviewer-astra": {
+      "model": "gpt-6.2-astra",
+      "effort": "medium"
+    },
+    "reviewer-sol": {
+      "model": "gpt-6.2-sol",
+      "effort": "medium"
+    },
+    "msi": {
+      "model": "gpt-6.2-sol",
+      "effort": "medium"
+    },
+    "chat-quick": {
+      "model": "gpt-6.2-sol",
+      "effort": "low"
+    }
+  }
+}

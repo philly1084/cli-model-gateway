@@ -500,7 +500,7 @@ function kubectlTimeout(env) {
   return value;
 }
 
-function runKubectl(args, env) {
+export function runKubectl(args, env) {
   const executable = env.KUBECTL_EXECUTABLE?.trim() || 'kubectl';
   const prefixArgs = parsePrefixArgs(env);
   const result = spawnSync(executable, [...prefixArgs, ...args], {
@@ -657,13 +657,13 @@ function patchArgs(options, patchFile, dryRun) {
   ];
 }
 
-export async function reconcileConfigMap(options, env = process.env) {
+export async function reconcileConfigMap(options, env = process.env, {transform=reconcileRemoteAgentProviderConfig,verify=checkKimiK3ProviderConfig}={}) {
   if (options.mode === 'apply') {
     requireApplyGates(env);
   }
 
   const current = readConfigMap(options, env);
-  const reconciled = reconcileRemoteAgentProviderConfig(current.providersSource);
+  const reconciled = transform(current.providersSource);
   const beforeHash = sha256(current.providersSource);
   const afterHash = sha256(reconciled);
   console.log(`before_sha256=${beforeHash}`);
@@ -698,7 +698,7 @@ export async function reconcileConfigMap(options, env = process.env) {
   if (verifiedHash !== afterHash || verified.providersSource !== reconciled) {
     throw new Error('Post-apply providers.yaml does not match the reconciled SHA-256.');
   }
-  checkKimiK3ProviderConfig(verified.providersSource, {
+  verify(verified.providersSource, {
     sourceName: 'verified live providers.yaml',
   });
   return { beforeHash, afterHash, changed: true };
