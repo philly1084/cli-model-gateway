@@ -513,10 +513,10 @@ export function runKubectl(args, env) {
   });
   if (result.error) {
     const reason = result.error.code === 'ETIMEDOUT' ? 'timed out' : 'could not start';
-    throw new Error(`kubectl ${args[0]} ${reason}.`);
+    throw Object.assign(new Error(`kubectl ${args[0]} ${reason}.`), {exitCode: result.status, stderr: result.stderr, signal: result.signal});
   }
   if (result.status !== 0) {
-    throw new Error(`kubectl ${args[0]} failed with exit status ${result.status}.`);
+    throw Object.assign(new Error(`kubectl ${args[0]} failed with exit status ${result.status}.`), {exitCode: result.status, stderr: result.stderr, signal: result.signal});
   }
   return result.stdout;
 }
