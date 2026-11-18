@@ -33,6 +33,9 @@ export function reconcileGpt62ProviderConfig(source){
  if(reconcileGpt62ProviderConfig(result)!==result)throw Error('RECONCILE_NOT_IDEMPOTENT');
  return result;
 }
+// tsc re-emits JSON assets with its own formatting, so dist/route-table-v1.json never has the raw byte hash of src/route-table-v1.json.
+// Compare the canonical (parsed then compact-stringified, key order preserved) hash on both sides instead.
+export function canonicalJsonSha256(text){return createHash('sha256').update(JSON.stringify(JSON.parse(text))).digest('hex');}
 export function verifyGpt62Config(source){if(reconcileGpt62ProviderConfig(source)!==source)throw Error('GPT62_ENTRIES_MISSING');}
 export function immutableGpt62Plan(current,deployment,options){
  if(current.immutable!==true||current.metadata?.name!==options.configMap||current.metadata?.namespace!==options.namespace||Object.keys(current.data??{}).join()!=='providers.yaml'||Object.keys(current.binaryData??{}).length)throw Error('IMMUTABLE_CONFIG_SHAPE');
@@ -75,9 +78,9 @@ export async function reconcileImmutableGpt62(current,deployment,options,env=pro
 export async function main(){
  const options=parseArgs(process.argv.slice(2));
  // Read-only deployed-module proof must precede even the server dry-run.
- const script="const fs=require('fs'),crypto=require('crypto'),r=require('./dist/utils/route-table.js');const rows=['gpt-6.2-astra','gpt-6.2-sol'].map(m=>r.modelRoute(m));if(rows.some(r=>r.providerId!=='codex-cli'))throw Error('binding');console.log(crypto.createHash('sha256').update(fs.readFileSync('./dist/route-table-v1.json')).digest('hex'));";
+ const script="const fs=require('fs'),crypto=require('crypto'),r=require('./dist/utils/route-table.js');const rows=['gpt-6.2-astra','gpt-6.2-sol'].map(m=>r.modelRoute(m));if(rows.some(r=>r.providerId!=='codex-cli'))throw Error('binding');console.log(crypto.createHash('sha256').update(JSON.stringify(JSON.parse(fs.readFileSync('./dist/route-table-v1.json','utf8')))).digest('hex'));";
  const remote=runKubectl(['-n',options.namespace,'exec','deployment/n8n-openai-cli-gateway','-c','gateway','--','node','-e',script],process.env).trim();
- const expected=readFileSync(new URL('../src/route-table-v1.sha256',import.meta.url),'utf8').trim();
+ const expected=canonicalJsonSha256(readFileSync(new URL('../src/route-table-v1.json',import.meta.url),'utf8'));
  if(remote!==expected)throw Error('GPT62_RUNTIME_MUST_PRECEDE_CONFIG');
  const current=JSON.parse(runKubectl(['-n',options.namespace,'get','configmap',options.configMap,'-o','json'],process.env));
  if(current.immutable===true){const deployment=JSON.parse(runKubectl(['-n',options.namespace,'get','deployment','n8n-openai-cli-gateway','-o','json'],process.env));const result=await reconcileImmutableGpt62(current,deployment,options);console.log(JSON.stringify(result));return result;}

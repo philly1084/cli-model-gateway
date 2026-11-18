@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {reconcileGpt62ProviderConfig,immutableGpt62Plan} from './reconcile-gpt62-configmap.mjs';
+import {reconcileGpt62ProviderConfig,immutableGpt62Plan,canonicalJsonSha256} from './reconcile-gpt62-configmap.mjs';
 const source='providers:\n  - id: codex-cli\n    type: cli\n    models:\n      - id: existing\n        providerModel: existing\n        manualOnly: false\n# retained comment\n  - id: other\n    type: cli\n    models: []\n';
 test('immutable mounted config uses the existing snapshot contract and exact guarded mount replacement',()=>{
  const options={namespace:'synthetic',configMap:'old'},current={metadata:{name:'old',namespace:'synthetic'},immutable:true,data:{'providers.yaml':source}};
@@ -25,4 +25,12 @@ test('existing conflicts and duplicates fail closed; shipped examples are alread
  assert.throws(()=>reconcileGpt62ProviderConfig(result.replace('manualOnly: true','manualOnly: false')));
  assert.throws(()=>reconcileGpt62ProviderConfig(result.replace('id: existing','id: gpt-6.2-sol')));
  const example=readFileSync(new URL('../config/providers.example.yaml',import.meta.url),'utf8');assert.equal(reconcileGpt62ProviderConfig(example),example);
+});
+
+test('runtime route-table check hashes canonical JSON so the tsc-emitted dist copy matches src',()=>{
+ const src=readFileSync(new URL('../src/route-table-v1.json',import.meta.url),'utf8');
+ const emitted=JSON.stringify(JSON.parse(src),null,4)+'\n';
+ assert.notEqual(emitted,src);
+ assert.equal(canonicalJsonSha256(emitted),canonicalJsonSha256(src));
+ assert.match(canonicalJsonSha256(src),/^[0-9a-f]{64}$/);
 });
