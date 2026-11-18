@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { boundedOpenAiProvider, codexAppServerArgs, prepareToolCatalog, parseToolCallFromRawItem } from "../scripts/codex-appserver-bridge.js";
+import { boundedOpenAiProvider, codexAppServerArgs, disablesBuiltinWebSearch, prepareToolCatalog, parseToolCallFromRawItem } from "../scripts/codex-appserver-bridge.js";
 
 const originalArgs = ["app-server", "--listen", "stdio://"];
 const toolArgs = [
@@ -150,4 +150,14 @@ test("ZZTEST tool catalog permissions, malformed shapes, and idempotent cleanup"
 test("ZZTEST recorder function_call retains call ID and argument bytes", () => {
   const item = { type: "function_call", id: "fc_ZZTEST", call_id: "call_ZZTEST", name: "blender_build", arguments: '{"script":"ZZTEST","timeoutSeconds":1}' };
   assert.deepEqual(parseToolCallFromRawItem(item), { id: item.call_id, name: item.name, arguments: item.arguments });
+});
+
+test('gpt-6.2 tool turns disable the built-in web search; other models and tool-less turns are unchanged',()=>{
+  assert.equal(disablesBuiltinWebSearch('gpt-6.2-sol'),true);
+  assert.equal(disablesBuiltinWebSearch('gpt-6.2-astra'),true);
+  assert.equal(disablesBuiltinWebSearch('gpt-6-astra'),false);
+  assert.equal(disablesBuiltinWebSearch('gpt-6.1-sol'),false);
+  assert.deepEqual(codexAppServerArgs(true,'ZZTEST',false,true),[...codexAppServerArgs(true,'ZZTEST'),'-c','web_search=\"disabled\"']);
+  assert.deepEqual(codexAppServerArgs(false,undefined,false,true),codexAppServerArgs(false));
+  assert.deepEqual(codexAppServerArgs(true,'ZZTEST',false,false),codexAppServerArgs(true,'ZZTEST'));
 });
