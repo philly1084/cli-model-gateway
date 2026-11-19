@@ -1210,3 +1210,8 @@ remain off. See the [enablement runbook](docs/unified-agent/ENABLE.md),
 Optional authenticated embeddings forwarding is available at `/v1/embeddings`
 and `/openai/v1/embeddings`. It uses a separate model catalog and leaves chat
 model discovery unchanged. See [embeddings configuration and API](docs/embeddings.md).
+
+
+## Model availability check
+
+Run `node scripts/check-route-availability.mjs <models_cache.json>` against an explicitly selected Codex `models_cache.json` to check codex-cli work-class targets offline. Use `--max-age-hours N` to change the 36-hour default. The command reports stale cache and missing `client_version` warnings, and exits nonzero with a JSON diagnostic list for missing or hidden target models. It reads no auth.json, credentials, or network resources.

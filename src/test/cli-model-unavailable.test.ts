@@ -17,6 +17,20 @@ function config(script: string, models: CliProviderConfig["models"] = [{ id: "gp
 }
 const fullRequest: UnifiedRequest = { ...request, model: "gpt-5.5", providerModel: "gpt-5.5" };
 
+test("Codex ChatGPT-plan model rejection returns a remapping error for codex-cli", async () => {
+  const script = `process.stderr.write(${JSON.stringify(`ERROR: {"status":404,"error":{"code":"model_unavailable","message":"gpt-6-luna is not supported when using Codex with a ChatGPT account"}}`)});`;
+  const registry = await ProviderRegistry.create([config(script, [{ id: "gpt-6-luna", providerModel: "gpt-6-luna" }])]);
+  const app = Fastify();
+  await app.register(openAiRoutes, { prefix: "/v1", registry, n8nApiKeys: new Set(["fixture"]) });
+  try {
+    const reply = await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { authorization: "Bearer fixture" },
+      payload: { model: "gpt-6-luna", messages: request.messages } });
+    assert.equal(reply.statusCode, 404);
+    assert.equal(reply.json().error.code, "model_unavailable_for_plan");
+    assert.match(reply.json().error.message, /gpt-6-luna.*remap the route table/);
+  } finally { await app.close(); }
+});
+
 for (const streamed of [false, true]) for (const stream of ["stderr", "stdout"] as const) {
   test(`CLI rejects the exact Codex error promptly in split ${stream} (stream=${streamed})`, async () => {
     const provider = new CliProvider(config(`const s=${JSON.stringify(exactError)}; process.${stream}.write(s.slice(0, 45)); setTimeout(()=>process.${stream}.write(s.slice(45)),20); setInterval(()=>{},1000);`));
@@ -66,7 +80,7 @@ async function fixture(fallbackModels = ["gpt-5.4"]) {
       { id: "gpt-5.5", fallbackModels },
       { id: "gpt-5.4", fallbackModels: ["gpt-5.5"] },
     ]),
-    { ...config("", [{ id: "gpt-6.1-sol" }, { id: "gpt-6-luna" }]), id: "healthy-cli" },
+    { ...config("", [{ id: "fixture-healthy" }]), id: "healthy-cli" },
   ]);
   registry.getProvider("codex-cli")!.supportsStreaming = () => true;
   const calls: string[] = [];
@@ -78,69 +92,53 @@ async function fixture(fallbackModels = ["gpt-5.4"]) {
   return { registry, calls };
 }
 
-for (const streamed of [false, true]) test(`configured recovery precedes auto's default (stream=${streamed})`, async () => {
-  const { registry, calls } = await fixture(["gpt-5.4", "gpt-6-luna"]);
-  if (streamed) { for await (const _ of registry.runModelStream("gpt-5.5", request)) { /* drain */ } }
-  else await registry.runModel("gpt-5.5", request);
-  assert.deepEqual(calls, ["gpt-6-luna"]);
+for (const streamed of [false, true]) test(`Codex plan unavailability stops before configured recovery or auto selection (stream=${streamed})`, async () => {
+  const { registry, calls } = await fixture(["gpt-5.4", "fixture-healthy"]);
+  await assert.rejects(async () => {
+    if (streamed) { for await (const _ of registry.runModelStream("gpt-5.5", request)) assert.fail(); }
+    else await registry.runModel("gpt-5.5", request);
+  }, (error: unknown) => { assert.equal((error as { code?: string }).code, "model_unavailable_for_plan"); return true; });
+  assert.deepEqual(calls, []);
+  assert.equal(registry.getModelStatsById("gpt-5.4")!.attempts, 0);
 });
 
-for (const streamed of [false, true]) test(`Brain route exhausts Codex chain then uses auto's healthy choice once (stream=${streamed})`, async () => {
+for (const streamed of [false, true]) test(`ChatGPT-plan unavailable error keeps its OpenAI envelope and does not retry (stream=${streamed})`, async () => {
   const { registry, calls } = await fixture();
   const catalog = registry.listModels();
-  let autoModel: string | undefined;
-  const logs: Record<string, unknown>[] = [];
-  const app = Fastify({ logger: { level: "info", stream: new Writable({ write(value, _encoding, done) { logs.push(JSON.parse(String(value))); done(); } }) } });
+  const app = Fastify();
   await app.register(openAiRoutes, { prefix: "/v1", registry, n8nApiKeys: new Set(["fixture"]) });
   try {
-    for (let i = 0; i < 2; i++) {
-      const reply = await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { authorization: "Bearer fixture" },
-        payload: { model: "gpt-5.5", stream: streamed, messages: request.messages } });
-      assert.equal(reply.statusCode, 200);
-      if (streamed) {
-        assert.match(reply.body, /healthy answer/);
-        assert.match(reply.body, /data: \[DONE\]/);
-        assert.doesNotMatch(reply.body, /upstream_stream_failed/);
-      } else assert.equal(reply.json().choices[0].message.content, "healthy answer");
-      if (i === 0) {
-        autoModel = (await registry.runModel("auto", request)).resolvedModel;
-        calls.pop();
-      }
-    }
-    assert.deepEqual(calls, [autoModel, autoModel]);
-    for (const model of ["gpt-5.5", "gpt-5.4"]) {
-      const stat = registry.getModelStatsById(model)!;
-      assert.equal(stat.attempts, 1, "second request must skip cooldown models");
-      assert.equal(stat.lastFailureKind, "model_unavailable");
-      assert.ok(stat.suggestedCooldownSeconds > 0);
-    }
+    const reply = await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { authorization: "Bearer fixture" },
+      payload: { model: "gpt-5.5", stream: streamed, messages: request.messages } });
+    assert.equal(reply.statusCode, 404);
+    if (streamed) assert.match(reply.body, /model_unavailable_for_plan/);
+    else { assert.equal(reply.json().error.code, "model_unavailable_for_plan"); assert.match(reply.json().error.message, /gpt-5.5.*remap the route table/); }
+    assert.deepEqual(calls, []);
     assert.deepEqual(registry.listModels(), catalog);
-    assert.ok(logs.some(log => log.upstreamStatus === 400 && log.errorCode === "model_unavailable"));
-    assert.doesNotMatch(JSON.stringify(logs), /ChatGPT account|invalid_request_error.*message/);
   } finally { await app.close(); }
 });
 
 for (const streamed of [false, true]) for (const allowFallback of [false, true]) {
-  test(`fallback policy stops both configured and emergency attempts (stream=${streamed}, allowFallback=${allowFallback})`, async () => {
+  test(`gateway fallback policy cannot override plan unavailability (stream=${streamed}, allowFallback=${allowFallback})`, async () => {
     const { registry, calls } = await fixture();
     const input = { ...request, metadata: { gateway_policy: { operationId: "policy", allowFallback, maxAttempts: allowFallback ? 1 : 8, maxLatencyMs: 10000 } } };
     await assert.rejects(async () => {
       if (streamed) { for await (const _ of registry.runModelStream("gpt-5.5", input)) assert.fail(); }
       else await registry.runModel("gpt-5.5", input);
-    }, /model_unavailable/);
+    }, (error: unknown) => { assert.equal((error as { code?: string }).code, "model_unavailable_for_plan"); return true; });
     assert.deepEqual(calls, []);
     assert.equal(registry.getModelStatsById("gpt-5.4")!.attempts, 0);
   });
 }
 
-for (const streamed of [false, true]) test(`emergency recovery has one attempt (stream=${streamed})`, async () => {
+for (const streamed of [false, true]) test(`plan unavailability never reaches emergency recovery (stream=${streamed})`, async () => {
   const { registry, calls } = await fixture();
   registry.getProvider("healthy-cli")!.run = async input => { calls.push(input.model); throw new UpstreamError(503); };
   await assert.rejects(async () => {
     if (streamed) { for await (const _ of registry.runModelStream("gpt-5.5", request)) assert.fail(); }
     else await registry.runModel("gpt-5.5", request);
-  });
-  assert.equal(calls.length, 1);
+  }, (error: unknown) => { assert.equal((error as { code?: string }).code, "model_unavailable_for_plan"); return true; });
+  assert.deepEqual(calls, []);
 });
 
 test("partial CLI output and stateful requests never reach emergency recovery", async () => {

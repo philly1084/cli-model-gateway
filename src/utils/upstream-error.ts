@@ -69,6 +69,13 @@ export class UpstreamError extends Error {
   get transient(): boolean { return this.code === "rate_limited" || this.code === "capacity_exhausted"; }
 }
 
+export class ModelUnavailableForPlanError extends Error {
+  readonly code = "model_unavailable_for_plan";
+  constructor(readonly model: string, readonly statusCode: number) {
+    super(`Model ${model} is unavailable for the current ChatGPT plan; remap the route table to an available model.`);
+  }
+}
+
 export function replaySafeChat(request: Pick<UnifiedRequest, "messages" | "tools" | "metadata" | "requestKind">): boolean {
   if (request.requestKind && request.requestKind !== "chat_completions" && request.requestKind !== "responses") return false;
   if (request.tools.length || request.messages.some(m => m.role !== "system" && m.role !== "user")) return false;

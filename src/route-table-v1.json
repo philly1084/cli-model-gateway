@@ -26,10 +26,10 @@
       "defaultEffort": "medium",
       "tier": "hardest",
       "costClass": "subscription",
-      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "availabilityNotes": "UNAVAILABLE on the ChatGPT plan as of 2026-11-19 (model_unavailable); no work class uses it.",
       "admission": {
-        "actorPreview": true,
-        "reviewerImages": true
+        "actorPreview": false,
+        "reviewerImages": false
       },
       "manualOnly": true,
       "autoEligible": false
@@ -53,10 +53,10 @@
       "defaultEffort": "medium",
       "tier": "everyday",
       "costClass": "subscription",
-      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "availabilityNotes": "UNAVAILABLE on the ChatGPT plan as of 2026-11-19 (model_unavailable); no work class uses it.",
       "admission": {
         "actorPreview": false,
-        "reviewerImages": true
+        "reviewerImages": false
       },
       "manualOnly": true,
       "autoEligible": false
@@ -80,10 +80,10 @@
       "defaultEffort": "medium",
       "tier": "hardest",
       "costClass": "subscription",
-      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "availabilityNotes": "UNAVAILABLE on the ChatGPT plan as of 2026-11-19 (model_unavailable); no work class uses it.",
       "admission": {
-        "actorPreview": true,
-        "reviewerImages": true
+        "actorPreview": false,
+        "reviewerImages": false
       },
       "manualOnly": true,
       "autoEligible": false
@@ -161,10 +161,10 @@
       "defaultEffort": "medium",
       "tier": "focused",
       "costClass": "subscription",
-      "availabilityNotes": "ChatGPT plan access must pass a bounded smoke; API-key routes are not authorized.",
+      "availabilityNotes": "Verified working through the gateway codex-cli provider with tool calls on 2026-11-19.",
       "admission": {
         "actorPreview": false,
-        "reviewerImages": false
+        "reviewerImages": true
       },
       "manualOnly": true,
       "autoEligible": false
@@ -271,51 +271,51 @@
   ],
   "workClasses": {
     "planner": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "intent": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "plan": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "research": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "critique": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "choreography": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "audio": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     },
     "animation": {
-      "model": "gpt-6.2-astra",
+      "model": "gpt-6-luna",
       "effort": "high"
     },
     "layout": {
-      "model": "gpt-6.2-astra",
+      "model": "gpt-6-luna",
       "effort": "high"
     },
     "builder": {
-      "model": "gpt-6.2-astra",
+      "model": "gpt-6-luna",
       "effort": "high"
     },
     "builder-code": {
-      "model": "gpt-6.2-astra",
+      "model": "gpt-6-luna",
       "effort": "high"
     },
     "hardest": {
-      "model": "gpt-6.2-astra",
+      "model": "gpt-6-luna",
       "effort": "xhigh"
     },
     "actor": {
@@ -335,20 +335,20 @@
       "effort": "provider-default"
     },
     "reviewer-astra": {
-      "model": "gpt-6.2-astra",
-      "effort": "medium"
+      "model": "gpt-6-luna",
+      "effort": "high"
     },
     "reviewer-sol": {
-      "model": "gpt-6.2-sol",
+      "model": "gpt-6-luna",
       "effort": "medium"
     },
     "msi": {
-      "model": "gpt-6.2-sol",
+      "model": "gpt-6-luna",
       "effort": "medium"
     },
     "chat-quick": {
-      "model": "gpt-6.2-sol",
-      "effort": "low"
+      "model": "gpt-6-luna",
+      "effort": "medium"
     }
   }
 }

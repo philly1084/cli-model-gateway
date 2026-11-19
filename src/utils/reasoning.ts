@@ -1,4 +1,4 @@
-import { normalizeRouteEffort } from "./route-table.js";
+import { isProfileManagedModel, normalizeRouteEffort } from "./route-table.js";
 import { REASONING_EFFORT_VALUES, type ReasoningEffort, type ReasoningEffortReceipt } from "../types";
 
 const REASONING_EFFORT_SET = new Set<ReasoningEffort>(REASONING_EFFORT_VALUES);
@@ -11,14 +11,14 @@ export function rawReasoningEffort(value: unknown): unknown {
 }
 
 export function validateGpt62RequestEffort(model:string, metadata:unknown, fallback?:ReasoningEffort):ReasoningEffort|undefined {
-  if(!model.startsWith('gpt-6.2-'))return fallback;
+  if(!isProfileManagedModel(model))return fallback;
   const value=rawReasoningEffort(metadata),raw=value===undefined?fallback:value;
   if(raw!==undefined && typeof raw!=='string')throw Object.assign(Error('MODEL_EFFORT_UNSUPPORTED'),{code:'MODEL_EFFORT_UNSUPPORTED',statusCode:400});
   return normalizeRouteEffort(model,raw as string|undefined) as ReasoningEffort;
 }
 
 export function normalizeModelReasoningEffort(model: string, effort?: ReasoningEffort): ReasoningEffort | undefined {
-  if(model.startsWith("gpt-6.2-"))return normalizeRouteEffort(model,effort) as ReasoningEffort;
+  if(isProfileManagedModel(model))return normalizeRouteEffort(model,effort) as ReasoningEffort;
   if (!effort) return undefined;
   const id = model.split("/").pop()!.toLowerCase();
   const supported: readonly ReasoningEffort[] = /^gpt-6\.1-sol(?:-|$)/.test(id)
@@ -39,10 +39,10 @@ export function buildReasoningEffortReceipt(
   providerId: string,
   applied: boolean | "unconfirmed" = "unconfirmed",
 ): ReasoningEffortReceipt | undefined {
-  if (!requested && model.startsWith("gpt-6.2-")) requested="medium";
+  if (!requested && isProfileManagedModel(model)) requested="medium";
   if (!requested) return undefined;
   return { requested, forwarded, applied, model, providerId,
-    ...(model.startsWith("gpt-6.2-")?{normalized:normalizeRouteEffort(model,requested),appliedEffort:applied===true?forwarded:null}:{}),
+    ...(isProfileManagedModel(model)?{normalized:normalizeRouteEffort(model,requested),appliedEffort:applied===true?forwarded:null}:{}),
     ...(requested !== forwarded ? { normalizedFrom: requested } : {}) };
 }
 

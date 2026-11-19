@@ -287,7 +287,7 @@ test("Codex unsupported tools and unsupported-model CLI errors use standard enve
     const tools = await f.post({ tools: [{ type: "function", function: { name: "weather" } }] });
     assert.equal(tools.statusCode, 400); assert.equal(tools.json().error.code, "model_capability_mismatch"); assert.equal(tools.json().error.param, null);
     const unsupported = await f.post();
-    assert.equal(unsupported.statusCode, 404); assert.equal(unsupported.json().error.code, "model_unavailable");
+    assert.equal(unsupported.statusCode, 404); assert.equal(unsupported.json().error.code, "model_unavailable_for_plan"); assert.match(unsupported.json().error.message, /chosen.*remap the route table/);
     assert.deepEqual(Object.keys(unsupported.json().error).sort(), ["code", "message", "param", "type"]);
   } finally { await f.close(); }
 });
