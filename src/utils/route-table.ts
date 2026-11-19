@@ -15,11 +15,14 @@ export function validateRouteTable(value:typeof data):typeof data {
     seen.add(row.model);
   }
   if(JSON.stringify(value.effortAliases)!==JSON.stringify({none:'low',minimal:'low',max:'xhigh'}))reject('ROUTE_TABLE_INVALID');
-  for(const row of Object.values(value.workClasses))if(!value.routes.some(r=>r.model===row.model&&r.allowedEfforts.includes(row.effort)))reject('ROUTE_TABLE_INVALID');
+  for(const row of Object.values(value.workClasses))if(!value.routes.some(r=>r.model===row.model&&r.allowedEfforts.includes(row.effort)&&!r.availabilityNotes.startsWith('UNAVAILABLE')))reject('ROUTE_TABLE_INVALID');
   return value;
 }
 export const routeTable=validateRouteTable(data);
 export function modelRoute(model:string):ModelRoute {const route=routeTable.routes.find(r=>r.model===model);return route??reject('MODEL_ROUTE_UNLISTED');}
+export function isProfileManagedModel(model:string):boolean {
+  return model.startsWith('gpt-6.2-') || (routeTable.routes.some(route=>route.model===model&&route.providerId==='codex-cli') && Object.values(routeTable.workClasses).some(work=>work.model===model));
+}
 export function normalizeRouteEffort(model:string,effort?:string):string {
   const route=modelRoute(model),requested=effort??route.defaultEffort;
   const aliases:Record<string,string>=routeTable.effortAliases;
@@ -32,6 +35,6 @@ export function routeAdmits(provider:string|undefined,model:string|undefined,cap
   return !!route&&(capability==='knowledge'?route.capabilities.knowledge:route.admission[capability]);
 }
 export function requireGpt62Binding(provider:string,model:string,providerModel:string):void {
-  if(!model.startsWith('gpt-6.2-')&&!providerModel.startsWith('gpt-6.2-'))return;
+  if(!isProfileManagedModel(model)&&!model.startsWith('gpt-6.2-')&&!providerModel.startsWith('gpt-6.2-'))return;
   const route=modelRoute(model);if(route.providerId!==provider||route.providerModel!==providerModel)reject('MODEL_ROUTE_BINDING_INVALID');
 }

@@ -1,9 +1,9 @@
-import { requireGpt62Binding } from "../utils/route-table.js";
+import { isProfileManagedModel, requireGpt62Binding } from "../utils/route-table.js";
 import { imageRequest, hasImageInput } from "../utils/image-input.js";
 import { buildReasoningEffortReceipt, normalizeModelReasoningEffort, resolveReasoningEffort, rawReasoningEffort, validateGpt62RequestEffort } from "../utils/reasoning.js";
 import { applyProviderProfile, resolveProviderProfile } from "../provider-profiles.js";
 import { setTimeout as retryDelay } from "node:timers/promises";
-import { UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
+import { ModelUnavailableForPlanError, UpstreamError, replaySafeChat } from "../utils/upstream-error.js";
 import { ExecutionPolicy } from "../utils/execution-policy";
 import { RequestCapabilityError, requestRequiresTools } from "../utils/request-capability.js";
 import { ToolContractError } from "../utils/tool-contract.js";
@@ -100,7 +100,7 @@ function reasoningReceipt(
   const forwarded = result.reasoningEffortForwarded !== undefined
     ? result.reasoningEffortForwarded
     : normalizeModelReasoningEffort(binding.providerModel, request.reasoningEffort) ?? null;
-  return buildReasoningEffortReceipt(rawReasoningEffort(request.metadata)==="max"?"max":resolveReasoningEffort(request.metadata,binding.modelId.startsWith('gpt-6.2-')?request.reasoningEffort:undefined), forwarded,
+  return buildReasoningEffortReceipt(rawReasoningEffort(request.metadata)==="max"?"max":resolveReasoningEffort(request.metadata,isProfileManagedModel(binding.modelId)?request.reasoningEffort:undefined), forwarded,
     binding.modelId, binding.provider.id, result.reasoningEffortApplied);
 }
 
@@ -932,7 +932,9 @@ export class ProviderRegistry {
       } catch (error) {
         request.execution?.check();
         if (error && typeof error === "object" && "uncertain" in error && error.uncertain) throw error;
-        lastError = error;
+        const reportedError = binding.provider.id === "codex-cli" && error instanceof UpstreamError && error.code === "model_unavailable"
+          ? new ModelUnavailableForPlanError(binding.modelId, 404) : error;
+        lastError = reportedError;
         if (error instanceof UpstreamError && error.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
         recordUpstreamFailure(request, binding, error);
         const failureKind = this.modelStats.recordFailure({
@@ -942,9 +944,10 @@ export class ProviderRegistry {
           providerModel: binding.providerModel,
           attemptIndex,
           durationMs: Date.now() - startedAt,
-          error,
+          error: reportedError,
         });
         trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
+        if (reportedError instanceof ModelUnavailableForPlanError) throw reportedError;
         const nextModelId = this.findNextModelId(
           binding,
           autoFallbackModelIds,
@@ -1248,12 +1251,15 @@ export class ProviderRegistry {
           return;
         } catch (error) {
           request.execution?.check();
-          lastError = error;
-          if (error instanceof UpstreamError && error.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
-          recordUpstreamFailure(request, binding, error);
-          const failureKind = this.modelStats.recordFailure({ ...stats, durationMs: Date.now() - startedAt, error });
+          const reportedError = binding.provider.id === "codex-cli" && error instanceof UpstreamError && error.code === "model_unavailable"
+            ? new ModelUnavailableForPlanError(binding.modelId, 404) : error;
+          lastError = reportedError;
+          if (reportedError instanceof UpstreamError && reportedError.code === "auth" && profileAuthFailFast(binding.provider.config)) authFailedProviders.add(binding.provider.id);
+          recordUpstreamFailure(request, binding, reportedError);
+          const failureKind = this.modelStats.recordFailure({ ...stats, durationMs: Date.now() - startedAt, error: reportedError });
           trackProvider(binding.provider.id, binding.modelId, false, Date.now() - startedAt);
-          if (emitted || (!(binding.provider instanceof OpenAiCompatibleProvider) && !(error instanceof UpstreamError && error.code === "model_unavailable")) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw error;
+          if (reportedError instanceof ModelUnavailableForPlanError) throw reportedError;
+          if (emitted || (!(binding.provider instanceof OpenAiCompatibleProvider) && !(reportedError instanceof UpstreamError && reportedError.code === "model_unavailable")) || !replaySafeChat(request) || (error && typeof error === "object" && "uncertain" in error && error.uncertain)) throw reportedError;
           if (!emergency.used && !retry && error instanceof UpstreamError && profileRetryAllowed(binding.provider.config, error) && request.execution?.canFallback()) {
             retry = true;
             await retryDelay(profileBackoff(binding.provider.config, error), undefined, { signal: request.signal });

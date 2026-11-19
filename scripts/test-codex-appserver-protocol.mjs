@@ -66,7 +66,7 @@ const scenario = process.env.FAKE_SCENARIO;
 readline.createInterface({input:process.stdin}).on('line', line => {
  const m=JSON.parse(line);
  if(m.method==='initialize') send({id:m.id,result:{}});
- if(m.method==='thread/start') { if(scenario==='alias') { require('node:fs').appendFileSync(require('node:path').join(__dirname,'model-attempts.txt'),m.params.model+'\\n'); process.stderr.write('MODEL:'+m.params.model+'\\n'); if(m.params.model==='codex-latest') { send({id:m.id,error:{message:'codex-latest not supported for ChatGPT account'}}); return; } } send({id:m.id,result:{thread:{id:'t'}}}); }
+ if(m.method==='thread/start') { if(scenario==='profile-managed') { require('node:fs').writeFileSync(require('node:path').join(__dirname,'thread-config.json'),JSON.stringify(m.params.config||{})); if(m.params.config?.model_reasoning_effort!=='high'||!process.argv.includes('web_search=\"disabled\"')) { send({id:m.id,error:{message:'PROFILE_MANAGED_CONFIG_MISMATCH'}}); return; } } if(scenario==='alias') { require('node:fs').appendFileSync(require('node:path').join(__dirname,'model-attempts.txt'),m.params.model+'\\n'); process.stderr.write('MODEL:'+m.params.model+'\\n'); if(m.params.model==='codex-latest') { send({id:m.id,error:{message:'codex-latest not supported for ChatGPT account'}}); return; } } send({id:m.id,result:{thread:{id:'t'}}}); }
  if(m.method==='turn/start') {
   send({id:m.id,result:{turn:{id:'u'}}});
   setTimeout(()=>{
@@ -79,7 +79,7 @@ readline.createInterface({input:process.stdin}).on('line', line => {
     if(scenario==='malformed-arguments')message.params.arguments='{broken';
     send(message);done();
    }
-   if(scenario==='idle'||scenario==='cancel') { if(scenario==='idle') send(call()); }
+   if(scenario==='idle'||scenario==='cancel'||scenario==='profile-managed') { if(scenario==='idle'||scenario==='profile-managed') send(call()); }
    if(scenario==='multiple') {send(call());setTimeout(()=>send(call('c2')),500);}
    if(scenario==='partial'||scenario==='partial-second') {if(scenario==='partial-second') send(call());const s=JSON.stringify(call(scenario==='partial-second'?'c2':'c1'))+'\\n';process.stdout.write(s.slice(0,60));setTimeout(()=>process.stdout.write(s.slice(60)),2500);}
    if(scenario==='raw') event('rawResponseItem/completed',{threadId:'t',turnId:'u',item:{type:'function_call',call_id:'c1',name:'exec_command',arguments:'{"cmd":"echo complete"}'}});
@@ -97,12 +97,12 @@ readline.createInterface({input:process.stdin}).on('line', line => {
 process.stdin.on('end',()=>process.exit(0));
 `;
 
-async function run(scenario, stream = false, metadata) {
+async function run(scenario, stream = false, metadata, model='offline-test-model', reasoningEffort) {
  const dir=mkdtempSync(join(tmpdir(),'bridge-preflight-'));
  const cli=join(dir,'fake-codex');
  writeFileSync(cli,fake,{mode:0o700});
  const started=Date.now();
- const child=spawn(process.execPath,[resolve(process.env.BRIDGE_TEST_PATH || 'dist/scripts/codex-appserver-bridge.js'),scenario==='alias'?'codex-latest':'offline-test-model'],{
+ const child=spawn(process.execPath,[resolve(process.env.BRIDGE_TEST_PATH || 'dist/scripts/codex-appserver-bridge.js'),scenario==='alias'?'codex-latest':model],{
   detached:true,env:{PATH:process.env.PATH,HOME:dir,CODEX_EXECUTABLE:cli,FAKE_SCENARIO:scenario,CODEX_APPSERVER_TIMEOUT_MS:'6500'},stdio:['pipe','pipe','pipe']
  });
  let stdout='',stderr='';
@@ -111,12 +111,16 @@ async function run(scenario, stream = false, metadata) {
  const safety=setTimeout(killGroup,9000);
  let cancelError;
  const cancel=scenario==='cancel'?setTimeout(()=>{try{if(!child.kill('SIGTERM')) cancelError='signal-not-delivered';}catch(e){cancelError=e.code;}},500):null;
- child.stdin.end(JSON.stringify({requestKind:'responses',metadata,messages:[{role:'user',content:'offline protocol test'}],tools:scenario==='text'?[]:[{type:'function',function:{name:'exec_command',parameters:{type:'object'}}}],stream}));
+ child.stdin.end(JSON.stringify({requestKind:'responses',metadata,reasoningEffort,messages:[{role:'user',content:'offline protocol test'}],tools:scenario==='text'?[]:[{type:'function',function:{name:'exec_command',parameters:{type:'object'}}}],stream}));
  try {
   const result=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',(code,signal)=>resolve({code,signal}));});
-  return {...result,stdout,stderr,cancelError,elapsed:Date.now()-started,modelAttempts:scenario==='alias'?readFileSync(join(dir,'model-attempts.txt'),'utf8').trim().split('\n'):[]};
+  return {...result,stdout,stderr,cancelError,elapsed:Date.now()-started,modelAttempts:scenario==='alias'?readFileSync(join(dir,'model-attempts.txt'),'utf8').trim().split('\n'):[],threadConfig:scenario==='profile-managed'?JSON.parse(readFileSync(join(dir,'thread-config.json'),'utf8')):undefined};
  } finally {clearTimeout(safety);clearTimeout(cancel);killGroup();rmSync(dir,{recursive:true,force:true});}
 }
+
+protocolTest('GPT-6 Luna tool turn applies thread effort config and disables built-in web search',async()=>{
+ const r=await run('profile-managed',false,undefined,'gpt-6-luna','high');assert.equal(r.code,0,r.stderr);assert.deepEqual(r.threadConfig,{model_reasoning_effort:'high'});assert.equal(JSON.parse(r.stdout).finish_reason,'tool_calls');
+});
 
 for(const scenario of ['idle','raw','multiple','partial','partial-second']) protocolTest(scenario+' returns complete delegated calls before overall deadline', async()=>{
  const r=await run(scenario);assert.equal(r.code,0,r.stderr);assert.ok(r.elapsed<6200,String(r.elapsed));

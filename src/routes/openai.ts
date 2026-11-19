@@ -2,7 +2,7 @@ import { reviewInputEnabled } from "../utils/scene-review-input.js";
 import { imageInput } from "../utils/image-input.js";
 import { actorPreviewInput } from "../utils/actor-preview-input.js";
 import { ContentNormalizer, normalizeContent, normalizeFinishReason, completeUsage, stripProviderFields, gatewayError } from "../utils/output-normalization.js";
-import { UpstreamError } from "../utils/upstream-error.js";
+import { ModelUnavailableForPlanError, UpstreamError } from "../utils/upstream-error.js";
 import { strictToolCalls, migrateToolHistory, ToolContractError, toolContractErrorPayload } from "../utils/tool-contract.js";
 import { registerEmbeddingsRoutes } from "./embeddings.js";
 import type { EmbeddingsConfig } from "../types.js";
@@ -1818,13 +1818,13 @@ async function handleChatCompletionsRequest(
     };
   } catch (error) {
     recordProviderFailure(reply, error);
-    if (isStream && !reply.raw.headersSent && !(error instanceof UpstreamError) && !(error instanceof ProviderFailure) && !(error instanceof RequestCapabilityError) && registry.canStreamModel(body.model)) startSseStream(reply);
+    if (isStream && !reply.raw.headersSent && !(error instanceof UpstreamError) && !(error instanceof ModelUnavailableForPlanError) && !(error instanceof ProviderFailure) && !(error instanceof RequestCapabilityError) && registry.canStreamModel(body.model)) startSseStream(reply);
     if (isStream && reply.raw.headersSent) {
       failChatStream(reply, error instanceof ToolContractError ? error.code : "upstream_stream_failed");
       if (!reply.raw.destroyed && !reply.raw.writableEnded) {
         try {
           await writeSseData(reply, {
-            ...(error instanceof ToolContractError ? toolContractErrorPayload(error) : gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError || error instanceof ProviderFailure ? error.code : "upstream_stream_failed")),
+            ...(error instanceof ToolContractError ? toolContractErrorPayload(error) : error instanceof ModelUnavailableForPlanError ? gatewayError(error.message, "provider_error", error.code) : gatewayError("Upstream stream failed.", "upstream_stream_failed", error instanceof UpstreamError || error instanceof ProviderFailure ? error.code : "upstream_stream_failed")),
           });
           reply.raw.write("data: [DONE]\n\n");
         reply.raw.end();
@@ -2357,6 +2357,7 @@ function sendOpenAiError(
 
 function handleModelError(reply: FastifyReply, error: unknown): FastifyReply {
   recordProviderFailure(reply, error);
+  if (error instanceof ModelUnavailableForPlanError) return sendOpenAiError(reply, error.statusCode, error.message, "provider_error", error.code);
   if (error instanceof ProviderFailure) return sendOpenAiError(reply, error.httpStatus, error.message, "provider_error", error.code);
   if (error instanceof ToolContractError) return reply.code(502).send(toolContractErrorPayload(error));
   if (error instanceof UpstreamError) {

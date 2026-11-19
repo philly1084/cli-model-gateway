@@ -155,6 +155,7 @@ test("ZZTEST recorder function_call retains call ID and argument bytes", () => {
 test('gpt-6.2 tool turns disable the built-in web search; other models and tool-less turns are unchanged',()=>{
   assert.equal(disablesBuiltinWebSearch('gpt-6.2-sol'),true);
   assert.equal(disablesBuiltinWebSearch('gpt-6.2-astra'),true);
+  assert.equal(disablesBuiltinWebSearch('gpt-6-luna'),true);
   assert.equal(disablesBuiltinWebSearch('gpt-6-astra'),false);
   assert.equal(disablesBuiltinWebSearch('gpt-6.1-sol'),false);
   assert.deepEqual(codexAppServerArgs(true,'ZZTEST',false,true),[...codexAppServerArgs(true,'ZZTEST'),'-c','web_search=\"disabled\"']);
@@ -165,6 +166,7 @@ test('gpt-6.2 tool turns disable the built-in web search; other models and tool-
 test('gpt-6.2 thread/start carries effort as thread config; other models and unsupported values are unchanged',()=>{
   assert.deepEqual(threadEffortConfig('gpt-6.2-sol','low'),{config:{model_reasoning_effort:'low'}});
   assert.deepEqual(threadEffortConfig('gpt-6.2-astra','xhigh'),{config:{model_reasoning_effort:'xhigh'}});
+  assert.deepEqual(threadEffortConfig('gpt-6-luna','high'),{config:{model_reasoning_effort:'high'}});
   assert.deepEqual(threadEffortConfig('gpt-6.2-astra','disabled'),{});
   assert.deepEqual(threadEffortConfig('gpt-6.2-sol',undefined),{});
   assert.deepEqual(threadEffortConfig('gpt-6-astra','high'),{});

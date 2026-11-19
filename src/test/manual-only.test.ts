@@ -39,6 +39,11 @@ test('6.2 manual routes never enter automatic selection, benchmarks, judges or f
  for(const m of models){called.length=0;const result=await registry.runModel(m.id,{...request,reasoningEffort:'none',metadata:{reasoning_effort:'none'}});assert.deepEqual(called,[m.id]);assert.equal(result.reasoningEffortReceipt?.requested,'none');assert.equal(result.reasoningEffortReceipt?.normalized,'low');assert.equal(result.reasoningEffortReceipt?.forwarded,'low');assert.equal(result.reasoningEffortReceipt?.applied,true);}
 });
 
+test('GPT-6 Luna route binding does not require 6.2 manual-only config flags', async()=>{
+ const registry=await ProviderRegistry.create([{...provider([{id:'gpt-6-luna',providerModel:'gpt-6-luna'}]),id:'codex-cli'}]);
+ assert.ok(registry.listModels().some(model=>model.id==='gpt-6-luna'));
+});
+
 test("manualOnly schema is optional and accepts only booleans", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "gateway-manual-only-"));
   const file = path.join(dir, "providers.json");
