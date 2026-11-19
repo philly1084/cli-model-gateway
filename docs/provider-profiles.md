@@ -119,6 +119,34 @@ and `/openai/v1/*` chat aliases, regardless of whether upstream is buffered or S
 The Responses API keeps its existing event vocabulary; the chat contract above
 does not rename Responses events or change the unified agent/coordinator.
 
+
+## Gemini 4 Hydrogen and Neon
+
+`gemini-4-hydrogen` and `gemini-4-neon` are registered on the `gemini-api`
+profile as explicit, manual-only models. No work class is changed; existing
+gpt62 roles stay on `gpt-6-luna`. On Google's OpenAI-compatible
+`/chat/completions` endpoint, `reasoning_effort` maps to `thinking_level`:
+`low`, `medium`, `high` (the model default), and `xhigh`. The gateway aliases
+`none`/`minimal` to `low` and `max` to `xhigh`, because `minimal` and
+`thinking_budget` return HTTP 400 on Gemini 4. `temperature`, `top_p` and
+`top_k` are ignored and omitted; `presence_penalty` and `frequency_penalty`
+are omitted because they return HTTP 400. Synchronous (streaming or
+non-streaming) output is defaulted and capped at 65,536 tokens unless the
+request explicitly sets `background: true`. Tool calling remains enabled, and
+Google `thought_signature` values on tool calls are stored server-side and
+replayed on later turns.
+
+Hydrogen is available on the free and paid tiers ($1.50 / $7.50 per 1M tokens
+on paid). Neon is paid-tier only ($3 / $15 per 1M tokens) and must not be
+called without spend approval.
+
+Official references:
+
+- https://aistudio.google.com/docs/whats-new-gemini-4-hydrogen
+- https://aistudio.google.com/docs/whats-new-gemini-4-neon
+- https://aistudio.google.com/docs/openai
+- https://aistudio.google.com/docs/changelog
+
 ## Add a provider
 
 1. Copy a profile for the same transport, choose a unique `id`, and set endpoint

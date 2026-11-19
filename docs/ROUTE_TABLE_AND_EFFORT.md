@@ -19,6 +19,13 @@ Change the table and digest in both repositories together.
 | MSI ordinary work | gpt-6.2-sol | medium |
 | Quick chat | gpt-6.2-sol | low |
 
+
+`gemini-4-hydrogen` and `gemini-4-neon` are listed in the same table for
+explicit selection only (`manualOnly`, not auto-eligible). No work class
+routes to them. Hydrogen may use the free Gemini API tier; Neon is paid only
+and must not be called without spend approval. Gemini 4 efforts are
+`low`/`medium`/`high`/`xhigh` (default `high`).
+
 The voice call route is unchanged. The scene actor and single reviewer do not
 switch when the profile is enabled. To opt into Astra as actor, explicitly set
 `BRAIN_SCENE_ACTOR_MODEL=gpt-6.2-astra` and `BRAIN_SCENE_ACTOR_EFFORT=high`.
