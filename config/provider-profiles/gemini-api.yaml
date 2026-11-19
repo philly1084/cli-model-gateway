@@ -2,6 +2,15 @@ id: gemini-api
 # Measured free-tier hints (2026-09), per project, not enforced here:
 # flash: 5 RPM / 20 RPD; flash-lite: 15 RPM / 500 RPD.
 # Daily quota resets at midnight Pacific. Availability can vary by model.
+#
+# Gemini 4 (hydrogen, neon, and other gemini-4-* IDs) on this OpenAI-compatible
+# endpoint: reasoning_effort maps to thinking_level (low, medium, high, xhigh;
+# default high). none/minimal alias to low; thinking_budget and minimal are
+# rejected by Google. temperature, top_p and top_k are ignored and stripped.
+# presence_penalty and frequency_penalty return HTTP 400 and are stripped.
+# Synchronous output is capped at 65,536 tokens unless background=true.
+# Tool-call thought_signature values are replayed on later turns and are not
+# exposed to clients. gemini-4-hydrogen is free+paid; gemini-4-neon is paid only.
 type: openai
 baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
 endpoint: /chat/completions

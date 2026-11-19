@@ -267,6 +267,60 @@
       },
       "manualOnly": true,
       "autoEligible": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "providerId": "gemini-api",
+      "providerModel": "gemini-4-hydrogen",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": false,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "high",
+      "tier": "everyday",
+      "costClass": "free-or-paid-api",
+      "availabilityNotes": "Free and paid Gemini API tiers as of 2026-11-19. thinking_level low/medium/high/xhigh (default high) maps from reasoning_effort on the OpenAI-compatible endpoint. 1,048,576-token unified context; synchronous output cap 65,536 tokens. Paid pricing $1.50 input / $7.50 output per 1M tokens. Explicit selection only; no work class uses this route.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
+    },
+    {
+      "model": "gemini-4-neon",
+      "providerId": "gemini-api",
+      "providerModel": "gemini-4-neon",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": false,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "high",
+      "tier": "hardest",
+      "costClass": "paid-api-only",
+      "availabilityNotes": "PAID TIER ONLY as of 2026-11-19; do not call without spend approval. thinking_level low/medium/high/xhigh (default high) maps from reasoning_effort on the OpenAI-compatible endpoint. 1,048,576-token unified context; synchronous output cap 65,536 tokens, long decode up to 1M. Paid pricing $3.00 input / $15.00 output per 1M tokens. Explicit selection only; no work class uses this route.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
     }
   ],
   "workClasses": {

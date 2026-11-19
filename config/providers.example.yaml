@@ -180,6 +180,18 @@ providers:
         capabilities: [chat, responses, tools]
         manualOnly: true
         autoEligible: false
+      - id: gemini-4-hydrogen
+        providerModel: gemini-4-hydrogen
+        description: Gemini 4 Hydrogen; free and paid tiers; thinking_level low/medium/high/xhigh (default high)
+        capabilities: [chat, responses, tools, reasoning, structured_outputs]
+        manualOnly: true
+        autoEligible: false
+      - id: gemini-4-neon
+        providerModel: gemini-4-neon
+        description: Gemini 4 Neon; paid tier only; thinking_level low/medium/high/xhigh (default high)
+        capabilities: [chat, responses, tools, reasoning, structured_outputs]
+        manualOnly: true
+        autoEligible: false
   - id: codex-cli
     type: cli
     description: OpenAI Codex app-server bridge adapter

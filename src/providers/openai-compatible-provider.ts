@@ -169,7 +169,9 @@ export class OpenAiCompatibleProvider implements Provider {
       { requestId: request.requestId, taskId: request.requestId, session: 'gateway-inference' },
     );
 
-    return { ...validateToolResult(parseChatCompletionResponse(response), request),
+    const result = parseChatCompletionResponse(response);
+    rememberGoogleThoughtSignatures((call, signature) => this.rememberSignature(providerModel, request.messages, call, signature), response, result.toolCalls);
+    return { ...validateToolResult(result, request),
       reasoningEffortForwarded: typeof body.reasoning_effort === "string" ? body.reasoning_effort : null,
       reasoningEffortApplied: confirmedReasoningEffort(response, body.reasoning_effort as string | undefined) };
   }
@@ -272,6 +274,7 @@ export class OpenAiCompatibleProvider implements Provider {
       }
     }
 
+    applyGemini4ChatBody(body, this.config.baseUrl, providerModel, request);
     return body;
   }
 
@@ -302,7 +305,9 @@ export class OpenAiCompatibleProvider implements Provider {
       if (response.headers.get("content-type")?.includes("application/json")) {
         const payload = tryParseJson(await response.text());
         if (hasUpstreamError(payload)) throw new UpstreamError(undefined, payload, profile?.quirks.json_array_errors, response.headers.get("retry-after"));
-        const result = validateToolResult(parseChatCompletionResponse(payload), request);
+        const parsed = parseChatCompletionResponse(payload);
+        rememberGoogleThoughtSignatures((call, signature) => this.rememberSignature(model.providerModel || request.providerModel, request.messages, call, signature), payload, parsed.toolCalls);
+        const result = validateToolResult(parsed, request);
         for (const call of result.toolCalls) yield { type: "tool_call", toolCall: call, resolvedModel: result.resolvedModel, reasoningEffortForwarded, reasoningEffortApplied: confirmedReasoningEffort(payload, reasoningEffortForwarded) };
         yield { type: "done", ...result, reasoningEffortForwarded, reasoningEffortApplied: confirmedReasoningEffort(payload, reasoningEffortForwarded) };
         return;
@@ -693,8 +698,12 @@ function parseChatCompletionResponse(payload: unknown): ProviderResult {
     finishReason,
     usage: normalizeProviderUsage((payload as Record<string, unknown>).usage, "provider"),
     resolvedModel: extractResponseModel(payload),
-    raw: payload,
+    raw: omitGoogleThoughtSignatures(payload),
   });
+}
+
+function omitGoogleThoughtSignatures(payload: unknown): unknown {
+  return JSON.parse(JSON.stringify(payload), (key, value) => key === "thought_signature" ? undefined : value);
 }
 
 function shouldSuppressGroqLocalToolCalling(baseUrl: string, providerModel: string): boolean {
@@ -725,6 +734,86 @@ function isGroqBaseUrl(baseUrl: string): boolean {
 
 function isDeepSeekBaseUrl(baseUrl: string): boolean {
   return /api\.deepseek\.com/i.test(baseUrl);
+}
+
+const GEMINI4_SYNC_OUTPUT_LIMIT = 65536;
+const GEMINI4_THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
+const GEMINI4_EFFORT_ALIASES: Record<string, (typeof GEMINI4_THINKING_LEVELS)[number]> = {
+  none: "low",
+  minimal: "low",
+  max: "xhigh",
+};
+
+function isGeminiApiBaseUrl(baseUrl: string): boolean {
+  return /generativelanguage\.googleapis\.com/i.test(baseUrl);
+}
+
+function isGemini4ProviderModel(providerModel: string): boolean {
+  return /^gemini-4(?:[.-]|$)/i.test(providerModel.trim());
+}
+
+function isGemini4ApiModel(baseUrl: string, providerModel: string): boolean {
+  return isGeminiApiBaseUrl(baseUrl) && isGemini4ProviderModel(providerModel);
+}
+
+function normalizeGemini4ReasoningEffort(
+  reasoningEffort: UnifiedRequest["reasoningEffort"],
+): (typeof GEMINI4_THINKING_LEVELS)[number] | undefined {
+  if (!reasoningEffort) return undefined;
+  const normalized = GEMINI4_EFFORT_ALIASES[reasoningEffort] ?? reasoningEffort;
+  if (!(GEMINI4_THINKING_LEVELS as readonly string[]).includes(normalized)) {
+    throw Object.assign(new Error("MODEL_EFFORT_UNSUPPORTED"), { code: "MODEL_EFFORT_UNSUPPORTED", statusCode: 400 });
+  }
+  return normalized as (typeof GEMINI4_THINKING_LEVELS)[number];
+}
+
+function applyGemini4ChatBody(
+  body: Record<string, unknown>,
+  baseUrl: string,
+  providerModel: string,
+  request: UnifiedRequest,
+): void {
+  if (!isGemini4ApiModel(baseUrl, providerModel)) return;
+  // Gemini 4 ignores temperature, top_p and top_k. frequency_penalty,
+  // presence_penalty and thinking_budget return HTTP 400. reasoning_effort on
+  // the OpenAI-compatible endpoint maps to thinking_level.
+  delete body.temperature;
+  delete body.top_p;
+  delete body.top_k;
+  delete body.presence_penalty;
+  delete body.frequency_penalty;
+  const effort = normalizeGemini4ReasoningEffort(request.reasoningEffort);
+  if (effort) body.reasoning_effort = effort;
+  else delete body.reasoning_effort;
+  const limitKeys = ["max_tokens", "max_completion_tokens", "max_output_tokens"] as const;
+  const current = limitKeys.find((key) => typeof body[key] === "number");
+  if (!current) {
+    body.max_tokens = GEMINI4_SYNC_OUTPUT_LIMIT;
+    return;
+  }
+  if ((body[current] as number) > GEMINI4_SYNC_OUTPUT_LIMIT && request.metadata?.background !== true) {
+    body[current] = GEMINI4_SYNC_OUTPUT_LIMIT;
+  }
+}
+
+function rememberGoogleThoughtSignatures(
+  remember: (call: ProviderToolCall, signature: string) => void,
+  payload: unknown,
+  toolCalls: ProviderToolCall[],
+): void {
+  if (!payload || typeof payload !== "object") return;
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || !choices[0] || typeof choices[0] !== "object") return;
+  const message = (choices[0] as { message?: { tool_calls?: unknown } }).message;
+  const rawCalls = message?.tool_calls;
+  if (!Array.isArray(rawCalls)) return;
+  for (const call of toolCalls) {
+    const raw = rawCalls.find((item) => item && typeof item === "object" && (item as { id?: unknown }).id === call.id) as
+      | { extra_content?: { google?: { thought_signature?: unknown } } }
+      | undefined;
+    const signature = raw?.extra_content?.google?.thought_signature;
+    if (typeof signature === "string" && signature && signature.length <= 65536) remember(call, signature);
+  }
 }
 
 function shouldRejectMalformedDeepSeekToolContinuation(
