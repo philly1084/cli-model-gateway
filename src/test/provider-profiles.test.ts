@@ -40,8 +40,8 @@ async function fixture(configs: ProviderConfig[], fetcher?: typeof fetch) {
     close: async () => { await app.close(); globalThis.fetch = original; } };
 }
 
-test("all seven profile YAMLs and example provider config validate", () => {
-  assert.deepEqual([...profiles.keys()].sort(), ["codex-cli", "deepseek", "gemini-api", "kimi-api", "kimi-code-api", "kimi-code-cli", "openrouter"]);
+test("all eight profile YAMLs and example provider config validate", () => {
+  assert.deepEqual([...profiles.keys()].sort(), ["anthropic-api", "codex-cli", "deepseek", "gemini-api", "kimi-api", "kimi-code-api", "kimi-code-cli", "openrouter"]);
   const example = loadProvidersFile(path.resolve("config/providers.example.yaml"));
   const kimi = example.providers.find(provider => provider.id === "kimi-api");
   assert.ok(kimi?.type === "openai");
