@@ -11,7 +11,7 @@ export function validateRouteTable(value:typeof data):typeof data {
   if(value.schemaVersion!==1||value.profile!=='gpt62'||!Array.isArray(value.routes)||!value.routes.length||value.routes.length>64)reject('ROUTE_TABLE_INVALID');
   const seen=new Set<string>();
   for(const row of value.routes){
-    if(![row.model,row.providerId,row.providerModel].every(s=>typeof s==='string'&&/^[A-Za-z0-9][\w./:-]{0,199}$/.test(s))||seen.has(row.model)||!row.allowedEfforts.length||!row.allowedEfforts.includes(row.defaultEffort)||row.allowedEfforts.some(e=>!['low','medium','high','xhigh','disabled','provider-default'].includes(e))||Object.values(row.capabilities).some(v=>typeof v!=='boolean')||Object.values(row.admission).some(v=>typeof v!=='boolean')||row.manualOnly!==true||row.autoEligible!==false||row.capabilities.knowledge&&row.providerId!=='codex-cli')reject('ROUTE_TABLE_INVALID');
+    if(![row.model,row.providerId,row.providerModel].every(s=>typeof s==='string'&&/^[A-Za-z0-9][\w./:-]{0,199}$/.test(s))||seen.has(row.model)||!row.allowedEfforts.length||!row.allowedEfforts.includes(row.defaultEffort)||row.allowedEfforts.some(e=>!['low','medium','high','xhigh','max','disabled','provider-default'].includes(e))||Object.values(row.capabilities).some(v=>typeof v!=='boolean')||Object.values(row.admission).some(v=>typeof v!=='boolean')||row.manualOnly!==true||row.autoEligible!==false||row.capabilities.knowledge&&row.providerId!=='codex-cli')reject('ROUTE_TABLE_INVALID');
     seen.add(row.model);
   }
   if(JSON.stringify(value.effortAliases)!==JSON.stringify({none:'low',minimal:'low',max:'xhigh'}))reject('ROUTE_TABLE_INVALID');
@@ -26,7 +26,9 @@ export function isProfileManagedModel(model:string):boolean {
 export function normalizeRouteEffort(model:string,effort?:string):string {
   const route=modelRoute(model),requested=effort??route.defaultEffort;
   const aliases:Record<string,string>=routeTable.effortAliases;
-  const normalized=route.capabilities.reasoning?(aliases[requested]??requested):requested;
+  // A route that lists an alias token (Claude Fable 5.2 lists max) keeps that token.
+  // Other reasoning routes still map max to xhigh through effortAliases.
+  const normalized=route.capabilities.reasoning&&!route.allowedEfforts.includes(requested)?(aliases[requested]??requested):requested;
   if(!route.allowedEfforts.includes(normalized))return reject('MODEL_EFFORT_UNSUPPORTED');
   return normalized;
 }

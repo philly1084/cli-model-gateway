@@ -71,7 +71,8 @@ export function resolveProviderProfile(config: Pick<ProviderConfig, "id" | "type
       id = host === "api.kimi.com" ? (config.id === "kimi-api" ? "kimi-api" : "kimi-code-api")
         : host === "api.moonshot.ai" || host === "api.moonshot.cn" ? "kimi-api"
         : host === "openrouter.ai" ? "openrouter" : host === "api.deepseek.com" ? "deepseek"
-        : host === "generativelanguage.googleapis.com" ? "gemini-api" : undefined;
+        : host === "generativelanguage.googleapis.com" ? "gemini-api"
+        : host === "api.anthropic.com" ? "anthropic-api" : undefined;
     }
   }
   if (!id) return undefined;

@@ -5,11 +5,16 @@ import type { ChatMessage, UnifiedRequest } from "../types.js";
 import { validateActorPreviewMessages } from "./actor-preview-input.js";
 
 export const IMAGE_INPUT_FLAG = "GATEWAY_KIMI_IMAGE_INPUT";
+export const ANTHROPIC_IMAGE_INPUT_FLAG = "GATEWAY_ANTHROPIC_IMAGE_INPUT";
+/** Each direct image adapter has its own opt-in, so enabling one never opens another. */
+const IMAGE_PROVIDER_FLAGS: Record<string, string> = { "kimi-code-api": IMAGE_INPUT_FLAG, "anthropic-api": ANTHROPIC_IMAGE_INPUT_FLAG };
+export const imageProviderEnabled = (providerId: string | undefined) => Boolean(providerId && IMAGE_PROVIDER_FLAGS[providerId] && process.env[IMAGE_PROVIDER_FLAGS[providerId]] === "1");
+const anyImageProviderEnabled = () => Object.values(IMAGE_PROVIDER_FLAGS).some(flag => process.env[flag] === "1");
 export type InputImage = { mediaType: "image/jpeg" | "image/png"; data: string };
 const reject = (code: string): never => { throw Object.assign(new Error(code), { code, statusCode: 400 }); };
 
 /** Data-only media: no URL fetch, filesystem access, source text or credentials. */
-export function imageInput(content: unknown, role: string, enabled = process.env[IMAGE_INPUT_FLAG] === "1"): InputImage[] {
+export function imageInput(content: unknown, role: string, enabled = anyImageProviderEnabled()): InputImage[] {
   if (!Array.isArray(content)) return [];
   const parts = content.filter(p => p?.type === "image_url" || p?.type === "input_image");
   if (!parts.length) return [];
@@ -26,7 +31,7 @@ export function imageInput(content: unknown, role: string, enabled = process.env
 
 export const hasImageInput = (messages: ChatMessage[]) => messages.some(m => Boolean(m.inputImages?.length));
 
-/** The initial supported adapter is the existing configured Kimi API binding. */
+/** Direct image adapters: the configured Kimi API binding and the Anthropic Messages API. */
 export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerModel">, providerId: string | undefined, modelId?: string) {
   if (request.metadata?.brain_scene_knowledge !== undefined) {
     privateSceneTurn(request.metadata);
@@ -56,8 +61,9 @@ export function imageRequest(request: Omit<UnifiedRequest, "model" | "providerMo
     const metadata = { ...request.metadata }; delete metadata.messages;
     return {...request,metadata:{...metadata,gateway_policy:{...previous,operationId:previous?.operationId??request.requestId,allowFallback:false,maxAttempts:1,maxLatencyMs:Math.min(typeof previous?.maxLatencyMs === "number"?previous.maxLatencyMs:120000,120000)}}};
   }
-  if (process.env[IMAGE_INPUT_FLAG] !== "1") return reject("IMAGE_INPUT_DISABLED");
-  if (providerId !== "kimi-code-api" || request.stream || request.requestKind !== "chat_completions") return reject("IMAGE_ROUTE_UNSUPPORTED");
+  if (!anyImageProviderEnabled()) return reject("IMAGE_INPUT_DISABLED");
+  if (!providerId || !IMAGE_PROVIDER_FLAGS[providerId] || request.stream || request.requestKind !== "chat_completions") return reject("IMAGE_ROUTE_UNSUPPORTED");
+  if (!imageProviderEnabled(providerId)) return reject("IMAGE_INPUT_DISABLED");
   const images = request.messages.flatMap(m => m.inputImages ?? []);
   if (images.length > 3 || request.messages.some(m => m.inputImages?.length && m.role !== "user")) return reject("IMAGE_INPUT_INVALID");
   for (const img of images) imageInput([{ type: "image_url", image_url: { url: `data:${img.mediaType};base64,${img.data}` } }], "user", true);

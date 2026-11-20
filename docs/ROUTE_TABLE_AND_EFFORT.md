@@ -26,6 +26,16 @@ routes to them. Hydrogen may use the free Gemini API tier; Neon is paid only
 and must not be called without spend approval. Gemini 4 efforts are
 `low`/`medium`/`high`/`xhigh` (default `high`).
 
+`claude-fable-5-2` is listed the same way: explicit selection only, and no
+work class routes to it. It is the Claude API id for Claude Fable 5.2 on
+`anthropic-api` (`ANTHROPIC_API_KEY`, paid only; do not call without spend
+approval). Adaptive thinking is always on. Efforts are
+`low`/`medium`/`high`/`xhigh`/`max` (API default `high`). Gateway
+`none`/`minimal` alias to `low`. `max` stays `max` on this route because
+Anthropic treats it as its own level; other reasoning routes still alias
+`max` to `xhigh`. Context is 1,000,000 tokens and synchronous output is
+capped at 128,000 tokens. Pricing is $8 input / $40 output per 1M tokens.
+
 The voice call route is unchanged. The scene actor and single reviewer do not
 switch when the profile is enabled. To opt into Astra as actor, explicitly set
 `BRAIN_SCENE_ACTOR_MODEL=gpt-6.2-astra` and `BRAIN_SCENE_ACTOR_EFFORT=high`.
@@ -73,3 +83,6 @@ Official compatibility references:
 - https://developers.openai.com/api/docs/guides/latest-model
 - https://developers.openai.com/codex/models
 - https://developers.openai.com/codex/changelog
+- https://platform.claude.com/docs/en/models/fable-5-2/overview
+- https://platform.claude.com/docs/en/build-with-claude/effort
+- https://platform.claude.com/docs/en/models/fable-5-2/whats-new-fable-5-2

@@ -321,6 +321,34 @@
       },
       "manualOnly": true,
       "autoEligible": false
+    },
+    {
+      "model": "claude-fable-5-2",
+      "providerId": "anthropic-api",
+      "providerModel": "claude-fable-5-2",
+      "capabilities": {
+        "tools": true,
+        "images": true,
+        "knowledge": false,
+        "reasoning": true
+      },
+      "allowedEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultEffort": "high",
+      "tier": "hardest",
+      "costClass": "paid-api-only",
+      "availabilityNotes": "PAID API ONLY as of 2026-11-20; do not call without spend approval. Claude API id claude-fable-5-2. Adaptive thinking is always on (omit thinking or type adaptive; enabled, disabled and budget_tokens return HTTP 400). output_config.effort accepts low/medium/high/xhigh/max (API default high); gateway none/minimal alias to low and max stays max. 1,000,000-token context; synchronous max output 128,000 tokens. Paid pricing $8 input / $40 output per 1M tokens. Explicit selection only; no work class uses this route.",
+      "admission": {
+        "actorPreview": false,
+        "reviewerImages": false
+      },
+      "manualOnly": true,
+      "autoEligible": false
     }
   ],
   "workClasses": {
