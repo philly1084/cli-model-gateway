@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { stringify } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { buildPromotionConfigSnapshot } from './remote-agent-promotion-config-snapshot.mjs';
 
 const repositoryRoot = path.resolve('.');
@@ -436,6 +436,43 @@ test('workflow builds and emits promotion provenance only from canonical main', 
   assert.match(workflow, /uses: actions\/attest@v4/);
   assert.match(workflow, /push-to-registry: true/);
   assert.doesNotMatch(workflow, /Record digest-pinned promotion reference\s*\r?\n\s*if: github\.event_name != 'pull_request'/);
+});
+
+test('workflow builds SHA-tagged multi-arch images on free GitHub-hosted runners and never deploys', async () => {
+  const source = await readFile(workflowFile, 'utf8');
+  const workflow = parse(source);
+  const jobs = Object.values(workflow.jobs);
+  assert.equal(jobs.length, 2);
+  for (const job of jobs) {
+    // Standard x64 label: free on public repositories. No larger, arm64 or self-hosted runner.
+    assert.equal(job['runs-on'], 'ubuntu-24.04');
+    assert.equal(job.strategy, undefined);
+    assert.equal(job.container, undefined);
+    assert.equal(job.services, undefined);
+    assert.match(job.if, /^github\.event\.repository\.private == false &&/);
+    assert.ok(job['timeout-minutes'] <= 25);
+  }
+  const steps = workflow.jobs.build.steps;
+  const uses = steps.map((step) => step.uses ?? '');
+  const qemu = uses.findIndex((name) => name.startsWith('docker/setup-qemu-action@'));
+  const build = steps.find((step) => (step.uses ?? '').startsWith('docker/build-push-action@'));
+  assert.ok(qemu >= 0 && qemu < uses.findIndex((name) => name.startsWith('docker/build-push-action@')));
+  assert.equal(steps[qemu].with.platforms, 'arm64');
+  assert.equal(build.with.platforms, 'linux/amd64,linux/arm64');
+  const metadata = steps.find((step) => (step.uses ?? '').startsWith('docker/metadata-action@')).with;
+  assert.match(metadata.images, /\$\{\{ env\.REGISTRY \}\}\/\$\{\{ env\.IMAGE_ALIAS \}\}/);
+  assert.equal(workflow.env.REGISTRY, 'ghcr.io');
+  assert.equal(workflow.env.IMAGE_ALIAS, 'philly1084/cli-model-gateway');
+  const tags = metadata.tags.split('\n').map((line) => line.trim()).filter(Boolean);
+  for (const tag of ['type=sha,format=long,prefix=', 'type=sha,format=long', 'type=ref,event=branch', 'type=raw,value=latest,enable={{is_default_branch}}']) {
+    assert.ok(tags.includes(tag), tag);
+  }
+  const commands = jobs.flatMap((job) => job.steps).map((step) => `${step.uses ?? ''}\n${step.run ?? ''}`).join('\n');
+  assert.doesNotMatch(commands, /kubectl|helm|kustomize|rancher|KUBECONFIG|\bssh\b|docker (run|compose|stack)/i);
+  assert.doesNotMatch(source, /self-hosted|macos|windows|ubuntu-latest|-arm\b|\d+-cores?/i);
+  const dockerfile = await readFile(path.join(repositoryRoot, 'Dockerfile'), 'utf8');
+  const bundled = /^ARG EXTRA_NPM_GLOBAL_PACKAGES="([^"]+)"$/m.exec(dockerfile)?.[1];
+  assert.equal(workflow.env.EXTRA_NPM_GLOBAL_PACKAGES, bundled);
 });
 
 test('promotion exact-guards overlay mount, volume, and ConfigMap source before any patch', async () => {

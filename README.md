@@ -919,6 +919,11 @@ checked-in documentation IPs. This is a configuration check, not an SSH probe or
 proof that the running pod has the Secret. Set all four keys for production checks.
 
 GitHub Actions only builds/pushes images; it does not apply manifests or ingress.
+The build workflow uses the standard `ubuntu-24.04` GitHub-hosted runner only,
+which is free while this repository is public; its jobs are skipped if the
+repository becomes private. It builds `linux/amd64` and `linux/arm64` (arm64
+under QEMU) and pushes `ghcr.io/philly1084/cli-model-gateway` as `<commit-sha>`,
+`sha-<commit-sha>`, `main`, and `latest`.
 No new GitHub secret/variable is required. The Rancher bundle and separate
 `kubernetes/router-ingress.yaml` are operator-applied. Before any ingress apply,
 prepare the operator patch below with private values. Immediately after applying
