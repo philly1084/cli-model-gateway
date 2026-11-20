@@ -1,5 +1,5 @@
 import { reviewerRouteAllowed, validateReviewerMessages } from "../utils/scene-review-input.js";
-import { hasImageInput, IMAGE_INPUT_FLAG } from "../utils/image-input.js";
+import { hasImageInput, imageProviderEnabled, IMAGE_INPUT_FLAG } from "../utils/image-input.js";
 import { confirmedReasoningEffort, rawReasoningEffort } from "../utils/reasoning.js";
 import { requestVaultProvider, type VaultRequestIdentity } from './vault-transport.js';
 import { readOutputLimit, copyChatOutputLimit } from "../utils/output-limit.js";
@@ -145,7 +145,7 @@ export class OpenAiCompatibleProvider implements Provider {
 
     if(request.metadata?.brain_scene_review!==undefined)validateReviewerMessages(request.messages,request.metadata.brain_scene_review);
     const providerModel = modelConfig.providerModel || request.providerModel;
-    if (hasImageInput(request.messages) && ((process.env[IMAGE_INPUT_FLAG] !== "1" && !(request.metadata?.brain_scene_review && reviewerRouteAllowed(this.id,request.model))) || this.id !== "kimi-code-api" || !isKimiCodeApiBaseUrl(this.config.baseUrl))) throw Error("IMAGE_ROUTE_UNSUPPORTED");
+    if (hasImageInput(request.messages) && !this.admitsImageInput(request)) throw Error("IMAGE_ROUTE_UNSUPPORTED");
     if (request.requestKind === "images_generations") {
       if (this.config.credentialBroker) throw new RequestCapabilityError('Vault provider image transport is not configured.');
       return await this.runImageGeneration(providerModel, request);
@@ -175,6 +175,12 @@ export class OpenAiCompatibleProvider implements Provider {
     return { ...validateToolResult(result, request),
       reasoningEffortForwarded: typeof body.reasoning_effort === "string" ? body.reasoning_effort : null,
       reasoningEffortApplied: confirmedReasoningEffort(response, body.reasoning_effort as string | undefined) };
+  }
+
+  private admitsImageInput(request: UnifiedRequest): boolean {
+    if (this.id === "anthropic-api") return isAnthropicApiBaseUrl(this.config.baseUrl) && imageProviderEnabled(this.id);
+    return (process.env[IMAGE_INPUT_FLAG] === "1" || Boolean(request.metadata?.brain_scene_review && reviewerRouteAllowed(this.id, request.model)))
+      && this.id === "kimi-code-api" && isKimiCodeApiBaseUrl(this.config.baseUrl);
   }
 
   private buildChatBody(providerModel: string, request: UnifiedRequest): Record<string, unknown> {
@@ -335,7 +341,8 @@ export class OpenAiCompatibleProvider implements Provider {
     providerModel: string,
     request: UnifiedRequest,
   ): Promise<ProviderResult> {
-    const { system, messages } = buildAnthropicMessages(request.messages);
+    const anthropicApi = isAnthropicApiBaseUrl(this.config.baseUrl);
+    const { system, messages } = buildAnthropicMessages(request.messages, anthropicApi);
     const body: Record<string, unknown> = {
       model: providerModel,
       max_tokens: readKimiCodeMaxTokens(request.metadata),
@@ -360,7 +367,6 @@ export class OpenAiCompatibleProvider implements Provider {
     if (fable) applyClaudeFableBody(body, request, toolChoice);
 
     request.signal?.throwIfAborted(); request.execution?.dispatch();
-    const anthropicApi = isAnthropicApiBaseUrl(this.config.baseUrl);
     const response = await this.requestJson(
       this.config.profile ? resolveProviderProfile(this.config)!.endpoint! : "/messages",
       {
@@ -954,6 +960,7 @@ function normalizeApiToolCalls(raw: unknown): ProviderToolCall[] { return strict
 
 function buildAnthropicMessages(
   messages: UnifiedRequest["messages"],
+  imagesFirst = false,
 ): { system?: string; messages: AnthropicMessage[] } {
   const systemParts: string[] = [];
   const out: AnthropicMessage[] = [];
@@ -995,12 +1002,12 @@ function buildAnthropicMessages(
       continue;
     }
 
+    const text = message.content ? [{ type: "text", text: message.content }] : [];
+    const images = (message.inputImages ?? []).map(image => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } }));
     out.push({
       role: "user",
-      content: message.inputImages?.length ? [
-        ...(message.content ? [{ type: "text", text: message.content }] : []),
-        ...message.inputImages.map(image => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
-      ] : message.content,
+      // Anthropic recommends image-then-text. The Kimi binding keeps its existing order.
+      content: images.length ? (imagesFirst ? [...images, ...text] : [...text, ...images]) : message.content,
     });
   }
 
