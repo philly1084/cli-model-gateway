@@ -164,6 +164,32 @@ as `max`. `temperature`, `top_p`, and `top_k` are omitted. Forced `tool_choice`
 (`any` or `tool`) is rejected. Synchronous output defaults to and is capped at
 128,000 tokens unless the request sets `background: true`.
 
+Image input is off by default. Set `GATEWAY_ANTHROPIC_IMAGE_INPUT=1` to admit
+it on `anthropic-api`; this flag does not open the Kimi binding, and
+`GATEWAY_KIMI_IMAGE_INPUT` does not open this one. The gateway keeps its
+existing bounded ingress contract: non-streaming chat completions, user
+messages only, one to three inline `data:image/jpeg;base64` parts of at most
+48,000 decoded bytes each, one attempt, and no fallback. Each image is sent as
+an Anthropic `image` block with a `base64` source, placed before the message
+text as Anthropic recommends. Anthropic itself also accepts PNG, GIF, WebP,
+URL and Files API sources, and larger images; the gateway does not admit those.
+Scene-review and actor-preview admissions stay closed for this route.
+
+`response_format` of type `json_schema` (Chat Completions
+`json_schema.schema`, or Responses `text.format.schema`) is sent as
+`output_config.format: {type: "json_schema", schema}` next to
+`output_config.effort`. The schema is forwarded unchanged, so Anthropic's
+JSON Schema limits apply (for example, objects need
+`additionalProperties: false`) and violations return HTTP 400 from the API.
+`type: "text"` is a no-op. `type: "json_object"` is rejected locally because
+Anthropic structured outputs require a schema.
+
+`ANTHROPIC_API_KEY` is optional. The Rancher bundle reads it from the
+`anthropicApiKey` key of `n8n-openai-cli-gateway-secrets` with
+`optional: true`, and `scripts/ensure-gateway-secrets.*` can add that key.
+Without it the gateway starts normally and only explicit `claude-fable-5-2`
+requests fail with `ANTHROPIC_API_KEY is not set`.
+
 Pricing is $8 input / $40 output per 1M tokens. Context is 1,000,000 tokens.
 Do not call it without spend approval.
 
@@ -173,6 +199,9 @@ Official references:
 - https://platform.claude.com/docs/en/models/fable-5-2/whats-new-fable-5-2
 - https://platform.claude.com/docs/en/build-with-claude/effort
 - https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost
+- https://platform.claude.com/docs/en/build-with-claude/vision
+- https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+- https://platform.claude.com/docs/en/api/versioning
 
 ## Add a provider
 

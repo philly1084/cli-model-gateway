@@ -6,6 +6,7 @@ id: anthropic-api
 # temperature, top_p and top_k return HTTP 400 and are omitted.
 # Forced tool_choice any/tool returns HTTP 400.
 # Synchronous output is capped at 128,000 tokens unless background=true.
+# response_format json_schema maps to output_config.format; json_object is rejected.
 # Paid API only. Authenticate with ANTHROPIC_API_KEY via x-api-key.
 type: openai
 baseUrl: https://api.anthropic.com/v1
@@ -28,7 +29,7 @@ quirks:
     total: 240000
 capabilities:
   tools: true
-  json_mode: false
+  json_mode: true
   system_prompt: native
 normalization:
   strip_think: true

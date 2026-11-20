@@ -365,6 +365,7 @@ export class OpenAiCompatibleProvider implements Provider {
     }
     const fable = isClaudeFable52(this.config.baseUrl, providerModel);
     if (fable) applyClaudeFableBody(body, request, toolChoice);
+    if (anthropicApi) applyAnthropicOutputFormat(body, request.metadata);
 
     request.signal?.throwIfAborted(); request.execution?.dispatch();
     const response = await this.requestJson(
@@ -821,6 +822,33 @@ function applyClaudeFableBody(body: Record<string, unknown>, request: UnifiedReq
   body.max_tokens = requested > FABLE_SYNC_OUTPUT_LIMIT && request.metadata?.background !== true
     ? FABLE_SYNC_OUTPUT_LIMIT
     : requested;
+}
+
+/**
+ * Anthropic structured outputs take a JSON schema in output_config.format.
+ * OpenAI sends it as response_format.json_schema.schema (Chat Completions)
+ * or text.format.schema (Responses). json_object has no schema and no equivalent.
+ */
+function applyAnthropicOutputFormat(body: Record<string, unknown>, metadata: UnifiedRequest["metadata"]): void {
+  const text = readMetadataValue(metadata, "text");
+  const format = readMetadataValue(metadata, "response_format")
+    ?? (text && typeof text === "object" ? (text as { format?: unknown }).format : undefined);
+  if (format === undefined || format === null) return;
+  if (typeof format !== "object" || Array.isArray(format)) throw new RequestCapabilityError("response_format must be an object.");
+  const record = format as { type?: unknown; schema?: unknown; json_schema?: unknown };
+  if (record.type === "text") return;
+  if (record.type !== "json_schema") {
+    throw new RequestCapabilityError(record.type === "json_object"
+      ? "Anthropic structured outputs require a JSON schema. Send response_format type json_schema instead of json_object."
+      : "Unsupported response_format type for Anthropic structured outputs. Use text or json_schema.");
+  }
+  const nested = record.json_schema && typeof record.json_schema === "object" && !Array.isArray(record.json_schema)
+    ? (record.json_schema as { schema?: unknown }).schema
+    : record.schema;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) {
+    throw new RequestCapabilityError("response_format json_schema requires a schema object.");
+  }
+  body.output_config = { ...(body.output_config as Record<string, unknown> | undefined), format: { type: "json_schema", schema: nested } };
 }
 
 function fableEffortForwarded(body: Record<string, unknown>): string | null {

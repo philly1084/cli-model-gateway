@@ -201,7 +201,7 @@ providers:
       - id: claude-fable-5-2
         providerModel: claude-fable-5-2
         description: Claude Fable 5.2; paid API only; adaptive thinking; effort low/medium/high/xhigh/max (default high)
-        capabilities: [chat, responses, tools, reasoning]
+        capabilities: [chat, responses, tools, reasoning, structured_outputs]
         manualOnly: true
         autoEligible: false
   - id: codex-cli
