@@ -1,0 +1,35 @@
+id: anthropic-api
+# Claude Fable 5.2 (claude-fable-5-2) on the Messages API:
+# adaptive thinking is always on; effort is output_config.effort
+# (low, medium, high, xhigh, max; API default high). none/minimal alias to low.
+# enabled/disabled thinking and budget_tokens return HTTP 400.
+# temperature, top_p and top_k return HTTP 400 and are omitted.
+# Forced tool_choice any/tool returns HTTP 400.
+# Synchronous output is capped at 128,000 tokens unless background=true.
+# Paid API only. Authenticate with ANTHROPIC_API_KEY via x-api-key.
+type: openai
+baseUrl: https://api.anthropic.com/v1
+endpoint: /messages
+auth:
+  env: ANTHROPIC_API_KEY
+stream_format: anthropic-json
+quirks:
+  duplicate_finish_trailer: false
+  json_array_errors: false
+  unsupported_model_patterns: []
+  refusal_patterns: []
+  retry_on:
+    - 429
+    - 503
+  backoff_ms: 150
+  auth_fail_fast: true
+  timeouts:
+    first_token: 60000
+    total: 240000
+capabilities:
+  tools: true
+  json_mode: false
+  system_prompt: native
+normalization:
+  strip_think: true
+  strip_fence: false

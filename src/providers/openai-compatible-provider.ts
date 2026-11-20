@@ -1,6 +1,6 @@
 import { reviewerRouteAllowed, validateReviewerMessages } from "../utils/scene-review-input.js";
 import { hasImageInput, IMAGE_INPUT_FLAG } from "../utils/image-input.js";
-import { confirmedReasoningEffort } from "../utils/reasoning.js";
+import { confirmedReasoningEffort, rawReasoningEffort } from "../utils/reasoning.js";
 import { requestVaultProvider, type VaultRequestIdentity } from './vault-transport.js';
 import { readOutputLimit, copyChatOutputLimit } from "../utils/output-limit.js";
 import { prepareProfileRequest, resolveProviderProfile } from "../provider-profiles.js";
@@ -126,7 +126,7 @@ export class OpenAiCompatibleProvider implements Provider {
     config: OpenAiCompatibleProviderConfig,
   ): Promise<OpenAiCompatibleProvider> {
     if (Boolean(config.apiKeyEnv) === Boolean(config.credentialBroker)) throw Error('Exactly one provider credential source is required.');
-    if (config.credentialBroker && (config.profile ? resolveProviderProfile(config)!.stream_format === 'anthropic-json' : isKimiCodeApiBaseUrl(config.baseUrl))) throw Error('Vault provider transport requires the OpenAI chat protocol.');
+    if (config.credentialBroker && (config.profile ? resolveProviderProfile(config)!.stream_format === 'anthropic-json' : isKimiCodeApiBaseUrl(config.baseUrl) || isAnthropicApiBaseUrl(config.baseUrl))) throw Error('Vault provider transport requires the OpenAI chat protocol.');
     const models = await resolveProviderModels(config);
     if (models.length === 0) {
       throw new Error(`Provider ${config.id} resolved zero models.`);
@@ -150,8 +150,9 @@ export class OpenAiCompatibleProvider implements Provider {
       if (this.config.credentialBroker) throw new RequestCapabilityError('Vault provider image transport is not configured.');
       return await this.runImageGeneration(providerModel, request);
     }
-    if (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "anthropic-json" : isKimiCodeApiBaseUrl(this.config.baseUrl)) {
-      return { ...validateToolResult(await this.runKimiCodeAnthropicMessages(providerModel, request), request), reasoningEffortForwarded: null };
+    if (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "anthropic-json" : isKimiCodeApiBaseUrl(this.config.baseUrl) || isAnthropicApiBaseUrl(this.config.baseUrl)) {
+      const anthropic = await this.runKimiCodeAnthropicMessages(providerModel, request);
+      return { ...validateToolResult(anthropic, request), reasoningEffortForwarded: anthropic.reasoningEffortForwarded ?? null };
     }
 
     const body = this.buildChatBody(providerModel, request);
@@ -278,7 +279,7 @@ export class OpenAiCompatibleProvider implements Provider {
     return body;
   }
 
-  supportsStreaming(): boolean { return !this.config.credentialBroker && (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "openai-sse" : !isKimiCodeApiBaseUrl(this.config.baseUrl)); }
+  supportsStreaming(): boolean { return !this.config.credentialBroker && (this.config.profile ? resolveProviderProfile(this.config)!.stream_format === "openai-sse" : !isKimiCodeApiBaseUrl(this.config.baseUrl) && !isAnthropicApiBaseUrl(this.config.baseUrl)); }
 
   async *runStream(request: UnifiedRequest): AsyncGenerator<ProviderStreamEvent> {
     request = prepareProfileRequest(this.config, request);
@@ -343,29 +344,30 @@ export class OpenAiCompatibleProvider implements Provider {
     if (system) {
       body.system = system;
     }
+    const toolChoice = request.metadata && "tool_choice" in request.metadata ? request.metadata.tool_choice : undefined;
     if (request.tools.length > 0) {
       body.tools = request.tools.map((tool) => ({
         name: tool.function.name,
         description: tool.function.description,
         input_schema: tool.function.parameters || { type: "object" },
       }));
-      const toolChoice = normalizeAnthropicToolChoice(
-        request.metadata && "tool_choice" in request.metadata
-          ? request.metadata.tool_choice
-          : undefined,
-      );
-      if (toolChoice) {
-        body.tool_choice = toolChoice;
+      const normalizedToolChoice = normalizeAnthropicToolChoice(toolChoice);
+      if (normalizedToolChoice) {
+        body.tool_choice = normalizedToolChoice;
       }
     }
+    const fable = isClaudeFable52(this.config.baseUrl, providerModel);
+    if (fable) applyClaudeFableBody(body, request, toolChoice);
 
     request.signal?.throwIfAborted(); request.execution?.dispatch();
+    const anthropicApi = isAnthropicApiBaseUrl(this.config.baseUrl);
     const response = await this.requestJson(
       this.config.profile ? resolveProviderProfile(this.config)!.endpoint! : "/messages",
       {
         method: "POST",
         headers: {
-          "anthropic-version": "2023-06-01",
+          "anthropic-version": anthropicApi ? ANTHROPIC_API_VERSION : "2023-06-01",
+          ...(anthropicApi ? { "x-api-key": this.getApiKey() } : {}),
         },
         body: JSON.stringify(body),
       },
@@ -373,7 +375,7 @@ export class OpenAiCompatibleProvider implements Provider {
       request.signal,
     );
 
-    return parseAnthropicMessagesResponse(response);
+    return { ...parseAnthropicMessagesResponse(response), reasoningEffortForwarded: fableEffortForwarded(body) };
   }
 
   private async runImageGeneration(
@@ -744,8 +746,80 @@ const GEMINI4_EFFORT_ALIASES: Record<string, (typeof GEMINI4_THINKING_LEVELS)[nu
   max: "xhigh",
 };
 
+const ANTHROPIC_API_VERSION = "2026-10-21";
+const FABLE_SYNC_OUTPUT_LIMIT = 128000;
+const FABLE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+const FABLE_EFFORT_ALIASES: Record<string, (typeof FABLE_EFFORTS)[number]> = {
+  none: "low",
+  minimal: "low",
+};
+
 function isGeminiApiBaseUrl(baseUrl: string): boolean {
   return /generativelanguage\.googleapis\.com/i.test(baseUrl);
+}
+
+function isAnthropicApiBaseUrl(baseUrl: string): boolean {
+  return /api\.anthropic\.com/i.test(baseUrl);
+}
+
+function isClaudeFable52(baseUrl: string, providerModel: string): boolean {
+  return isAnthropicApiBaseUrl(baseUrl) && providerModel.trim() === "claude-fable-5-2";
+}
+
+function normalizeClaudeFableEffort(request: UnifiedRequest): (typeof FABLE_EFFORTS)[number] | undefined {
+  const raw = rawReasoningEffort(request.metadata);
+  const source = typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : request.reasoningEffort;
+  if (!source) return undefined;
+  const normalized = FABLE_EFFORT_ALIASES[source] ?? source;
+  if (!(FABLE_EFFORTS as readonly string[]).includes(normalized)) {
+    throw Object.assign(new Error("MODEL_EFFORT_UNSUPPORTED"), { code: "MODEL_EFFORT_UNSUPPORTED", statusCode: 400 });
+  }
+  return normalized as (typeof FABLE_EFFORTS)[number];
+}
+
+function assertClaudeFableThinking(metadata: UnifiedRequest["metadata"]): void {
+  const thinking = readMetadataValue(metadata, "thinking");
+  if (thinking === undefined) return;
+  if (thinking && typeof thinking === "object" && (thinking as { type?: unknown }).type === "adaptive") return;
+  throw Object.assign(new Error("ADAPTIVE_THINKING_REQUIRED"), { code: "ADAPTIVE_THINKING_REQUIRED", statusCode: 400 });
+}
+
+function assertClaudeFableToolChoice(value: unknown): void {
+  if (value === undefined || value === null) return;
+  const type = typeof value === "string"
+    ? value.trim().toLowerCase()
+    : value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string"
+      ? (value as { type: string }).type.trim().toLowerCase()
+      : undefined;
+  if (type === "auto" || type === "none") return;
+  throw new RequestCapabilityError("Claude Fable 5.2 rejects forced tool_choice; use auto or none.");
+}
+
+function applyClaudeFableBody(body: Record<string, unknown>, request: UnifiedRequest, toolChoice: unknown): void {
+  // Adaptive thinking is always on. enabled/disabled and budget_tokens return HTTP 400.
+  // temperature, top_p and top_k also return HTTP 400. Effort is output_config.effort.
+  assertClaudeFableThinking(request.metadata);
+  assertClaudeFableToolChoice(toolChoice);
+  delete body.temperature;
+  delete body.top_p;
+  delete body.top_k;
+  delete body.thinking;
+  const effort = normalizeClaudeFableEffort(request);
+  if (effort) body.output_config = { effort };
+  else delete body.output_config;
+  const requested = readOutputLimit(request.metadata);
+  if (requested === undefined) {
+    body.max_tokens = FABLE_SYNC_OUTPUT_LIMIT;
+    return;
+  }
+  body.max_tokens = requested > FABLE_SYNC_OUTPUT_LIMIT && request.metadata?.background !== true
+    ? FABLE_SYNC_OUTPUT_LIMIT
+    : requested;
+}
+
+function fableEffortForwarded(body: Record<string, unknown>): string | null {
+  const effort = (body.output_config as { effort?: unknown } | undefined)?.effort;
+  return typeof effort === "string" ? effort : null;
 }
 
 function isGemini4ProviderModel(providerModel: string): boolean {
@@ -1283,6 +1357,8 @@ function buildRequestHeaders(
   for (const [key, value] of Object.entries(headers ?? {})) {
     merged[key] = value;
   }
+  // Anthropic's Messages API authenticates with x-api-key. A Bearer header is not part of that contract.
+  if (merged["x-api-key"]) delete merged.Authorization;
 
   return merged;
 }

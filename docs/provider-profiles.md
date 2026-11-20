@@ -147,6 +147,33 @@ Official references:
 - https://aistudio.google.com/docs/openai
 - https://aistudio.google.com/docs/changelog
 
+## Claude Fable 5.2
+
+`claude-fable-5-2` is registered on the `anthropic-api` provider as an explicit,
+manual-only model. No work class is changed. The checked-in catalog sets
+`baseUrl: https://api.anthropic.com/v1` and `apiKeyEnv: ANTHROPIC_API_KEY`
+without an explicit `profile` key, matching the Gemini catalog. Host
+`api.anthropic.com` selects the `anthropic-api` profile when a profile is
+resolved, and requests go to `POST /messages`. The key is sent as `x-api-key`
+and is never stored in the repo. Adaptive thinking is always on: the
+gateway omits `thinking`, and `enabled`, `disabled`, or `budget_tokens` is
+rejected locally because those values return HTTP 400. `reasoning_effort` maps
+to `output_config.effort` with `low`, `medium`, `high`, `xhigh`, and `max`
+(API default `high`). `none` and `minimal` alias to `low`. `max` is forwarded
+as `max`. `temperature`, `top_p`, and `top_k` are omitted. Forced `tool_choice`
+(`any` or `tool`) is rejected. Synchronous output defaults to and is capped at
+128,000 tokens unless the request sets `background: true`.
+
+Pricing is $8 input / $40 output per 1M tokens. Context is 1,000,000 tokens.
+Do not call it without spend approval.
+
+Official references:
+
+- https://platform.claude.com/docs/en/models/fable-5-2/overview
+- https://platform.claude.com/docs/en/models/fable-5-2/whats-new-fable-5-2
+- https://platform.claude.com/docs/en/build-with-claude/effort
+- https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost
+
 ## Add a provider
 
 1. Copy a profile for the same transport, choose a unique `id`, and set endpoint

@@ -137,6 +137,18 @@ data:
             capabilities: [chat, responses, tools, reasoning, structured_outputs]
             manualOnly: true
             autoEligible: false
+      - id: anthropic-api
+        type: openai
+        description: Direct Anthropic Messages API; explicit requests only
+        baseUrl: https://api.anthropic.com/v1
+        apiKeyEnv: ANTHROPIC_API_KEY
+        models:
+          - id: claude-fable-5-2
+            providerModel: claude-fable-5-2
+            description: Claude Fable 5.2; paid API only; adaptive thinking; effort low/medium/high/xhigh/max (default high)
+            capabilities: [chat, responses, tools, reasoning]
+            manualOnly: true
+            autoEligible: false
       - id: codex-cli
         type: cli
         description: OpenAI Codex app-server bridge adapter
