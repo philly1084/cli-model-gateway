@@ -8,7 +8,8 @@ param(
   [string]$DeepSeekApiKey = $env:DEEPSEEK_API_KEY,
   [string]$MoonshotApiKey = $env:MOONSHOT_API_KEY,
   [string]$KimiCodeApiKey = $env:KIMI_CODE_API_KEY,
-  [string]$XaiApiKey = $env:XAI_API_KEY
+  [string]$XaiApiKey = $env:XAI_API_KEY,
+  [string]$AnthropicApiKey = $env:ANTHROPIC_API_KEY
 )
 
 Set-StrictMode -Version Latest
@@ -77,6 +78,7 @@ try {
     moonshotApiKey = $MoonshotApiKey
     kimiApiKey = $KimiCodeApiKey
     xaiApiKey = $XaiApiKey
+    anthropicApiKey = $AnthropicApiKey
   }
 
   $staged = @{}
@@ -115,7 +117,7 @@ try {
     Add-StagedValue -Staged $staged -Key $requiredKey -Value $value
   }
 
-  foreach ($optionalKey in @("groqApiKey", "openrouterApiKey", "deepseekApiKey", "moonshotApiKey", "kimiApiKey", "xaiApiKey")) {
+  foreach ($optionalKey in @("groqApiKey", "openrouterApiKey", "deepseekApiKey", "moonshotApiKey", "kimiApiKey", "xaiApiKey", "anthropicApiKey")) {
     if ($existingKeys.ContainsKey($optionalKey)) {
       Write-Host "Keeping existing $optionalKey."
       continue
