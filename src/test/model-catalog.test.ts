@@ -77,7 +77,7 @@ test("all-provider evidence covers every configured surface without enabling can
   assert.equal(candidates.status, "reference-only-not-loaded");
   const covered = new Set(inventory.providers.map((p: { id: string }) => p.id));
   const example = YAML.parse(readFileSync("config/providers.example.yaml", "utf8")).providers;
-  const manualSurfaces = new Set(["anthropic-api"]);
+  const manualSurfaces = new Set(["anthropic-api", "agy-subscription"]);
   for (const p of [...example, ...rancherProviders()]) {
     if (manualSurfaces.has(p.id)) {
       assert.ok(p.models?.length, p.id);
