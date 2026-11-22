@@ -112,6 +112,8 @@ providers:
   # CLI models default to no function calling. Opt in only for a verified tool
   # contract with model capabilities: [chat, responses, tools]. JSON output alone
   # does not establish tool support. OpenAI providers retain their API defaults.
+  # Stale stub: the official binary is now `agy`, and `antigravity auth/chat`
+  # flags are not part of the current CLI. Prefer `agy-subscription` below.
   - id: antigravity-cli
     type: cli
     description: Antigravity CLI adapter
@@ -142,6 +144,43 @@ providers:
           - auth
           - status
           - --json
+        timeoutMs: 30000
+
+
+  # Default-off Google AI Pro/Ultra path. Not in the live Rancher ConfigMap.
+  # Do not enable without AGY_SUBSCRIPTION_ENABLED=true, a signed-in MSI
+  # `agy` session, and a user-scope worker bound to the Tailscale mesh.
+  # Do not use GEMINI_API_KEY on this provider.
+  - id: agy-subscription
+    type: cli
+    profile: agy-subscription
+    description: Antigravity CLI subscription adapter (MSI worker)
+    models:
+      - id: agy-gemini-4-neon
+        providerModel: gemini-4-neon
+        capabilities: [chat, responses]
+        manualOnly: true
+        autoEligible: false
+      - id: agy-gemini-4-hydrogen
+        providerModel: gemini-4-hydrogen
+        capabilities: [chat, responses]
+        manualOnly: true
+        autoEligible: false
+    responseCommand:
+      executable: node
+      args:
+        - dist/scripts/agy-subscription-bridge.js
+        - --model
+        - "{{provider_model}}"
+      input: request_json_stdin
+      output: json_contract
+      timeoutMs: 600000
+    auth:
+      statusCommand:
+        executable: node
+        args:
+          - dist/scripts/agy-subscription-bridge.js
+          - --status
         timeoutMs: 30000
 
   - id: gemini-api

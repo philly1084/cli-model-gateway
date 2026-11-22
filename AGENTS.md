@@ -340,11 +340,15 @@ responseCommand:
   output: json_contract
 ```
 
-### Antigravity CLI
+### Antigravity CLI (`agy-subscription`)
+Default-off. Uses a Google AI Pro/Ultra sign-in on the MSI, not `GEMINI_API_KEY`.
+See [agy-subscription](docs/agy-subscription.md). Do not add this to the live
+ConfigMap without an explicit deploy approval.
+
 ```yaml
 responseCommand:
-  executable: antigravity
-  args: [chat, --model, "{{provider_model}}", --json]
+  executable: node
+  args: [dist/scripts/agy-subscription-bridge.js, --model, "{{provider_model}}"]
   input: request_json_stdin
   output: json_contract
 ```

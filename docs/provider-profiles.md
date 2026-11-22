@@ -24,7 +24,7 @@ documents the provider's optional API-key environment name; the bridge retains
 its existing OAuth/session authentication. `CODEX_EXECUTABLE` still works.
 
 Without `profile`, inference recognizes exact provider hosts (Kimi, Moonshot,
-OpenRouter, DeepSeek and Gemini) or the Codex/Kimi bridge arguments. Inference
+OpenRouter, DeepSeek and Gemini) or the Codex/Kimi/`agy-subscription` bridge arguments. Inference
 identifies the normalization policy but does not replace legacy URLs, commands,
 capabilities, system handling, retries or timeouts. Unrecognized providers use
 the common normalization defaults. Existing model/fallback catalogs are retained.

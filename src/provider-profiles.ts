@@ -65,7 +65,7 @@ export function resolveProviderProfile(config: Pick<ProviderConfig, "id" | "type
   if (!id) {
     if (config.type === "cli") {
       const command = config.responseCommand?.args.join(" ") ?? "";
-      id = /codex-appserver-bridge/.test(command) ? "codex-cli" : /kimi-acp-bridge/.test(command) ? "kimi-code-cli" : undefined;
+      id = /codex-appserver-bridge/.test(command) ? "codex-cli" : /kimi-acp-bridge/.test(command) ? "kimi-code-cli" : /agy-subscription-bridge/.test(command) ? "agy-subscription" : undefined;
     } else {
       const host = new URL(config.baseUrl!).hostname;
       id = host === "api.kimi.com" ? (config.id === "kimi-api" ? "kimi-api" : "kimi-code-api")
