@@ -188,8 +188,9 @@ export function buildAgyArgv(options: {
 }
 
 export function defaultAgySettings(): string {
+  // agy rejects unknown settings values (e.g. agentMode "default"), so only
+  // pass the permission deny list. Verified against agy on the MSI 2026-11-21.
   return JSON.stringify({
-    agentMode: "default",
     permissions: {
       deny: ["command", "write_file"],
     },
@@ -332,6 +333,38 @@ export async function runAgyLaunch(
     );
   }
   return stdout;
+}
+
+const TRANSIENT_AGY_ERRORS = [
+  /NOT_FOUND \(code 404\)/i,
+  /is not recognized as a known model/i,
+];
+
+/**
+ * agy's model entitlement can briefly flap right after a plan change, returning
+ * 404 NOT_FOUND or a free-tier model list. Those are worth one retry.
+ */
+export function isTransientAgyError(message: string): boolean {
+  return TRANSIENT_AGY_ERRORS.some((pattern) => pattern.test(message));
+}
+
+export async function runAgyLaunchWithRetry(
+  launch: AgyLaunch,
+  options: { retries?: number; delayMs?: number; spawnFn?: SpawnFn } = {},
+): Promise<string> {
+  const retries = options.retries ?? 1;
+  const delayMs = options.delayMs ?? 2000;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await runAgyLaunch(launch, options.spawnFn);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= retries || !isTransientAgyError(message)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
 }
 
 export function sanitizeDiagnostic(text: string): string {

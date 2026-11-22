@@ -108,7 +108,12 @@ Tailscale SSH path. It is not enabled, and this PR does not start `sshd`.
 
 - Tools are off in the provider profile.
 - The worker and local launch pass `--sandbox` and session-only settings that
-  deny `command` and `write_file`.
+  deny `command` and `write_file` (`{"permissions":{"deny":[...]}}` only;
+  agy rejects `agentMode: "default"`).
+- The worker spawns `agy` with stdin closed so headless runs never wait on
+  input, and retries once on transient entitlement errors (404 NOT_FOUND or a
+  free-tier model list), which were seen for a few minutes after a plan
+  upgrade.
 - `--dangerously-skip-permissions` is never used.
 - The worker refuses wildcard bind addresses.
 - Diagnostics redact bearer tokens.

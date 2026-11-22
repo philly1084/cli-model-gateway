@@ -6,7 +6,7 @@ import {
   parseAgyJsonOutput,
   resolveAgyEffort,
   resolveAgyModel,
-  runAgyLaunch,
+  runAgyLaunchWithRetry,
   sanitizeDiagnostic,
   type GatewayRequest,
 } from "./agy-subscription-bridge.js";
@@ -96,7 +96,7 @@ export function createAgySubscriptionWorker(config: WorkerListenConfig) {
         return;
       }
       const request: GatewayRequest = { prompt, reasoningEffort: parsed.effort };
-      const stdout = await runAgyLaunch(
+      const stdout = await runAgyLaunchWithRetry(
         buildLocalLaunch(
           {
             enabled: true,

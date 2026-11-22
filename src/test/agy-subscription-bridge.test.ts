@@ -9,6 +9,7 @@ import {
   completeRequest,
   defaultAgySettings,
   extractJsonObject,
+  isTransientAgyError,
   isTruthyEnv,
   loadAgySubscriptionConfig,
   parseAgyJsonOutput,
@@ -55,7 +56,7 @@ test("agy argv uses print mode, sandbox, and session-only denies", () => {
   const rawSettings = settingsIndex >= 0 ? args[settingsIndex + 1] : undefined;
   assert.ok(rawSettings);
   const settings = JSON.parse(rawSettings);
-  assert.equal(settings.agentMode, "default");
+  assert.equal(settings.agentMode, undefined);
   assert.deepEqual(settings.permissions.deny, ["command", "write_file"]);
 });
 
@@ -198,4 +199,13 @@ test("worker refuses wildcard binds and missing tokens", () => {
 test("parseBridgeArgs understands status and model flags", () => {
   assert.deepEqual(parseBridgeArgs(["--status"]), { model: "", status: true });
   assert.deepEqual(parseBridgeArgs(["--model", "gemini-4-neon"]), { model: "gemini-4-neon", status: false });
+});
+
+test("transient agy entitlement errors are retryable, others are not", () => {
+  assert.equal(isTransientAgyError("error: NOT_FOUND (code 404): Requested entity was not found."), true);
+  assert.equal(
+    isTransientAgyError('model gemini-4-neon is not recognized as a known model or custom model in settings'),
+    true,
+  );
+  assert.equal(isTransientAgyError("PERMISSION_DENIED (code 403)"), false);
 });
